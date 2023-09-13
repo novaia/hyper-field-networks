@@ -5,6 +5,7 @@ services:
       - 7070:7070
     volumes:
       - .:/project
+      - /tmp/.X11-unix:/tmp/.X11-unix
     deploy:
       resources:
         reservations:

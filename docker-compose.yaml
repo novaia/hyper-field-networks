@@ -1,0 +1,12 @@
+services:
+  pcg:
+    build: .
+    ports:
+      - 7070:7070
+    volumes:
+      - .:/project
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - capabilities: [gpu]

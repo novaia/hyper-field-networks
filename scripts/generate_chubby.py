@@ -26,7 +26,7 @@ b_mesh = bmesh.from_edit_mesh(d_obj.data)
 b_mesh.verts.ensure_lookup_table()
 b_mesh.verts[0].select = True
 
-# Extrude left.
+# Create hip by extruding root to the left.
 ops_mesh.extrude_vertices_move(
     MESH_OT_extrude_verts_indiv={'mirror':False}, 
     TRANSFORM_OT_translate={
@@ -43,7 +43,7 @@ b_mesh.verts.ensure_lookup_table()
 b_mesh.verts[0].select = False
 b_mesh.verts[1].select = True
 
-# Extrude down.
+# Create leg by extruding hip downwards.
 ops_mesh.extrude_vertices_move(
     MESH_OT_extrude_verts_indiv={'mirror':False}, 
     TRANSFORM_OT_translate={
@@ -60,7 +60,7 @@ b_mesh.verts.ensure_lookup_table()
 b_mesh.verts[1].select = False
 b_mesh.verts[0].select = True
 
-# Extrude up.
+# Create spine by extruding root upwards.
 bpy.ops.mesh.extrude_vertices_move(
     MESH_OT_extrude_verts_indiv={'mirror':False}, 
     TRANSFORM_OT_translate={
@@ -80,7 +80,7 @@ b_mesh.verts.ensure_lookup_table()
 b_mesh.verts[0].select = False
 b_mesh.verts[1].select = True
 
-# Extrude left.
+# Create collar bone by extruding spine to the left.
 ops_mesh.extrude_vertices_move(
     MESH_OT_extrude_verts_indiv={'mirror':False}, 
     TRANSFORM_OT_translate={
@@ -94,11 +94,10 @@ ops_mesh.extrude_vertices_move(
 )
 
 b_mesh.verts.ensure_lookup_table()
-#b_mesh.verts[3].select = False
 b_mesh.verts[4].select = True
 b_mesh.verts[1].select = False
 
-# Extrude left.
+# Create arm by extruding collar bone to the left.
 ops_mesh.extrude_vertices_move(
     MESH_OT_extrude_verts_indiv={'mirror':False}, 
     TRANSFORM_OT_translate={

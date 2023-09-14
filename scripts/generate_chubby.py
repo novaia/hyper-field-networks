@@ -1,5 +1,6 @@
 import bpy
 import bmesh
+import random
 
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
@@ -30,7 +31,7 @@ b_mesh.verts[0].select = True
 ops_mesh.extrude_vertices_move(
     MESH_OT_extrude_verts_indiv={'mirror':False}, 
     TRANSFORM_OT_translate={
-        'value':(-1, 0, 0), 
+        'value':(-0.5, 0, 0), 
         'orient_type':'GLOBAL', 
         'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
         'orient_matrix_type':'GLOBAL', 
@@ -109,5 +110,32 @@ ops_mesh.extrude_vertices_move(
         'mirror':True
     }
 )
+
+b_mesh.verts.ensure_lookup_table()
+
+spine_radius = random.uniform(0.4, 1)
+spine_radius = (spine_radius, spine_radius)
+root_radius = random.uniform(0.4, 1)
+root_radius = (root_radius, root_radius)
+hip_radius = random.uniform(0.4, 1)
+hip_radius = (hip_radius, hip_radius)
+collar_bone_radius = random.uniform(0.4, 0.6)
+collar_bone_radius = (collar_bone_radius, collar_bone_radius)
+
+# TODO: mark vertex 0 as root for skin modifier so symmetry is maintained,
+# when using different scales for each axis.
+
+skin_layer = b_mesh.verts.layers.skin.verify()
+# Spine.
+#b_mesh.verts[1][skin_layer].radius = (0.8, 0.8)
+b_mesh.verts[1][skin_layer].radius = spine_radius
+# Root.
+#b_mesh.verts[0][skin_layer].radius = (0.7, 0.7)
+b_mesh.verts[0][skin_layer].radius = root_radius
+# Hip.
+#b_mesh.verts[3][skin_layer].radius = (0.5, 0.5)
+b_mesh.verts[3][skin_layer].radius = hip_radius
+# Collar bone.
+b_mesh.verts[4][skin_layer].radius = collar_bone_radius
 
 bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

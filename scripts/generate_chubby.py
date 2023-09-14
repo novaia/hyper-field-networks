@@ -73,6 +73,44 @@ bpy.ops.mesh.extrude_vertices_move(
     }
 )
 
+# The indexes change as new vertices are created.
+# I think 1 might always be the last created vertex, while 0 is the root.
+# Need to test.
+b_mesh.verts.ensure_lookup_table()
+b_mesh.verts[0].select = False
+b_mesh.verts[1].select = True
+
+# Extrude left.
+ops_mesh.extrude_vertices_move(
+    MESH_OT_extrude_verts_indiv={'mirror':False}, 
+    TRANSFORM_OT_translate={
+        'value':(-1, 0, 0), 
+        'orient_type':'GLOBAL', 
+        'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
+        'orient_matrix_type':'GLOBAL', 
+        'constraint_axis':(True, False, False), 
+        'mirror':True
+    }
+)
+
+b_mesh.verts.ensure_lookup_table()
+#b_mesh.verts[3].select = False
+b_mesh.verts[4].select = True
+b_mesh.verts[1].select = False
+
+# Extrude left.
+ops_mesh.extrude_vertices_move(
+    MESH_OT_extrude_verts_indiv={'mirror':False}, 
+    TRANSFORM_OT_translate={
+        'value':(-3, 0, 0), 
+        'orient_type':'GLOBAL', 
+        'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
+        'orient_matrix_type':'GLOBAL', 
+        'constraint_axis':(True, False, False), 
+        'mirror':True
+    }
+)
+
 #bpy.ops.object.editmode_toggle()
 #bpy.ops.mesh.select_all(action='SELECT')
 #bpy.ops.mesh.merge(type='CENTER')

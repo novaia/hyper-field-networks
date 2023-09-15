@@ -2,6 +2,19 @@ import bpy
 import bmesh
 import random
 
+def extrude(offset, ops_mesh):
+    ops_mesh.extrude_vertices_move(
+        MESH_OT_extrude_verts_indiv={'mirror':False}, 
+        TRANSFORM_OT_translate={
+            'value':offset, 
+            'orient_type':'GLOBAL', 
+            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
+            'orient_matrix_type':'GLOBAL', 
+            'constraint_axis':(True, True, True), 
+            'mirror':True
+        }
+    )
+
 def generate(
     hip_offset,
     leg_offset,
@@ -42,61 +55,22 @@ def generate(
     b_mesh.verts.ensure_lookup_table()
     b_mesh.verts[0].select = True
 
-    extrusion_transform_settings = {
-        'value':None, 
-        'orient_type':'GLOBAL', 
-        'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-        'orient_matrix_type':'GLOBAL', 
-        'constraint_axis':(True, True, True), 
-        'mirror':True
-    }
-
-    # Create hip by extruding root to the left.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':hip_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(True, False, False), 
-            'mirror':True
-        }
-    )
+    # Extrude hip.
+    extrude(hip_offset, ops_mesh)
 
     b_mesh.verts.ensure_lookup_table()
     b_mesh.verts[0].select = False
     b_mesh.verts[1].select = True
 
-    # Create leg by extruding hip downwards.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':leg_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(False, False, True), 
-            'mirror':True
-        }
-    )
+    # Extrude leg.
+    extrude(leg_offset, ops_mesh)
 
     b_mesh.verts.ensure_lookup_table()
     b_mesh.verts[1].select = False
     b_mesh.verts[0].select = True
 
-    # Create spine by extruding root upwards.
-    bpy.ops.mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':spine_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(False, False, True), 
-            'mirror':True
-        }
-    )
+    # Extrude spine.
+    extrude(spine_offset, ops_mesh)
 
     # The indexes change as new vertices are created.
     # I think 1 might always be the last created vertex, while 0 is the root.
@@ -105,92 +79,29 @@ def generate(
     b_mesh.verts[0].select = False
     b_mesh.verts[1].select = True
 
-    # Create collar bone by extruding spine to the left.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':collar_bone_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(True, False, False), 
-            'mirror':True
-        }
-    )
+    # Extrude collar bone.
+    extrude(collar_bone_offset, ops_mesh)
 
     b_mesh.verts.ensure_lookup_table()
     b_mesh.verts[4].select = True
     b_mesh.verts[1].select = False
 
-    # Create arm by extruding collar bone to the left.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':arm_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(True, False, False), 
-            'mirror':True
-        }
-    )
+    # Extrude arm.
+    extrude(arm_offset, ops_mesh)
 
     b_mesh.verts.ensure_lookup_table()
     b_mesh.verts[4].select = False
     b_mesh.verts[5].select = False
     b_mesh.verts[1].select = True
 
-    # Create neck base by extruding up.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':neck_base_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(False, False, True), 
-            'mirror':True
-        }
-    )
-
-    # Create neck by extruding up.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':neck_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(False, False, True), 
-            'mirror':True
-        }
-    )
-
-    # Create head base by extruding forward.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':head_base_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(False, True, False), 
-            'mirror':True
-        }
-    )
-
-    # Create head top by extruding upwards.
-    ops_mesh.extrude_vertices_move(
-        MESH_OT_extrude_verts_indiv={'mirror':False}, 
-        TRANSFORM_OT_translate={
-            'value':head_top_offset, 
-            'orient_type':'GLOBAL', 
-            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
-            'orient_matrix_type':'GLOBAL', 
-            'constraint_axis':(False, False, True), 
-            'mirror':True
-        }
-    )
+    # Extrude neck base.
+    extrude(neck_base_offset, ops_mesh)
+    # Extrude neck.
+    extrude(neck_offset, ops_mesh)
+    # Extrude head base.
+    extrude(head_base_offset, ops_mesh)
+    # Extrude had top.
+    extrude(head_top_offset, ops_mesh)
 
     b_mesh.verts.ensure_lookup_table()
 
@@ -199,13 +110,10 @@ def generate(
 
     skin_layer = b_mesh.verts.layers.skin.verify()
     # Spine.
-    #b_mesh.verts[1][skin_layer].radius = (0.8, 0.8)
     b_mesh.verts[1][skin_layer].radius = spine_radius
     # Root.
-    #b_mesh.verts[0][skin_layer].radius = (0.7, 0.7)
     b_mesh.verts[0][skin_layer].radius = root_radius
     # Hip.
-    #b_mesh.verts[3][skin_layer].radius = (0.5, 0.5)
     b_mesh.verts[3][skin_layer].radius = hip_radius
     # Collar bone.
     b_mesh.verts[4][skin_layer].radius = collar_bone_radius

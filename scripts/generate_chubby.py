@@ -133,11 +133,58 @@ if __name__ == '__main__':
     leg_offset = (0, 0, -3)
     spine_offset = (0, 0, 2.5)
     collar_bone_offset = (-1, 0, 0)
-    arm_offset = (-3, 0, 0)
+    arm_offset = (3, 0, 0)
     neck_base_offset = (0, 0, 0.5)
     neck_offset = (0, 0, 1)
     head_base_offset = (0, 0.6, 0)
     head_top_offset = (0, 0, 1)
+
+    # Randomize vertex offsets.
+    hip_offset = (
+        random.uniform(0.4, 1), 
+        random.uniform(-0.2, 0.2), 
+        random.uniform(-0.4, 0)
+    )
+    leg_offset = (
+        0, 
+        0, 
+        random.uniform(-4, -0.5)
+    )
+    spine_offset = (
+        0, 
+        random.uniform(-0.3, 0.3), 
+        random.uniform(1.5, 4)
+    )
+    collar_bone_offset = (
+        random.uniform(0.5, 1.5), 
+        random.uniform(-0.2, 0.2), 
+        random.uniform(-0.2, 0.2)
+    )
+    arm_offset = (
+        random.uniform(0.7, 3),
+        0,
+        0,
+    )
+    neck_offset = (
+        0,
+        0,
+        random.uniform(0, 0.5)
+    )
+    neck_offset = (
+        0, 
+        random.uniform(-0.3, 0.3), 
+        random.uniform(0.3, 1)
+    )
+    head_base_offset = (
+        0,
+        random.uniform(-1, 1),
+        random.uniform(0, 0.7)
+    )
+    head_top_offset = (
+        0,
+        random.uniform(-2, 2),
+        random.uniform(0, 2)
+    )
 
     # Randomize radii.
     spine_radius = random.uniform(0.4, 1)
@@ -148,7 +195,7 @@ if __name__ == '__main__':
     hip_radius = (hip_radius, hip_radius)
     collar_bone_radius = random.uniform(0.4, 0.6)
     collar_bone_radius = (collar_bone_radius, collar_bone_radius)
-    neck_radius = random.uniform(0.2, 0.6)
+    neck_radius = random.uniform(0.3, 1)
     neck_radius = (neck_radius, neck_radius)
     head_base_radius = random.uniform(0.5, 2)
     head_base_radius = (head_base_radius, head_base_radius)

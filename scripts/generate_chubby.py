@@ -1,6 +1,7 @@
 import bpy
 import bmesh
 import random
+import math
 
 def extrude(offset, ops_mesh):
     ops_mesh.extrude_vertices_move(
@@ -31,7 +32,8 @@ def generate(
     collar_bone_radius, 
     neck_radius, 
     head_base_radius, 
-    head_top_radius
+    head_top_radius,
+    color
 ):
     bpy.ops.mesh.primitive_plane_add(
         size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1)
@@ -48,7 +50,8 @@ def generate(
 
     ctx_obj = bpy.context.object
     ctx_obj.modifiers['Skin'].use_smooth_shade = True
-    ctx_obj.modifiers["Subdivision"].levels = 2
+    ctx_obj.modifiers["Subdivision"].levels = 3
+    ctx_obj.modifiers["Subdivision"].render_levels = 3
 
     d_obj = bpy.data.objects['Plane']
     b_mesh = bmesh.from_edit_mesh(d_obj.data)
@@ -124,9 +127,15 @@ def generate(
     # Head top.
     b_mesh.verts[9][skin_layer].radius = head_top_radius
 
+    mat = bpy.data.materials.new(name="Material")
+    mat.diffuse_color = color
+    ctx_obj.data.materials.append(mat)
+
 if __name__ == '__main__':
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
+    bpy.ops.object.camera_add(location=(0, -30, 1), rotation=(math.radians(90), 0, 0))
+    bpy.context.scene.camera = bpy.context.object
 
     # Vertex offsets.
     hip_offset = (-0.5, 0, 0)
@@ -202,6 +211,14 @@ if __name__ == '__main__':
     head_top_radius = random.uniform(0.5, 2)
     head_top_radius = (head_top_radius, head_top_radius)
 
+    # Randomize color.
+    color = (
+        random.uniform(0, 1),
+        random.uniform(0, 1),
+        random.uniform(0, 1),
+        1
+    )
+
     generate(
         hip_offset,
         leg_offset,
@@ -218,7 +235,33 @@ if __name__ == '__main__':
         collar_bone_radius, 
         neck_radius, 
         head_base_radius, 
-        head_top_radius
+        head_top_radius,
+        color
     )
+
+    # TODO: install CUDA on this docker image.
+
+    # Enable GPU rendering.
+    bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
+    bpy.context.preferences.addons['cycles'].preferences.get_devices()
+    bpy.context.scene.cycles.device = 'GPU'
+
+    #bpy.context.scene.world.color = (1, 1, 1)
+    #bpy.data.scenes['Scene'].render.engine = 'CYCLES'
+    world = bpy.data.worlds['World']
+    world.use_nodes = True
+
+    # changing these values does affect the render.
+    bg = world.node_tree.nodes['Background']
+    bg.inputs[0].default_value[:3] = (1, 1, 1)
+    bg.inputs[1].default_value = 1.0
+
+    # Render.
+    bpy.context.scene.render.resolution_x = 1920
+    bpy.context.scene.render.resolution_y = 1080
+    bpy.context.scene.render.image_settings.file_format = 'PNG'
+    bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+    bpy.context.scene.render.filepath = "data/renders/render.png"
+    bpy.ops.render.render(write_still = True)
 
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

@@ -33,7 +33,8 @@ def generate(
     neck_radius, 
     head_base_radius, 
     head_top_radius,
-    color
+    color,
+    has_hair
 ):
     bpy.ops.mesh.primitive_plane_add(
         size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1)
@@ -130,6 +131,18 @@ def generate(
     mat = bpy.data.materials.new(name="Material")
     mat.diffuse_color = color
     ctx_obj.data.materials.append(mat)
+
+    ops_obj.editmode_toggle()
+    ops_obj.modifier_apply(modifier='Mirror')
+    ops_obj.modifier_apply(modifier='Skin')
+    ops_obj.modifier_apply(modifier='Subdivision')
+
+    if has_hair:
+        ops_obj.particle_system_add()
+        psys = ctx_obj.particle_systems[-1]
+        psys.settings.type = 'HAIR'
+        psys.settings.hair_length = 0.17
+        psys.settings.child_type = 'INTERPOLATED'
 
 if __name__ == '__main__':
     bpy.ops.object.select_all(action='SELECT')
@@ -236,7 +249,8 @@ if __name__ == '__main__':
         neck_radius, 
         head_base_radius, 
         head_top_radius,
-        color
+        color,
+        True
     )
 
     # TODO: install CUDA on this docker image.
@@ -246,12 +260,11 @@ if __name__ == '__main__':
     bpy.context.preferences.addons['cycles'].preferences.get_devices()
     bpy.context.scene.cycles.device = 'GPU'
 
-    #bpy.context.scene.world.color = (1, 1, 1)
     #bpy.data.scenes['Scene'].render.engine = 'CYCLES'
+
+    # Set world background color.
     world = bpy.data.worlds['World']
     world.use_nodes = True
-
-    # changing these values does affect the render.
     bg = world.node_tree.nodes['Background']
     bg.inputs[0].default_value[:3] = (1, 1, 1)
     bg.inputs[1].default_value = 1.0

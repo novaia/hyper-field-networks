@@ -293,7 +293,6 @@ if __name__ == '__main__':
     )
     bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
 
-    #'''
     files_rendered = 0
     for x_step in range(horizontal_steps):
         for y_step in range(vertical_steps):
@@ -313,18 +312,6 @@ if __name__ == '__main__':
                 0,
                 -y_step * vertical_step_size
             )
-            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL')
-    #'''
-    '''
-    for i in range(horizontal_steps):
-        camera_translation = (
-            0,
-            0,
-            i * horizontal_step_size
-        )
-        bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
-        bpy.context.scene.render.filepath = f'data/renders/render{files_rendered}.png'
-        bpy.ops.render.render(write_still = True)
-        files_rendered += 1
-    '''     
+            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
+            
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

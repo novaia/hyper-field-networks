@@ -270,11 +270,61 @@ if __name__ == '__main__':
     bg.inputs[1].default_value = 1.0
 
     # Render.
+    bpy.ops.object.select_all(action='DESELECT')
+    camera = bpy.context.scene.objects['Camera']
+    camera.select_set(True)
+    
     bpy.context.scene.render.resolution_x = 1920
     bpy.context.scene.render.resolution_y = 1080
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
-    bpy.context.scene.render.filepath = "data/renders/render.png"
-    bpy.ops.render.render(write_still = True)
 
+    plane_position = [0, -30, 0]
+    plane_width = 5
+    plane_height = 5
+    horizontal_steps = 5
+    vertical_steps = 5
+    horizontal_step_size = plane_width / horizontal_steps
+    vertical_step_size = plane_height / vertical_steps
+    start_translation = (
+        -plane_width / 2,
+        0,
+        -plane_height / 2
+    )
+    bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
+
+    #'''
+    files_rendered = 0
+    for x_step in range(horizontal_steps):
+        for y_step in range(vertical_steps):
+            camera_translation = (
+                x_step * horizontal_step_size,
+                0,
+                y_step * vertical_step_size
+            )
+
+            bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
+            bpy.context.scene.render.filepath = f'data/renders/render{files_rendered}.png'
+            bpy.ops.render.render(write_still = True)
+            files_rendered += 1
+        
+            reset_translation = (
+                -x_step * horizontal_step_size,
+                0,
+                -y_step * vertical_step_size
+            )
+            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL')
+    #'''
+    '''
+    for i in range(horizontal_steps):
+        camera_translation = (
+            0,
+            0,
+            i * horizontal_step_size
+        )
+        bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
+        bpy.context.scene.render.filepath = f'data/renders/render{files_rendered}.png'
+        bpy.ops.render.render(write_still = True)
+        files_rendered += 1
+    '''     
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

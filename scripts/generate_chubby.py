@@ -144,6 +144,44 @@ def generate(
         psys.settings.hair_length = 0.17
         psys.settings.child_type = 'INTERPOLATED'
 
+def render_multiple_on_plane(
+    plane_width, 
+    plane_height, 
+    horizontal_steps, 
+    vertical_steps, 
+    render_name
+):
+    horizontal_step_size = plane_width / (horizontal_steps - 1)
+    vertical_step_size = plane_height / (vertical_steps - 1)
+    start_translation = (
+        -plane_width / 2,
+        0,
+        -plane_height / 2
+    )
+    bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
+
+    files_rendered = 0
+    for x_step in range(horizontal_steps):
+        for z_step in range(vertical_steps):
+            camera_translation = (
+                x_step * horizontal_step_size,
+                0,
+                z_step * vertical_step_size
+            )
+
+            bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
+            render_path = f'data/renders/{render_name}_{files_rendered}.png'
+            bpy.context.scene.render.filepath = render_path
+            bpy.ops.render.render(write_still = True)
+            files_rendered += 1
+        
+            reset_translation = (
+                -x_step * horizontal_step_size,
+                0,
+                -z_step * vertical_step_size
+            )
+            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
+
 if __name__ == '__main__':
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -282,36 +320,14 @@ if __name__ == '__main__':
     plane_position = [0, -30, 0]
     plane_width = 5
     plane_height = 5
-    horizontal_steps = 5
-    vertical_steps = 5
-    horizontal_step_size = plane_width / horizontal_steps
-    vertical_step_size = plane_height / vertical_steps
-    start_translation = (
-        -plane_width / 2,
-        0,
-        -plane_height / 2
+    horizontal_steps = 2
+    vertical_steps = 2
+    render_multiple_on_plane(
+        plane_width, 
+        plane_height, 
+        horizontal_steps, 
+        vertical_steps, 
+        'render_test'
     )
-    bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
 
-    files_rendered = 0
-    for x_step in range(horizontal_steps):
-        for y_step in range(vertical_steps):
-            camera_translation = (
-                x_step * horizontal_step_size,
-                0,
-                y_step * vertical_step_size
-            )
-
-            bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
-            bpy.context.scene.render.filepath = f'data/renders/render{files_rendered}.png'
-            bpy.ops.render.render(write_still = True)
-            files_rendered += 1
-        
-            reset_translation = (
-                -x_step * horizontal_step_size,
-                0,
-                -y_step * vertical_step_size
-            )
-            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
-            
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

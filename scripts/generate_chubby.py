@@ -185,7 +185,8 @@ def render_multiple_on_plane(
 if __name__ == '__main__':
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
-    bpy.ops.object.camera_add(location=(0, -30, 1), rotation=(math.radians(90), 0, 0))
+    #bpy.ops.object.camera_add(location=(0, -30, 1), rotation=(math.radians(90), 0, 0))
+    bpy.ops.object.camera_add()
     bpy.context.scene.camera = bpy.context.object
 
     # Vertex offsets.
@@ -311,23 +312,34 @@ if __name__ == '__main__':
     bpy.ops.object.select_all(action='DESELECT')
     camera = bpy.context.scene.objects['Camera']
     camera.select_set(True)
-    
+
+    # Render settings.
     bpy.context.scene.render.resolution_x = 1920
     bpy.context.scene.render.resolution_y = 1080
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
 
-    plane_position = [0, -30, 0]
-    plane_width = 5
-    plane_height = 5
-    horizontal_steps = 2
-    vertical_steps = 2
-    render_multiple_on_plane(
-        plane_width, 
-        plane_height, 
-        horizontal_steps, 
-        vertical_steps, 
-        'render_test'
-    )
+    render_views = [
+        ['front', (0, -30, 0), (math.radians(90), 0, 0)],
+        ['right', (30, 0, 0), (math.radians(90), 0, math.radians(90))],
+        ['back', (0, 30, 0), (math.radians(90), 0, math.radians(180))],
+        ['left', (-30, 0, 0), (math.radians(90), 0, math.radians(270))]
+    ]
+    for i in range(len(render_views)):
+        current_view_name = render_views[i][0]
+        camera.location = render_views[i][1]
+        camera.rotation_euler = render_views[i][2]
+
+        plane_width = 5
+        plane_height = 5
+        horizontal_steps = 2
+        vertical_steps = 2
+        render_multiple_on_plane(
+            plane_width, 
+            plane_height, 
+            horizontal_steps, 
+            vertical_steps, 
+            current_view_name
+        )
 
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

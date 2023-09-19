@@ -144,6 +144,8 @@ def generate(
         psys.settings.hair_length = 0.17
         psys.settings.child_type = 'INTERPOLATED'
 
+    return d_obj
+
 def render_multiple_on_plane(
     plane_width, 
     plane_height, 
@@ -182,25 +184,7 @@ def render_multiple_on_plane(
             )
             bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
 
-if __name__ == '__main__':
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.delete(use_global=False)
-    #bpy.ops.object.camera_add(location=(0, -30, 1), rotation=(math.radians(90), 0, 0))
-    bpy.ops.object.camera_add()
-    bpy.context.scene.camera = bpy.context.object
-
-    # Vertex offsets.
-    hip_offset = (-0.5, 0, 0)
-    leg_offset = (0, 0, -3)
-    spine_offset = (0, 0, 2.5)
-    collar_bone_offset = (-1, 0, 0)
-    arm_offset = (3, 0, 0)
-    neck_base_offset = (0, 0, 0.5)
-    neck_offset = (0, 0, 1)
-    head_base_offset = (0, 0.6, 0)
-    head_top_offset = (0, 0, 1)
-
-    # Randomize vertex offsets.
+def get_randomized_vertex_offsets():
     hip_offset = (
         random.uniform(0.4, 1), 
         random.uniform(-0.2, 0.2), 
@@ -226,6 +210,11 @@ if __name__ == '__main__':
         0,
         0,
     )
+    neck_base_offset = (
+        0,
+        0,
+        random.uniform(0.2, 0.5)
+    )
     neck_offset = (
         0,
         0,
@@ -247,7 +236,19 @@ if __name__ == '__main__':
         random.uniform(0, 2)
     )
 
-    # Randomize radii.
+    return (
+        hip_offset,
+        leg_offset,
+        spine_offset,
+        collar_bone_offset,
+        arm_offset,
+        neck_base_offset,
+        neck_offset,
+        head_base_offset,
+        head_top_offset
+    )
+
+def get_randomized_vertex_radii():
     spine_radius = random.uniform(0.4, 1)
     spine_radius = (spine_radius, spine_radius)
     root_radius = random.uniform(0.4, 1)
@@ -263,6 +264,22 @@ if __name__ == '__main__':
     head_top_radius = random.uniform(0.5, 2)
     head_top_radius = (head_top_radius, head_top_radius)
 
+    return (
+        spine_radius, 
+        root_radius, 
+        hip_radius, 
+        collar_bone_radius, 
+        neck_radius, 
+        head_base_radius, 
+        head_top_radius
+    )
+
+if __name__ == '__main__':
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    bpy.ops.object.camera_add()
+    bpy.context.scene.camera = bpy.context.object
+
     # Randomize color.
     color = (
         random.uniform(0, 1),
@@ -271,26 +288,34 @@ if __name__ == '__main__':
         1
     )
 
-    generate(
-        hip_offset,
-        leg_offset,
-        spine_offset,
-        collar_bone_offset,
-        arm_offset,
-        neck_base_offset,
-        neck_offset,
-        head_base_offset,
-        head_top_offset,
-        spine_radius, 
-        root_radius, 
-        hip_radius, 
-        collar_bone_radius, 
-        neck_radius, 
-        head_base_radius, 
-        head_top_radius,
+    d_obj = generate(
+        *get_randomized_vertex_offsets(),
+        *get_randomized_vertex_radii(),
         color,
         True
     )
+
+    # Get bounding sphere.
+    bounding_box = d_obj.bound_box
+    x_center = (bounding_box[0][0] + bounding_box[6][0]) / 2
+    y_center = (bounding_box[0][1] + bounding_box[6][1]) / 2
+    z_center = (bounding_box[0][2] + bounding_box[6][2]) / 2
+
+    max_vector_size = -1
+    max_vector_index = -1
+    for i in range(len(bounding_box)):
+        current_vector = bounding_box[i]
+        x_size = (x_center - current_vector[0])**2
+        y_size = (y_center - current_vector[1])**2
+        z_size = (z_center - current_vector[2])**2
+        current_vector_size = x_size + y_size + z_size
+        if current_vector_size > max_vector_size:
+            max_vector_size = current_vector_size
+            max_vector_index = i
+    max_vector_size = math.sqrt(max_vector_size)
+    print('max vector index: ', max_vector_index, ' max vector size: ', max_vector_size)
+    sphere_location = (x_center, y_center, z_center)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=max_vector_size, location=sphere_location)
 
     # TODO: install CUDA on this docker image.
 
@@ -341,5 +366,5 @@ if __name__ == '__main__':
             vertical_steps, 
             current_view_name
         )
-
+        
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

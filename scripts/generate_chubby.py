@@ -177,7 +177,7 @@ def render_multiple_on_plane(
             bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
             render_path = f'data/renders/{render_name}_{files_rendered}.png'
             bpy.context.scene.render.filepath = render_path
-            bpy.ops.render.render(write_still = True)
+            #bpy.ops.render.render(write_still = True)
             files_rendered += 1
 
             render_meta_data.append({
@@ -284,6 +284,47 @@ def get_randomized_vertex_radii():
         head_top_radius
     )
 
+def get_intrinsic_camera_data(scene, camera):
+    # Reference: https://github.com/maximeraafat/BlenderNeRF/blob/ffec7edd7b153d4c3f65de09c34ad8ce1984acf8/blender_nerf_operator.py
+    camera_angle_x = camera.data.angle_x # Camera FOV.
+    camera_angle_y = camera.data.angle_y
+    sensor_size_mm = camera.data.sensor_width
+    focal_length_mm = camera.data.lens
+    render_resolution_x = scene.render.resolution_x
+    render_resolution_y = scene.render.resolution_y
+    optical_center_x = render_resolution_x / 2
+    optical_center_y = render_resolution_y / 2
+    s_u = focal_length_mm / sensor_size_mm * render_resolution_x
+    s_v = focal_length_mm / sensor_size_mm * render_resolution_y
+
+    intrinsic_camera_data = {
+        'camera_angle_x': camera_angle_x,
+        'camera_angle_y': camera_angle_y,
+        'fl_x': s_u,
+        'fl_y': s_v,
+        'k1': 0.0,
+        'k2': 0.0,
+        'p1': 0.0,
+        'p2': 0.0,
+        'cx': optical_center_x,
+        'cy': optical_center_y,
+        'w': render_resolution_x,
+        'h': render_resolution_y,
+        #'aabb_scale': scene.aabb, this has something to do with the bounding box of the scene.
+    } 
+
+    # Debug.
+    print('camera_angle_x: ', camera_angle_x)
+    print('camera_angle_y: ', camera_angle_y)
+    print('sensor_size_mm: ', sensor_size_mm)
+    print('focal_length_mm: ', focal_length_mm)
+    print('render_resolution_x: ', render_resolution_x)
+    print('render_resolution_y: ', render_resolution_y)
+    print('s_u: ', s_u)
+    print('s_v: ', s_v)
+
+    return intrinsic_camera_data
+
 if __name__ == '__main__':
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -333,7 +374,6 @@ if __name__ == '__main__':
     bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
     bpy.context.preferences.addons['cycles'].preferences.get_devices()
     bpy.context.scene.cycles.device = 'GPU'
-
     #bpy.data.scenes['Scene'].render.engine = 'CYCLES'
 
     # Set world background color.
@@ -349,8 +389,6 @@ if __name__ == '__main__':
     camera.select_set(True)
 
     # Render settings.
-    #bpy.context.scene.render.resolution_x = 1920
-    #bpy.context.scene.render.resolution_y = 1080
     bpy.context.scene.render.resolution_x = 512
     bpy.context.scene.render.resolution_y = 512
     bpy.context.scene.render.image_settings.file_format = 'PNG'
@@ -362,7 +400,7 @@ if __name__ == '__main__':
         ['back', (0, 30, 0), (math.radians(90), 0, math.radians(180))],
         ['left', (-30, 0, 0), (math.radians(90), 0, math.radians(270))]
     ]
-    render_meta_data = []
+    frame_meta_data = []
     for i in range(len(render_views)):
         current_view_name = render_views[i][0]
         camera.location = render_views[i][1]
@@ -372,7 +410,7 @@ if __name__ == '__main__':
         plane_height = 5
         horizontal_steps = 2
         vertical_steps = 2
-        current_render_meta_data = render_multiple_on_plane(
+        current_frame_meta_data = render_multiple_on_plane(
             plane_width, 
             plane_height, 
             horizontal_steps, 
@@ -380,13 +418,21 @@ if __name__ == '__main__':
             current_view_name,
             camera
         )
-        render_meta_data.extend(current_render_meta_data)
+        frame_meta_data.extend(current_frame_meta_data)
 
-    with open('data/renders/render_meta_data.json', 'w') as f:
+    with open('data/renders/frame_meta_data.json', 'w') as f:
         json.dump(
-            render_meta_data,
+            frame_meta_data,
             f,
             indent=4
         )
-        
+    
+    intrinsic_camera_data = get_intrinsic_camera_data(bpy.context.scene, camera)
+    with open('data/renders/intrinsic_camera_data.json', 'w') as f:
+        json.dump(
+            intrinsic_camera_data,
+            f,
+            indent=4
+        )
+            
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

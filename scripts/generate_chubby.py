@@ -2,6 +2,7 @@ import bpy
 import bmesh
 import random
 import math
+import json
 
 def extrude(offset, ops_mesh):
     ops_mesh.extrude_vertices_move(
@@ -151,8 +152,10 @@ def render_multiple_on_plane(
     plane_height, 
     horizontal_steps, 
     vertical_steps, 
-    render_name
+    render_name,
+    camera
 ):
+    render_meta_data = []
     horizontal_step_size = plane_width / (horizontal_steps - 1)
     vertical_step_size = plane_height / (vertical_steps - 1)
     start_translation = (
@@ -176,13 +179,20 @@ def render_multiple_on_plane(
             bpy.context.scene.render.filepath = render_path
             bpy.ops.render.render(write_still = True)
             files_rendered += 1
-        
+
+            render_meta_data.append({
+                'render_path': render_path, 
+                'location': [*camera.location], 
+                'rotation': [*camera.rotation_euler]
+            })
+
             reset_translation = (
                 -x_step * horizontal_step_size,
                 0,
                 -z_step * vertical_step_size
             )
             bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
+    return render_meta_data
 
 def get_randomized_vertex_offsets():
     hip_offset = (
@@ -315,7 +325,7 @@ if __name__ == '__main__':
     max_vector_size = math.sqrt(max_vector_size)
     print('max vector index: ', max_vector_index, ' max vector size: ', max_vector_size)
     sphere_location = (x_center, y_center, z_center)
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=max_vector_size, location=sphere_location)
+    #bpy.ops.mesh.primitive_uv_sphere_add(radius=max_vector_size, location=sphere_location)
 
     # TODO: install CUDA on this docker image.
 
@@ -339,8 +349,10 @@ if __name__ == '__main__':
     camera.select_set(True)
 
     # Render settings.
-    bpy.context.scene.render.resolution_x = 1920
-    bpy.context.scene.render.resolution_y = 1080
+    #bpy.context.scene.render.resolution_x = 1920
+    #bpy.context.scene.render.resolution_y = 1080
+    bpy.context.scene.render.resolution_x = 512
+    bpy.context.scene.render.resolution_y = 512
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
 
@@ -350,6 +362,7 @@ if __name__ == '__main__':
         ['back', (0, 30, 0), (math.radians(90), 0, math.radians(180))],
         ['left', (-30, 0, 0), (math.radians(90), 0, math.radians(270))]
     ]
+    render_meta_data = []
     for i in range(len(render_views)):
         current_view_name = render_views[i][0]
         camera.location = render_views[i][1]
@@ -359,12 +372,21 @@ if __name__ == '__main__':
         plane_height = 5
         horizontal_steps = 2
         vertical_steps = 2
-        render_multiple_on_plane(
+        current_render_meta_data = render_multiple_on_plane(
             plane_width, 
             plane_height, 
             horizontal_steps, 
             vertical_steps, 
-            current_view_name
+            current_view_name,
+            camera
+        )
+        render_meta_data.extend(current_render_meta_data)
+
+    with open('data/renders/render_meta_data.json', 'w') as f:
+        json.dump(
+            render_meta_data,
+            f,
+            indent=4
         )
         
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

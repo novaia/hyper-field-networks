@@ -1,6 +1,7 @@
 import math
 import mathutils
 import bpy
+import random
 
 def get_intrinsic_camera_data(scene, camera):
     # Reference: https://github.com/maximeraafat/BlenderNeRF/blob/ffec7edd7b153d4c3f65de09c34ad8ce1984acf8/blender_nerf_operator.py
@@ -93,7 +94,7 @@ def render_multiple_on_plane(
             
             render_path = f'data/renders/{render_name}_{files_rendered}.png'
             scene.render.filepath = render_path
-            bpy.ops.render.render(write_still = True)
+            #bpy.ops.render.render(write_still = True)
             files_rendered += 1
 
             frame_meta_data.append({
@@ -145,3 +146,33 @@ def render_on_planes(camera, scene):
         )
         frame_meta_data.extend(current_frame_meta_data)
     return frame_meta_data
+
+def sample_sphere(origin, radius):
+    theta = random.uniform(0, 2*math.pi)
+    phi = random.uniform(-math.pi/2, math.pi/2)
+    x = origin[0] + radius * math.cos(phi) * math.cos(theta)
+    y = origin[1] + radius * math.cos(phi) * math.sin(theta)
+    z = origin[2] + radius * math.sin(phi)
+    return (x, y, z)
+
+def render_on_sphere(camera, scene, sphere_radius, sphere_origin):
+    select_only_camera(camera)
+    camera.location = sample_sphere(sphere_origin, sphere_radius)
+
+    '''
+    # Get the camera object
+    camera = bpy.data.objects["Camera"]
+
+    # Get the origin point as a vector
+    origin = mathutils.Vector((0, 0, 0))
+
+    # Calculate the direction vector from the camera to the origin
+    direction = origin - camera.location
+
+    # Set the camera's rotation to match the direction vector
+    camera.rotation_mode = 'QUATERNION'
+    camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
+
+    # Update the scene
+    bpy.context.view_layer.update()
+    '''

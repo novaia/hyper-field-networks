@@ -282,17 +282,14 @@ if __name__ == '__main__':
     bg.inputs[0].default_value[:3] = (1, 1, 1)
     bg.inputs[1].default_value = 1.0
 
-    # Render.
-    bpy.ops.object.select_all(action='DESELECT')
-    camera = bpy.context.scene.objects['Camera']
-    camera.select_set(True)
-
     # Render settings.
     bpy.context.scene.render.resolution_x = 512
     bpy.context.scene.render.resolution_y = 512
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
 
+    # Render.
+    camera = bpy.context.scene.objects['Camera']
     frame_meta_data = nh.render_on_planes(camera, bpy.context.scene)
 
     with open('data/renders/frame_meta_data.json', 'w') as f:

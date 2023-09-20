@@ -62,24 +62,6 @@ def get_bounding_sphere(bounding_box):
     sphere_origin = (x_center, y_center, z_center)
     return sphere_radius, sphere_origin
 
-'''
-import bpy
-import mathutils
-
-camera = bpy.data.objects ["Camera"] # get the camera object
-camera_translation = mathutils.Vector ((1, 0, 0)) # create a vector for the translation in local coordinates
-inv = camera.matrix_world.copy () # copy the camera's world matrix
-inv.invert () # invert the matrix
-camera_translation_world = camera_translation @ inv # multiply the vector by the inverted matrix to get the translation in world coordinates
-camera.location += camera_translation_world # add the translation vector to the camera's location
-'''
-
-def local_to_world_vector(local_vector, world_matrix):
-    inverted_world_matrix = world_matrix.copy()
-    inverted_world_matrix.invert()
-    world_vector = local_vector @ inverted_world_matrix
-    return world_vector
-
 def render_multiple_on_plane(
     plane_width, 
     plane_height, 
@@ -92,24 +74,22 @@ def render_multiple_on_plane(
     frame_meta_data = []
     horizontal_step_size = plane_width / (horizontal_steps - 1)
     vertical_step_size = plane_height / (vertical_steps - 1)
-    start_translation = mathutils.Vector((
+    start_translation = (
         -plane_width / 2,
         0,
         -plane_height / 2
-    ))
-    camera.location += local_to_world_vector(start_translation, camera.matrix_world)
-    #bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
+    )
+    bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
 
     files_rendered = 0
     for x_step in range(horizontal_steps):
         for z_step in range(vertical_steps):
-            camera_translation = mathutils.Vector((
+            camera_translation = (
                 x_step * horizontal_step_size,
                 0,
                 z_step * vertical_step_size
-            ))
-            camera.location += local_to_world_vector(camera_translation, camera.matrix_world)
-            #bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
+            )
+            bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
             
             render_path = f'data/renders/{render_name}_{files_rendered}.png'
             scene.render.filepath = render_path
@@ -122,16 +102,21 @@ def render_multiple_on_plane(
                 'rotation': [*camera.rotation_euler]
             })
 
-            reset_translation = mathutils.Vector((
+            reset_translation = (
                 -x_step * horizontal_step_size,
                 0,
                 -z_step * vertical_step_size
-            ))
-            camera.location += local_to_world_vector(reset_translation, camera.matrix_world)
-            #bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
+            )
+            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
     return frame_meta_data
 
+def select_only_camera(camera):
+    bpy.ops.object.select_all(action='DESELECT')
+    camera.select_set(True)
+
 def render_on_planes(camera, scene):
+    select_only_camera(camera)
+
     render_views = [
         ['front', (0, -30, 0), (math.radians(90), 0, 0)],
         ['right', (30, 0, 0), (math.radians(90), 0, math.radians(90))],

@@ -155,24 +155,13 @@ def sample_sphere(origin, radius):
     z = origin[2] + radius * math.sin(phi)
     return (x, y, z)
 
-def render_on_sphere(camera, scene, sphere_radius, sphere_origin):
+def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_renders):
     select_only_camera(camera)
-    camera.location = sample_sphere(sphere_origin, sphere_radius)
-
-    '''
-    # Get the camera object
-    camera = bpy.data.objects["Camera"]
-
-    # Get the origin point as a vector
-    origin = mathutils.Vector((0, 0, 0))
-
-    # Calculate the direction vector from the camera to the origin
-    direction = origin - camera.location
-
-    # Set the camera's rotation to match the direction vector
-    camera.rotation_mode = 'QUATERNION'
-    camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
-
-    # Update the scene
-    bpy.context.view_layer.update()
-    '''
+    for i in range(num_renders):
+        camera.location = sample_sphere(sphere_origin, sphere_radius)
+        origin = mathutils.Vector(sphere_origin)
+        direction = origin - camera.location
+        camera.rotation_mode = 'QUATERNION'
+        camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
+        scene.render.filepath = f'data/renders/render_{i}.png'
+        bpy.ops.render.render(write_still = True)

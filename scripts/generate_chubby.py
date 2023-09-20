@@ -259,13 +259,13 @@ if __name__ == '__main__':
         *get_randomized_vertex_offsets(),
         *get_randomized_vertex_radii(),
         color,
-        True
+        False
     )
 
     # Get bounding sphere.
     bounding_box = d_obj.bound_box
     sphere_radius, sphere_origin = nh.get_bounding_sphere(bounding_box)
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=sphere_radius, location=sphere_origin)
+    #bpy.ops.mesh.primitive_uv_sphere_add(radius=sphere_radius, location=sphere_origin)
 
     # TODO: install CUDA on this docker image.
 
@@ -291,7 +291,7 @@ if __name__ == '__main__':
     # Render.
     camera = bpy.context.scene.objects['Camera']
     frame_meta_data = nh.render_on_planes(camera, bpy.context.scene)
-    nh.render_on_sphere(camera, bpy.context.scene, sphere_radius, sphere_origin)
+    nh.random_render_on_sphere(camera, bpy.context.scene, sphere_radius+10, sphere_origin, 40)
 
     with open('data/renders/frame_meta_data.json', 'w') as f:
         json.dump(

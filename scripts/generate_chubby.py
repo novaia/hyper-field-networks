@@ -3,6 +3,10 @@ import bmesh
 import random
 import math
 import json
+import os
+import sys
+sys.path.append(os.getcwd())
+import nerf_helper as nh
 
 def extrude(offset, ops_mesh):
     ops_mesh.extrude_vertices_move(
@@ -147,53 +151,6 @@ def generate(
 
     return d_obj
 
-def render_multiple_on_plane(
-    plane_width, 
-    plane_height, 
-    horizontal_steps, 
-    vertical_steps, 
-    render_name,
-    camera
-):
-    render_meta_data = []
-    horizontal_step_size = plane_width / (horizontal_steps - 1)
-    vertical_step_size = plane_height / (vertical_steps - 1)
-    start_translation = (
-        -plane_width / 2,
-        0,
-        -plane_height / 2
-    )
-    bpy.ops.transform.translate(value=start_translation, orient_type='LOCAL')
-
-    files_rendered = 0
-    for x_step in range(horizontal_steps):
-        for z_step in range(vertical_steps):
-            camera_translation = (
-                x_step * horizontal_step_size,
-                0,
-                z_step * vertical_step_size
-            )
-
-            bpy.ops.transform.translate(value=camera_translation, orient_type='LOCAL')
-            render_path = f'data/renders/{render_name}_{files_rendered}.png'
-            bpy.context.scene.render.filepath = render_path
-            #bpy.ops.render.render(write_still = True)
-            files_rendered += 1
-
-            render_meta_data.append({
-                'render_path': render_path, 
-                'location': [*camera.location], 
-                'rotation': [*camera.rotation_euler]
-            })
-
-            reset_translation = (
-                -x_step * horizontal_step_size,
-                0,
-                -z_step * vertical_step_size
-            )
-            bpy.ops.transform.translate(value=reset_translation, orient_type='LOCAL') 
-    return render_meta_data
-
 def get_randomized_vertex_offsets():
     hip_offset = (
         random.uniform(0.4, 1), 
@@ -284,47 +241,6 @@ def get_randomized_vertex_radii():
         head_top_radius
     )
 
-def get_intrinsic_camera_data(scene, camera):
-    # Reference: https://github.com/maximeraafat/BlenderNeRF/blob/ffec7edd7b153d4c3f65de09c34ad8ce1984acf8/blender_nerf_operator.py
-    camera_angle_x = camera.data.angle_x # Camera FOV.
-    camera_angle_y = camera.data.angle_y
-    sensor_size_mm = camera.data.sensor_width
-    focal_length_mm = camera.data.lens
-    render_resolution_x = scene.render.resolution_x
-    render_resolution_y = scene.render.resolution_y
-    optical_center_x = render_resolution_x / 2
-    optical_center_y = render_resolution_y / 2
-    s_u = focal_length_mm / sensor_size_mm * render_resolution_x
-    s_v = focal_length_mm / sensor_size_mm * render_resolution_y
-
-    intrinsic_camera_data = {
-        'camera_angle_x': camera_angle_x,
-        'camera_angle_y': camera_angle_y,
-        'fl_x': s_u,
-        'fl_y': s_v,
-        'k1': 0.0,
-        'k2': 0.0,
-        'p1': 0.0,
-        'p2': 0.0,
-        'cx': optical_center_x,
-        'cy': optical_center_y,
-        'w': render_resolution_x,
-        'h': render_resolution_y,
-        #'aabb_scale': scene.aabb, this has something to do with the bounding box of the scene.
-    } 
-
-    # Debug.
-    print('camera_angle_x: ', camera_angle_x)
-    print('camera_angle_y: ', camera_angle_y)
-    print('sensor_size_mm: ', sensor_size_mm)
-    print('focal_length_mm: ', focal_length_mm)
-    print('render_resolution_x: ', render_resolution_x)
-    print('render_resolution_y: ', render_resolution_y)
-    print('s_u: ', s_u)
-    print('s_v: ', s_v)
-
-    return intrinsic_camera_data
-
 if __name__ == '__main__':
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -348,25 +264,8 @@ if __name__ == '__main__':
 
     # Get bounding sphere.
     bounding_box = d_obj.bound_box
-    x_center = (bounding_box[0][0] + bounding_box[6][0]) / 2
-    y_center = (bounding_box[0][1] + bounding_box[6][1]) / 2
-    z_center = (bounding_box[0][2] + bounding_box[6][2]) / 2
-
-    max_vector_size = -1
-    max_vector_index = -1
-    for i in range(len(bounding_box)):
-        current_vector = bounding_box[i]
-        x_size = (x_center - current_vector[0])**2
-        y_size = (y_center - current_vector[1])**2
-        z_size = (z_center - current_vector[2])**2
-        current_vector_size = x_size + y_size + z_size
-        if current_vector_size > max_vector_size:
-            max_vector_size = current_vector_size
-            max_vector_index = i
-    max_vector_size = math.sqrt(max_vector_size)
-    print('max vector index: ', max_vector_index, ' max vector size: ', max_vector_size)
-    sphere_location = (x_center, y_center, z_center)
-    #bpy.ops.mesh.primitive_uv_sphere_add(radius=max_vector_size, location=sphere_location)
+    sphere_radius, sphere_origin = nh.get_bounding_sphere(bounding_box)
+    #bpy.ops.mesh.primitive_uv_sphere_add(radius=max_vector_size, location=sphere_origin)
 
     # TODO: install CUDA on this docker image.
 
@@ -394,31 +293,7 @@ if __name__ == '__main__':
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
 
-    render_views = [
-        ['front', (0, -30, 0), (math.radians(90), 0, 0)],
-        ['right', (30, 0, 0), (math.radians(90), 0, math.radians(90))],
-        ['back', (0, 30, 0), (math.radians(90), 0, math.radians(180))],
-        ['left', (-30, 0, 0), (math.radians(90), 0, math.radians(270))]
-    ]
-    frame_meta_data = []
-    for i in range(len(render_views)):
-        current_view_name = render_views[i][0]
-        camera.location = render_views[i][1]
-        camera.rotation_euler = render_views[i][2]
-
-        plane_width = 5
-        plane_height = 5
-        horizontal_steps = 2
-        vertical_steps = 2
-        current_frame_meta_data = render_multiple_on_plane(
-            plane_width, 
-            plane_height, 
-            horizontal_steps, 
-            vertical_steps, 
-            current_view_name,
-            camera
-        )
-        frame_meta_data.extend(current_frame_meta_data)
+    frame_meta_data = nh.render_on_planes(camera, bpy.context.scene)
 
     with open('data/renders/frame_meta_data.json', 'w') as f:
         json.dump(
@@ -426,8 +301,8 @@ if __name__ == '__main__':
             f,
             indent=4
         )
-    
-    intrinsic_camera_data = get_intrinsic_camera_data(bpy.context.scene, camera)
+
+    intrinsic_camera_data = nh.get_intrinsic_camera_data(bpy.context.scene, camera)
     with open('data/renders/intrinsic_camera_data.json', 'w') as f:
         json.dump(
             intrinsic_camera_data,

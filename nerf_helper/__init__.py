@@ -48,6 +48,19 @@ def get_intrinsic_camera_data(scene, camera):
 
     return intrinsic_camera_data
 
+# Builds an extrinsic camera data element for a single frame.
+def build_extrinsics_element(filepath, transformation_matrix):
+    return {
+        'file_path': filepath, 
+        'transform_matrix': transformation_matrix
+    }
+
+def listify_matrix(matrix):
+    matrix_list = []
+    for row in matrix:
+        matrix_list.append(list(row))
+    return matrix_list
+
 def get_bounding_sphere(bounding_box):
     x_center = (bounding_box[0][0] + bounding_box[6][0]) / 2
     y_center = (bounding_box[0][1] + bounding_box[6][1]) / 2
@@ -102,7 +115,7 @@ def render_multiple_on_plane(
             files_rendered += 1
 
             frame_meta_data.append({
-                'render_path': render_path, 
+                'file_path': render_path, 
                 'location': [*camera.location], 
                 'rotation': [*camera.rotation_euler]
             })
@@ -159,12 +172,6 @@ def sample_sphere(origin, radius):
     z = origin[2] + radius * math.sin(phi)
     return (x, y, z)
 
-def listify_matrix(matrix):
-    matrix_list = []
-    for row in matrix:
-        matrix_list.append(list(row))
-    return matrix_list
-
 def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_renders):
     extrinsic_camera_data = []
     select_only_camera(camera)
@@ -177,8 +184,7 @@ def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_ren
         render_path =  f'data/renders/render_{i}.png'
         scene.render.filepath = render_path
         bpy.ops.render.render(write_still = True)
-        extrinsic_camera_data.append({
-            'file_path': render_path, 
-            'transform_matrix': listify_matrix(camera.matrix_world)
-        })
+        extrinsic_camera_data.append(
+            build_extrinsics_element(render_path, listify_matrix(camera.matrix_world))
+        )
     return extrinsic_camera_data

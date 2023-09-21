@@ -291,7 +291,9 @@ if __name__ == '__main__':
     # Render.
     camera = bpy.context.scene.objects['Camera']
     frame_meta_data = nh.render_on_planes(camera, bpy.context.scene)
-    nh.random_render_on_sphere(camera, bpy.context.scene, sphere_radius+10, sphere_origin, 40)
+    extrinsic_camera_data = nh.random_render_on_sphere(
+        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 40
+    )
 
     with open('data/renders/frame_meta_data.json', 'w') as f:
         json.dump(
@@ -301,6 +303,7 @@ if __name__ == '__main__':
         )
 
     intrinsic_camera_data = nh.get_intrinsic_camera_data(bpy.context.scene, camera)
+    intrinsic_camera_data['frames'] = extrinsic_camera_data
     with open('data/renders/intrinsic_camera_data.json', 'w') as f:
         json.dump(
             intrinsic_camera_data,

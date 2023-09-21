@@ -3,8 +3,12 @@ import mathutils
 import bpy
 import random
 
+# For more information on camera intrinsics and extrinsics, see NerfStudio documentation:
+# https://docs.nerf.studio/en/latest/quickstart/data_conventions.html
+# For more information on how this data is extracted from Blender, see Maxime Raafat's
+# BlenderNeRF repository, specifically, blender_nerf_operator.py:
+# https://github.com/maximeraafat/BlenderNeRF
 def get_intrinsic_camera_data(scene, camera):
-    # Reference: https://github.com/maximeraafat/BlenderNeRF/blob/ffec7edd7b153d4c3f65de09c34ad8ce1984acf8/blender_nerf_operator.py
     camera_angle_x = camera.data.angle_x # Camera FOV.
     camera_angle_y = camera.data.angle_y
     sensor_size_mm = camera.data.sensor_width
@@ -155,7 +159,14 @@ def sample_sphere(origin, radius):
     z = origin[2] + radius * math.sin(phi)
     return (x, y, z)
 
+def listify_matrix(matrix):
+    matrix_list = []
+    for row in matrix:
+        matrix_list.append(list(row))
+    return matrix_list
+
 def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_renders):
+    extrinsic_camera_data = []
     select_only_camera(camera)
     for i in range(num_renders):
         camera.location = sample_sphere(sphere_origin, sphere_radius)
@@ -163,5 +174,11 @@ def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_ren
         direction = origin - camera.location
         camera.rotation_mode = 'QUATERNION'
         camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
-        scene.render.filepath = f'data/renders/render_{i}.png'
+        render_path =  f'data/renders/render_{i}.png'
+        scene.render.filepath = render_path
         bpy.ops.render.render(write_still = True)
+        extrinsic_camera_data.append({
+            'file_path': render_path, 
+            'transform_matrix': listify_matrix(camera.matrix_world)
+        })
+    return extrinsic_camera_data

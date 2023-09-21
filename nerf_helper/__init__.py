@@ -59,7 +59,7 @@ def build_extrinsics_element(file_path, transformation_matrix):
 
 # Transform data is the combination of intrinsic and extrinsic camera data.
 def build_transform_data(intrinsic, extrinsic):
-    return extrinsic.update(intrinsic)
+    return {**intrinsic, **extrinsic}
 
 # Transform data contains intrinsic and extrinsic camera data for entire rendered dataset.
 def save_transform_data(transform_data, save_directory):
@@ -197,10 +197,10 @@ def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_ren
         direction = origin - camera.location
         camera.rotation_mode = 'QUATERNION'
         camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
-        render_path =  f'data/renders/render_{i}.png'
-        scene.render.filepath = render_path
+        render_name = f'render_{i}.png'
+        scene.render.filepath = os.path.join('data/renders', render_name)
         bpy.ops.render.render(write_still = True)
         extrinsic_camera_data.append(
-            build_extrinsics_element(render_path, listify_matrix(camera.matrix_world))
+            build_extrinsics_element(render_name, listify_matrix(camera.matrix_world))
         )
     return {'frames:': extrinsic_camera_data}

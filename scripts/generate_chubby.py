@@ -290,25 +290,11 @@ if __name__ == '__main__':
 
     # Render.
     camera = bpy.context.scene.objects['Camera']
-    frame_meta_data = nh.render_on_planes(camera, bpy.context.scene)
     extrinsic_camera_data = nh.random_render_on_sphere(
         camera, bpy.context.scene, sphere_radius+10, sphere_origin, 40
     )
-
-    with open('data/renders/frame_meta_data.json', 'w') as f:
-        json.dump(
-            frame_meta_data,
-            f,
-            indent=4
-        )
-
     intrinsic_camera_data = nh.get_intrinsic_camera_data(bpy.context.scene, camera)
-    intrinsic_camera_data['frames'] = extrinsic_camera_data
-    with open('data/renders/intrinsic_camera_data.json', 'w') as f:
-        json.dump(
-            intrinsic_camera_data,
-            f,
-            indent=4
-        )
+    transform_data = nh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
+    nh.save_transform_data(transform_data, 'data/renders')
             
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

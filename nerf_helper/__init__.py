@@ -2,6 +2,8 @@ import math
 import mathutils
 import bpy
 import random
+import json
+import os
 
 # For more information on camera intrinsics and extrinsics, see NerfStudio documentation:
 # https://docs.nerf.studio/en/latest/quickstart/data_conventions.html
@@ -49,12 +51,26 @@ def get_intrinsic_camera_data(scene, camera):
     return intrinsic_camera_data
 
 # Builds an extrinsic camera data element for a single frame.
-def build_extrinsics_element(filepath, transformation_matrix):
+def build_extrinsics_element(file_path, transformation_matrix):
     return {
-        'file_path': filepath, 
+        'file_path': file_path, 
         'transform_matrix': transformation_matrix
     }
 
+# Transform data is the combination of intrinsic and extrinsic camera data.
+def build_transform_data(intrinsic, extrinsic):
+    return extrinsic.update(intrinsic)
+
+# Transform data contains intrinsic and extrinsic camera data for entire rendered dataset.
+def save_transform_data(transform_data, save_directory):
+    file_path = os.path.join(save_directory, 'transforms.json')
+    with open(file_path, 'w') as f:
+        json.dump(
+            transform_data,
+            f,
+            indent=4
+        )
+    
 def listify_matrix(matrix):
     matrix_list = []
     for row in matrix:
@@ -187,4 +203,4 @@ def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_ren
         extrinsic_camera_data.append(
             build_extrinsics_element(render_path, listify_matrix(camera.matrix_world))
         )
-    return extrinsic_camera_data
+    return {'frames:': extrinsic_camera_data}

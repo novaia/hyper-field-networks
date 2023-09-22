@@ -267,13 +267,11 @@ if __name__ == '__main__':
     sphere_radius, sphere_origin = nh.get_bounding_sphere(bounding_box)
     #bpy.ops.mesh.primitive_uv_sphere_add(radius=sphere_radius, location=sphere_origin)
 
-    # TODO: install CUDA on this docker image.
-
     # Enable GPU rendering.
     bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
     bpy.context.preferences.addons['cycles'].preferences.get_devices()
     bpy.context.scene.cycles.device = 'GPU'
-    #bpy.data.scenes['Scene'].render.engine = 'CYCLES'
+    bpy.data.scenes['Scene'].render.engine = 'CYCLES'
 
     # Set world background color.
     world = bpy.data.worlds['World']
@@ -292,7 +290,7 @@ if __name__ == '__main__':
     # Render.
     camera = bpy.context.scene.objects['Camera']
     extrinsic_camera_data = nh.random_render_on_sphere(
-        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 200
+        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 20
     )
     intrinsic_camera_data = nh.get_intrinsic_camera_data(
         bpy.context.scene, camera, bounding_box

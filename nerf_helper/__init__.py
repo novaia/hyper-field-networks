@@ -4,13 +4,14 @@ import bpy
 import random
 import json
 import os
+import warnings
 
 # For more information on camera intrinsics and extrinsics, see NerfStudio documentation:
 # https://docs.nerf.studio/en/latest/quickstart/data_conventions.html
 # For more information on how this data is extracted from Blender, see Maxime Raafat's
 # BlenderNeRF repository, specifically, blender_nerf_operator.py:
 # https://github.com/maximeraafat/BlenderNeRF
-def get_intrinsic_camera_data(scene, camera):
+def get_intrinsic_camera_data(scene, camera, bounding_box):
     camera_angle_x = camera.data.angle_x # Camera FOV.
     camera_angle_y = camera.data.angle_y
     sensor_size_mm = camera.data.sensor_width
@@ -35,8 +36,7 @@ def get_intrinsic_camera_data(scene, camera):
         'cy': optical_center_y,
         'w': render_resolution_x,
         'h': render_resolution_y,
-        'aabb_scale': 1
-        #scene.aabb, #this has something to do with the bounding box of the scene.
+        'aabb_scale': get_aabb_scale(bounding_box)
     } 
 
     # Debug.
@@ -50,6 +50,52 @@ def get_intrinsic_camera_data(scene, camera):
     print('s_v: ', s_v)
 
     return intrinsic_camera_data
+
+# AABB scale defines the side length of the bounding box in which the NeRF will trace rays.
+# It was introduced by NVIDIA with Instant-NGP: https://github.com/NVlabs/instant-ngp
+def get_aabb_scale(bounding_box):
+    # Find the vertex of the bounding box that is furthest from the origin.
+    furthest_bounding_vertex = None
+    furthest_bounding_vertex_distance = -1
+    for vertex in bounding_box:
+        current_bounding_vertex_distance = vertex[0]**2 + vertex[1]**2 + vertex[2]**2
+        if current_bounding_vertex_distance > furthest_bounding_vertex_distance:
+            furthest_bounding_vertex = vertex
+            furthest_bounding_vertex_distance = current_bounding_vertex_distance
+    
+    # Find the largest element of the vertex that is furthest from the origin.
+    # This is equivalent to finding the bounding box's furthest distance from the origin along
+    # one of the x, y, or z axes, or finding the bounding box's furthest axial distance.
+    furthest_axial_distance = -1
+    for i in range(len(furthest_bounding_vertex)):
+        if furthest_bounding_vertex[i] > furthest_axial_distance:
+            furthest_axial_distance = furthest_bounding_vertex[i]
+    
+    # Use the bounding box's furthest axial distance to determine the smallest 
+    # AABB scale that will cover it. For example, if the furthest axial distance
+    # is 10, then the smallest AABB scale that will cover it is 16.
+    # As per Instant-NGP, the AABB scale is restricted to powers of 2.
+    # Here it is also restricted to be <= 32 for efficiency because it is unlikely 
+    # that larger values will be required.
+    possible_aabb_scales = [1, 2, 4, 8, 16, 32]
+    if furthest_axial_distance > possible_aabb_scales[-1]:
+        warnings.warn(
+            'Furthest axial distance is greater than max AABB scale, ' +
+            'this means that parts of the object may be cut off when the NeRF is rendered. ' +
+            'Consider setting the AABB scale manually in transforms.json. ' +
+            f'Furthest axial distance: {furthest_axial_distance}, ' + 
+            f'max AABB scale: {possible_aabb_scales[-1]}'
+        )
+    # Binary search is used to find the correct AABB scale given the constraints.
+    low_index = 0
+    high_index = len(possible_aabb_scales) - 1
+    while high_index - low_index > 1:
+        aabb_scale_index = (high_index + low_index) // 2
+        if possible_aabb_scales[aabb_scale_index] < furthest_axial_distance:
+            low_index = aabb_scale_index
+        elif possible_aabb_scales[aabb_scale_index] > furthest_axial_distance:
+            high_index = aabb_scale_index
+    return possible_aabb_scales[high_index]
 
 # Builds an extrinsic camera data element for a single frame.
 def build_extrinsics_element(file_path, transformation_matrix):

@@ -294,7 +294,9 @@ if __name__ == '__main__':
     extrinsic_camera_data = nh.random_render_on_sphere(
         camera, bpy.context.scene, sphere_radius+10, sphere_origin, 200
     )
-    intrinsic_camera_data = nh.get_intrinsic_camera_data(bpy.context.scene, camera)
+    intrinsic_camera_data = nh.get_intrinsic_camera_data(
+        bpy.context.scene, camera, bounding_box
+    )
     transform_data = nh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
     nh.save_transform_data(transform_data, 'data/renders')
             

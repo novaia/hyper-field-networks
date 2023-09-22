@@ -287,11 +287,12 @@ if __name__ == '__main__':
     bpy.context.scene.render.resolution_y = 512
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+    bpy.context.scene.render.film_transparent = True
 
     # Render.
     camera = bpy.context.scene.objects['Camera']
     extrinsic_camera_data = nh.random_render_on_sphere(
-        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 40
+        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 200
     )
     intrinsic_camera_data = nh.get_intrinsic_camera_data(bpy.context.scene, camera)
     transform_data = nh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)

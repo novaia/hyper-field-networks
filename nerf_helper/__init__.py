@@ -35,7 +35,8 @@ def get_intrinsic_camera_data(scene, camera):
         'cy': optical_center_y,
         'w': render_resolution_x,
         'h': render_resolution_y,
-        #'aabb_scale': scene.aabb, this has something to do with the bounding box of the scene.
+        'aabb_scale': 1
+        #scene.aabb, #this has something to do with the bounding box of the scene.
     } 
 
     # Debug.
@@ -127,7 +128,7 @@ def render_multiple_on_plane(
             
             render_path = f'data/renders/{render_name}_{files_rendered}.png'
             scene.render.filepath = render_path
-            #bpy.ops.render.render(write_still = True)
+            bpy.ops.render.render(write_still = True)
             files_rendered += 1
 
             frame_meta_data.append({
@@ -203,4 +204,4 @@ def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_ren
         extrinsic_camera_data.append(
             build_extrinsics_element(render_name, listify_matrix(camera.matrix_world))
         )
-    return {'frames:': extrinsic_camera_data}
+    return {'frames': extrinsic_camera_data}

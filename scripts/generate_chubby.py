@@ -290,7 +290,7 @@ if __name__ == '__main__':
     # Render.
     camera = bpy.context.scene.objects['Camera']
     extrinsic_camera_data = nh.random_render_on_sphere(
-        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 20
+        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 200
     )
     intrinsic_camera_data = nh.get_intrinsic_camera_data(
         bpy.context.scene, camera, bounding_box

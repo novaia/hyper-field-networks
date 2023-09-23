@@ -86,6 +86,7 @@ def get_aabb_scale(bounding_box):
             f'Furthest axial distance: {furthest_axial_distance}, ' + 
             f'max AABB scale: {possible_aabb_scales[-1]}'
         )
+        return possible_aabb_scales[-1]
     # Binary search is used to find the correct AABB scale given the constraints.
     low_index = 0
     high_index = len(possible_aabb_scales) - 1

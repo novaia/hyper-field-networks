@@ -5,6 +5,12 @@ import jax
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
 
+def hash_function():
+    pass
+
+def hash_encoding(x):
+    return x
+
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).
 # This is hardcoded because no other order of spherical harmonics is used.
@@ -43,6 +49,13 @@ def fourth_order_sh_encoding(directions):
 
     return components
 
+class DensityMLP(nn.Module):
+    width: int
+
+    def __call__(self, x):
+
+        return x
+
 class InstantNerf(nn.Module):
     number_of_grid_levels: int # Corresponds to L in the paper.
     max_hash_table_entries: int # Corresponds to T in the paper.
@@ -50,5 +63,31 @@ class InstantNerf(nn.Module):
     coarsest_resolution: int # Corresponds to N_min in the paper.
     finest_resolution: int # Corresponds to N_max in the paper.
 
+    density_mlp_width: int
+    color_mlp_width: int
+    high_dynamic_range: bool
+
     def __call__(self, x):
-        return x
+        position, direction = x
+        encoded_position = hash_encoding(position)
+
+        x = nn.Dense(self.density_mlp_width)(encoded_position)
+        x = nn.activation.relu(x)
+        density = nn.Dense(16)(x)
+
+        encoded_direction = fourth_order_sh_encoding(direction)
+        x = jax.concatenate([density, encoded_direction], axis=0)
+        x = nn.Dense(self.color_mlp_width)(x)
+        x = nn.activation.relu(x)
+        x = nn.Dense(self.color_mlp_width)(x)
+        x = nn.activation.relu(x)
+        x = nn.Dense(3)(x)
+
+        if self.high_dynamic_range:
+            # elu is exponential linear unit, I think that's what the paper meant 
+            # by "exponential activation"
+            color = nn.activation.elu(x)
+        else:
+            color = nn.activation.sigmoid(x)
+
+        return density, color

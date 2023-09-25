@@ -49,6 +49,21 @@ def fourth_order_sh_encoding(directions):
 
     return components
 
+def render_volume(positions, directions, deltas, state):
+    assertion_text = 'Positions, directions, and deltas must have the same shape.'
+    assert positions.shape == directions.shape == deltas.shape, assertion_text
+    densities, colors = state.apply_fn((positions, directions))
+    
+    triangular_mask = jnp.tril(jnp.ones(densities.shape))
+    repeated_densities = jnp.repeat(densities, densities.shape[0], axis=0)
+    triangular_densities = repeated_densities * triangular_mask
+    repeated_deltas = jnp.repeat(deltas, deltas.shape[0], axis=0)
+    triangular_deltas = repeated_deltas * triangular_mask
+
+    T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas))
+    rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors)
+    return rendered_color
+
 class DensityMLP(nn.Module):
     width: int
 

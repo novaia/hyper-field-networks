@@ -22,8 +22,7 @@ def hash_encoding(x, hash_table, table_size):
     table_size_repeated = jnp.repeat(table_size, num_levels)
 
     levels = jnp.arange(num_levels)
-    hash_offset = levels * table_size
-    hash_offset_reshaped = jnp.reshape(hash_offset, (hash_offset.shape[0], 1))
+    hash_offset = jnp.reshape(levels * table_size, (num_levels, 1))
     growth_factor = jnp.exp(
         (jnp.log(finest_resolution) - jnp.log(coarsest_resolution)) / (num_levels - 1)
     ) if num_levels > 1 else 1
@@ -43,14 +42,14 @@ def hash_encoding(x, hash_table, table_size):
     vertex_6 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
     vertex_7 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
 
-    hashed_0 = vector_hash_function(vertex_0, table_size, hash_offset_reshaped)
-    hashed_1 = vector_hash_function(vertex_1, table_size, hash_offset_reshaped)
-    hashed_2 = vector_hash_function(vertex_2, table_size, hash_offset_reshaped)
-    hashed_3 = vector_hash_function(vertex_3, table_size, hash_offset_reshaped)
-    hashed_4 = vector_hash_function(vertex_4, table_size, hash_offset_reshaped)
-    hashed_5 = vector_hash_function(vertex_5, table_size, hash_offset_reshaped)
-    hashed_6 = vector_hash_function(vertex_6, table_size, hash_offset_reshaped)
-    hashed_7 = vector_hash_function(vertex_7, table_size, hash_offset_reshaped)
+    hashed_0 = vector_hash_function(vertex_0, table_size, hash_offset)
+    hashed_1 = vector_hash_function(vertex_1, table_size, hash_offset)
+    hashed_2 = vector_hash_function(vertex_2, table_size, hash_offset)
+    hashed_3 = vector_hash_function(vertex_3, table_size, hash_offset)
+    hashed_4 = vector_hash_function(vertex_4, table_size, hash_offset)
+    hashed_5 = vector_hash_function(vertex_5, table_size, hash_offset)
+    hashed_6 = vector_hash_function(vertex_6, table_size, hash_offset)
+    hashed_7 = vector_hash_function(vertex_7, table_size, hash_offset)
 
     f_0 = hash_table[hashed_0]
     f_1 = hash_table[hashed_1]

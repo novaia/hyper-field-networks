@@ -14,8 +14,6 @@ def hash_function(x, table_size, hash_offset):
     return x
 vector_hash_function = jax.vmap(hash_function, in_axes=0)
 
-# I made a mistake.
-
 def hash_encoding(x, hash_table, table_size):
     num_levels = 16
     coarsest_resolution = 16

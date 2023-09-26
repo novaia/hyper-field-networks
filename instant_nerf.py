@@ -3,6 +3,8 @@ from flax.training import train_state
 import jax.numpy as jnp
 import jax
 import optax
+import json
+import os
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
@@ -166,6 +168,7 @@ class InstantNerf(nn.Module):
     high_dynamic_range: bool
 
     def __post_init__(self):
+        super().__post_init__()
         absolute_hash_table_size = self.max_hash_table_entries * self.number_of_grid_levels
         self.hash_table = jax.random.normal(
             self.hash_table_init_rng, 
@@ -223,6 +226,24 @@ def train_loop(state):
     pass
 
 if __name__ == '__main__':
+    dataset_path = 'data/generation_0'
+    with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
+        transforms = json.load(f)
+    print('Camera Intrinsics:')
+    print(transforms['camera_angle_x'])
+    print(transforms['camera_angle_y'])
+    print(transforms['fl_x'])
+    print(transforms['fl_y'])
+    print(transforms['k1'])
+    print(transforms['k2'])
+    print(transforms['p1'])
+    print(transforms['p2'])
+    print(transforms['cx'])
+    print(transforms['cy'])
+    print(transforms['w'])
+    print(transforms['h'])
+    print(transforms['aabb_scale'])
+
     model = InstantNerf(
         hash_table_init_rng=jax.random.PRNGKey(0),
         number_of_grid_levels=16,
@@ -237,3 +258,22 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-4)
     train_loop(state)
+
+'''
+To construct a batch we randomly sample pixels from our training set.
+Then we cast a ray through all of these pixels and sample N points along each ray.
+'''
+
+def sample_pixels(num_samples, image_width, image_height, num_images, rng, images):
+    width_rng, height_rng, image_rng = jax.random.split(rng, num=3) 
+    width_index = jax.random.randint(
+        width_rng, shape=(num_samples,), minval=0, maxval=image_width
+    )
+    height_index = jax.random.randint(
+        height_rng, shape=(num_samples,), minval=0, maxval=image_height
+    )
+    image_index = jax.random.randint(
+        image_rng, shape=(num_samples,), minval=0, maxval=num_images
+    )
+    indices = jnp.transpose(jnp.concatenate([image_index, width_index, height_index]))
+    print(indices)

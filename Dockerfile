@@ -26,7 +26,10 @@ ENV PATH="$PATH:$blender_path"
 RUN apt install python3 -y 
 RUN apt install python3-pip -y 
 RUN apt install xvfb -y
-RUN python3 -m pip install jupyterlab
+RUN python3 -m pip install "jax[cuda11_cudnn86]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+RUN python3 -m pip install --upgrade pip
+COPY requirements.txt requirements.txt
+RUN python3 -m pip install -r requirements.txt
 
 WORKDIR project
 

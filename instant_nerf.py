@@ -1,6 +1,8 @@
 import flax.linen as nn
+from flax.training import train_state
 import jax.numpy as jnp
 import jax
+import optax
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
@@ -13,7 +15,15 @@ def hash_function(x, table_size, hash_offset):
     x += hash_offset
     return x
 
-def hash_encoding(x, hash_table, table_size):
+def hash_encoding(
+    x, 
+    hash_table, 
+    table_size, 
+    num_levels, 
+    min_resolution, 
+    max_resolution, 
+    feature_dim
+):
     num_levels = 16
     coarsest_resolution = 16
     finest_resolution = 1024
@@ -30,9 +40,9 @@ def hash_encoding(x, hash_table, table_size):
     levels = jnp.arange(num_levels)
     hash_offset = levels * table_size
     growth_factor = jnp.exp(
-        (jnp.log(finest_resolution) - jnp.log(coarsest_resolution)) / (num_levels - 1)
+        (jnp.log(max_resolution) - jnp.log(min_resolution)) / (num_levels - 1)
     ) if num_levels > 1 else 1
-    scalings = jnp.floor(coarsest_resolution * growth_factor**levels)
+    scalings = jnp.floor(min_resolution * growth_factor**levels)
     scalings = jnp.reshape(scalings, (scalings.shape[0], 1))
 
     scaled = x * scalings
@@ -144,6 +154,7 @@ class DensityMLP(nn.Module):
         return x
 
 class InstantNerf(nn.Module):
+    hash_table_init_rng: jax.random.PRNGKey
     number_of_grid_levels: int # Corresponds to L in the paper.
     max_hash_table_entries: int # Corresponds to T in the paper.
     hash_table_feature_dim: int # Corresponds to F in the paper.
@@ -154,9 +165,26 @@ class InstantNerf(nn.Module):
     color_mlp_width: int
     high_dynamic_range: bool
 
+    def __post_init__(self):
+        absolute_hash_table_size = self.max_hash_table_entries * self.number_of_grid_levels
+        self.hash_table = jax.random.normal(
+            self.hash_table_init_rng, 
+            shape=(
+                absolute_hash_table_size, self.hash_table_feature_dim
+            )
+        )
+
     def __call__(self, x):
         position, direction = x
-        encoded_position = hash_encoding(position)
+        encoded_position = hash_encoding(
+            x=position,
+            hash_table=self.hash_table,
+            table_size=self.max_hash_table_entries,
+            num_levels=self.number_of_grid_levels,
+            min_resolution=self.coarsest_resolution,
+            max_resolution=self.finest_resolution,
+            feature_dim=self.hash_table_feature_dim
+        )
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
@@ -178,3 +206,34 @@ class InstantNerf(nn.Module):
             color = nn.activation.sigmoid(x)
 
         return density, color
+
+def create_train_state(model, rng, learning_rate):
+    x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
+    variables = model.init(rng, x)
+    params = variables['params']
+    tx = optax.adam(learning_rate)
+    ts = train_state.TrainState.create(
+        apply_fn=model.apply,
+        params=params,
+        tx=tx
+    )
+    return ts
+
+def train_loop(state):
+    pass
+
+if __name__ == '__main__':
+    model = InstantNerf(
+        hash_table_init_rng=jax.random.PRNGKey(0),
+        number_of_grid_levels=16,
+        max_hash_table_entries=2**14,
+        hash_table_feature_dim=2,
+        coarsest_resolution=16,
+        finest_resolution=1024,
+        density_mlp_width=64,
+        color_mlp_width=64,
+        high_dynamic_range=False
+    )
+    rng = jax.random.PRNGKey(1)
+    state = create_train_state(model, rng, 1e-4)
+    train_loop(state)

@@ -18,8 +18,14 @@ def hash_encoding(x, hash_table, table_size):
     num_levels = 16
     coarsest_resolution = 16
     finest_resolution = 1024
+    feature_dim = 2
+    spatial_dim = 3
     # Repeat table_size so it can be passed into vectorized hash function.
     table_size_repeated = jnp.repeat(table_size, num_levels)
+
+    absolute_table_size = table_size * num_levels
+    hash_table_key = jax.random.PRNGKey(0)
+    hash_table = jax.random.normal(hash_table_key, shape=(feature_dim, absolute_table_size))
 
     levels = jnp.arange(num_levels)
     hash_offset = jnp.reshape(levels * table_size, (num_levels, 1))
@@ -32,6 +38,7 @@ def hash_encoding(x, hash_table, table_size):
     scaled = x * scalings
     scaled_c = jnp.ceil(scaled).astype(jnp.int32)
     scaled_f = jnp.floor(scaled).astype(jnp.int32)
+    point_offset = jnp.reshape(scaled - scaled_f, (spatial_dim, num_levels))
     
     vertex_0 = scaled_c
     vertex_1 = jnp.concatenate([scaled_c[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
@@ -51,19 +58,29 @@ def hash_encoding(x, hash_table, table_size):
     hashed_6 = vector_hash_function(vertex_6, table_size, hash_offset)
     hashed_7 = vector_hash_function(vertex_7, table_size, hash_offset)
 
-    f_0 = hash_table[hashed_0]
-    f_1 = hash_table[hashed_1]
-    f_2 = hash_table[hashed_2]
-    f_3 = hash_table[hashed_3]
-    f_4 = hash_table[hashed_4]
-    f_5 = hash_table[hashed_5]
-    f_6 = hash_table[hashed_6]
-    f_7 = hash_table[hashed_7]
+    f_0 = hash_table[:, hashed_0[:, 0]]
+    f_1 = hash_table[:, hashed_1[:, 0]]
+    f_2 = hash_table[:, hashed_2[:, 0]]
+    f_3 = hash_table[:, hashed_3[:, 0]]
+    f_4 = hash_table[:, hashed_4[:, 0]]
+    f_5 = hash_table[:, hashed_5[:, 0]]
+    f_6 = hash_table[:, hashed_6[:, 0]]
+    f_7 = hash_table[:, hashed_7[:, 0]]
 
-    # Linearly interpolate between the eight features here.
-    # ...
+    # Linearly interpolate between all of the features.
+    f_03 = f_0 * point_offset[0:1, :] + f_3 * (1 - point_offset[0:1, :])
+    f_12 = f_1 * point_offset[0:1, :] + f_2 * (1 - point_offset[0:1, :])
+    f_56 = f_5 * point_offset[0:1, :] + f_6 * (1 - point_offset[0:1, :])
+    f_47 = f_4 * point_offset[0:1, :] + f_7 * (1 - point_offset[0:1, :])
 
-    return f_0
+    f0312 = f_03 * point_offset[1:2, :] + f_12 * (1 - point_offset[1:2, :])
+    f4756 = f_47 * point_offset[1:2, :] + f_56 * (1 - point_offset[1:2, :])
+
+    encoded_value = f0312 * point_offset[2:3, :] + f4756 * (
+        1 - point_offset[2:3, :]
+    )
+
+    return encoded_value
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).

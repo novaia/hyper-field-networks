@@ -167,8 +167,7 @@ class InstantNerf(nn.Module):
     color_mlp_width: int
     high_dynamic_range: bool
 
-    def __post_init__(self):
-        super().__post_init__()
+    def setup(self):
         absolute_hash_table_size = self.max_hash_table_entries * self.number_of_grid_levels
         self.hash_table = jax.random.normal(
             self.hash_table_init_rng, 
@@ -177,6 +176,7 @@ class InstantNerf(nn.Module):
             )
         )
 
+    @nn.compact
     def __call__(self, x):
         position, direction = x
         encoded_position = hash_encoding(

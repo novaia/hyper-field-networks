@@ -5,22 +5,25 @@ import jax
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
 
-def hash_function(x, table_size):
+def hash_function(x, table_size, hash_offset):
     pre_xor = x * jnp.array([1, 2654435761, 805459861])
     x = jnp.bitwise_xor(pre_xor[0], pre_xor[1])
     x = jnp.bitwise_xor(x, pre_xor[2])
     x %= table_size
+    x += hash_offset
     return x
-vector_hash_function = jax.vmap(hash_function, in_axes=(0, None))
+vector_hash_function = jax.vmap(hash_function, in_axes=0)
 
-def hash_encoding(x):
+def hash_encoding(x, hash_table, table_size):
     num_levels = 16
     coarsest_resolution = 16
     finest_resolution = 1024
-    table_size = 2**14
-    hash_table = None
+    # Repeat table_size so it can be passed into vectorized hash function.
+    table_size_repeated = jnp.repeat(table_size, num_levels)
 
     levels = jnp.arange(num_levels)
+    hash_offset = levels * table_size
+    hash_offset_reshaped = jnp.reshape(hash_offset, (hash_offset.shape[0], 1))
     growth_factor = jnp.exp(
         (jnp.log(finest_resolution) - jnp.log(coarsest_resolution)) / (num_levels - 1)
     ) if num_levels > 1 else 1
@@ -40,14 +43,14 @@ def hash_encoding(x):
     vertex_6 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
     vertex_7 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
 
-    hashed_0 = vector_hash_function(vertex_0, table_size)
-    hashed_1 = vector_hash_function(vertex_1, table_size)
-    hashed_2 = vector_hash_function(vertex_2, table_size)
-    hashed_3 = vector_hash_function(vertex_3, table_size)
-    hashed_4 = vector_hash_function(vertex_4, table_size)
-    hashed_5 = vector_hash_function(vertex_5, table_size)
-    hashed_6 = vector_hash_function(vertex_6, table_size)
-    hashed_7 = vector_hash_function(vertex_7, table_size)
+    hashed_0 = vector_hash_function(vertex_0, table_size, hash_offset_reshaped)
+    hashed_1 = vector_hash_function(vertex_1, table_size, hash_offset_reshaped)
+    hashed_2 = vector_hash_function(vertex_2, table_size, hash_offset_reshaped)
+    hashed_3 = vector_hash_function(vertex_3, table_size, hash_offset_reshaped)
+    hashed_4 = vector_hash_function(vertex_4, table_size, hash_offset_reshaped)
+    hashed_5 = vector_hash_function(vertex_5, table_size, hash_offset_reshaped)
+    hashed_6 = vector_hash_function(vertex_6, table_size, hash_offset_reshaped)
+    hashed_7 = vector_hash_function(vertex_7, table_size, hash_offset_reshaped)
 
     f_0 = hash_table[hashed_0]
     f_1 = hash_table[hashed_1]

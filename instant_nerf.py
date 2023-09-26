@@ -22,6 +22,9 @@ def hash_encoding(x, hash_table, table_size):
 
     absolute_table_size = table_size * num_levels
     hash_table_key = jax.random.PRNGKey(0)
+    # Feature dim comes first so features can be broadcast for operations with point offset.
+    # Feature shape is (feature_dim, num_levels). 
+    # Point offset shape is (spatial_dim, num_levels).
     hash_table = jax.random.normal(hash_table_key, shape=(feature_dim, absolute_table_size))
 
     levels = jnp.arange(num_levels)
@@ -76,6 +79,8 @@ def hash_encoding(x, hash_table, table_size):
     encoded_value = f0312 * point_offset[2:3, :] + f4756 * (
         1 - point_offset[2:3, :]
     )
+    # Transpose so that features are contiguous.
+    # i.e. [[f_0_x, f_0_y], [f_1_x, f_2_y], ...]
     return jnp.ravel(jnp.transpose(encoded_value))
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.

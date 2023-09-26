@@ -5,8 +5,12 @@ import jax
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
 
-def hash_function():
-    pass
+def hash_function(x, table_size):
+    pre_xor = x * jnp.array([1, 2654435761, 805459861])
+    x = jnp.bitwise_xor(pre_xor[0], pre_xor[1])
+    x = jnp.bitwise_xor(x, pre_xor[2])
+    x %= table_size
+    return x
 
 def hash_encoding(x):
     return x

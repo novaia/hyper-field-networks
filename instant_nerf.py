@@ -11,9 +11,57 @@ def hash_function(x, table_size):
     x = jnp.bitwise_xor(x, pre_xor[2])
     x %= table_size
     return x
+vector_hash_function = jax.vmap(hash_function, in_axes=(0, None))
 
 def hash_encoding(x):
-    return x
+    num_levels = 16
+    coarsest_resolution = 16
+    finest_resolution = 1024
+    table_size = 2**14
+    hash_table = None
+
+    levels = jnp.arange(num_levels)
+    growth_factor = jnp.exp(
+        (jnp.log(finest_resolution) - jnp.log(coarsest_resolution)) / (num_levels - 1)
+    ) if num_levels > 1 else 1
+    scalings = jnp.floor(coarsest_resolution * growth_factor**levels)
+    scalings = jnp.reshape(scalings, (scalings.shape[0], 1))
+
+    scaled = x * scalings
+    scaled_c = jnp.ceil(scaled).astype(jnp.int32)
+    scaled_f = jnp.floor(scaled).astype(jnp.int32)
+    
+    vertex_0 = scaled_c
+    vertex_1 = jnp.concatenate([scaled_c[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+    vertex_2 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
+    vertex_3 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2], scaled_c[:, 2:3]], axis=-1)
+    vertex_4 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+    vertex_5 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+    vertex_6 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
+    vertex_7 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+
+    hashed_0 = vector_hash_function(vertex_0, table_size)
+    hashed_1 = vector_hash_function(vertex_1, table_size)
+    hashed_2 = vector_hash_function(vertex_2, table_size)
+    hashed_3 = vector_hash_function(vertex_3, table_size)
+    hashed_4 = vector_hash_function(vertex_4, table_size)
+    hashed_5 = vector_hash_function(vertex_5, table_size)
+    hashed_6 = vector_hash_function(vertex_6, table_size)
+    hashed_7 = vector_hash_function(vertex_7, table_size)
+
+    f_0 = hash_table[hashed_0]
+    f_1 = hash_table[hashed_1]
+    f_2 = hash_table[hashed_2]
+    f_3 = hash_table[hashed_3]
+    f_4 = hash_table[hashed_4]
+    f_5 = hash_table[hashed_5]
+    f_6 = hash_table[hashed_6]
+    f_7 = hash_table[hashed_7]
+
+    # Linearly interpolate between the eight features here.
+    # ...
+
+    return f_0
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).

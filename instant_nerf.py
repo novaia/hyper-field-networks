@@ -7,12 +7,11 @@ import jax
 
 def hash_function(x, table_size, hash_offset):
     pre_xor = x * jnp.array([1, 2654435761, 805459861])
-    x = jnp.bitwise_xor(pre_xor[0], pre_xor[1])
-    x = jnp.bitwise_xor(x, pre_xor[2])
+    x = jnp.bitwise_xor(pre_xor[:, 0], pre_xor[:, 1])
+    x = jnp.bitwise_xor(x, pre_xor[:, 2])
     x %= table_size
     x += hash_offset
     return x
-vector_hash_function = jax.vmap(hash_function, in_axes=0)
 
 def hash_encoding(x, hash_table, table_size):
     num_levels = 16
@@ -20,15 +19,13 @@ def hash_encoding(x, hash_table, table_size):
     finest_resolution = 1024
     feature_dim = 2
     spatial_dim = 3
-    # Repeat table_size so it can be passed into vectorized hash function.
-    table_size_repeated = jnp.repeat(table_size, num_levels)
 
     absolute_table_size = table_size * num_levels
     hash_table_key = jax.random.PRNGKey(0)
     hash_table = jax.random.normal(hash_table_key, shape=(feature_dim, absolute_table_size))
 
     levels = jnp.arange(num_levels)
-    hash_offset = jnp.reshape(levels * table_size, (num_levels, 1))
+    hash_offset = levels * table_size
     growth_factor = jnp.exp(
         (jnp.log(finest_resolution) - jnp.log(coarsest_resolution)) / (num_levels - 1)
     ) if num_levels > 1 else 1
@@ -49,23 +46,23 @@ def hash_encoding(x, hash_table, table_size):
     vertex_6 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
     vertex_7 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
 
-    hashed_0 = vector_hash_function(vertex_0, table_size, hash_offset)
-    hashed_1 = vector_hash_function(vertex_1, table_size, hash_offset)
-    hashed_2 = vector_hash_function(vertex_2, table_size, hash_offset)
-    hashed_3 = vector_hash_function(vertex_3, table_size, hash_offset)
-    hashed_4 = vector_hash_function(vertex_4, table_size, hash_offset)
-    hashed_5 = vector_hash_function(vertex_5, table_size, hash_offset)
-    hashed_6 = vector_hash_function(vertex_6, table_size, hash_offset)
-    hashed_7 = vector_hash_function(vertex_7, table_size, hash_offset)
+    hashed_0 = hash_function(vertex_0, table_size, hash_offset)
+    hashed_1 = hash_function(vertex_1, table_size, hash_offset)
+    hashed_2 = hash_function(vertex_2, table_size, hash_offset)
+    hashed_3 = hash_function(vertex_3, table_size, hash_offset)
+    hashed_4 = hash_function(vertex_4, table_size, hash_offset)
+    hashed_5 = hash_function(vertex_5, table_size, hash_offset)
+    hashed_6 = hash_function(vertex_6, table_size, hash_offset)
+    hashed_7 = hash_function(vertex_7, table_size, hash_offset)
 
-    f_0 = hash_table[:, hashed_0[:, 0]]
-    f_1 = hash_table[:, hashed_1[:, 0]]
-    f_2 = hash_table[:, hashed_2[:, 0]]
-    f_3 = hash_table[:, hashed_3[:, 0]]
-    f_4 = hash_table[:, hashed_4[:, 0]]
-    f_5 = hash_table[:, hashed_5[:, 0]]
-    f_6 = hash_table[:, hashed_6[:, 0]]
-    f_7 = hash_table[:, hashed_7[:, 0]]
+    f_0 = hash_table[:, hashed_0]
+    f_1 = hash_table[:, hashed_1]
+    f_2 = hash_table[:, hashed_2]
+    f_3 = hash_table[:, hashed_3]
+    f_4 = hash_table[:, hashed_4]
+    f_5 = hash_table[:, hashed_5]
+    f_6 = hash_table[:, hashed_6]
+    f_7 = hash_table[:, hashed_7]
 
     # Linearly interpolate between all of the features.
     f_03 = f_0 * point_offset[0:1, :] + f_3 * (1 - point_offset[0:1, :])
@@ -79,8 +76,7 @@ def hash_encoding(x, hash_table, table_size):
     encoded_value = f0312 * point_offset[2:3, :] + f4756 * (
         1 - point_offset[2:3, :]
     )
-
-    return encoded_value
+    return jnp.ravel(jnp.transpose(encoded_value))
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).

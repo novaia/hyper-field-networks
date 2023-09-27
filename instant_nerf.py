@@ -25,7 +25,6 @@ def load_images(directory):
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).
 # This is hardcoded because no other order of spherical harmonics is used.
-# TODO: vectorize this with jax.vmap
 def fourth_order_sh_encoding(directions):
     num_components = 16
     # Using np temporarily for the mutable array.
@@ -252,14 +251,9 @@ def train_loop(batch_size, training_steps, state, dataset):
         )
 
         image_indices, width_indices, height_indices = indices
-        real_canvas_width = 2 * dataset.cx
-        virtual_canvas_width = 2 * dataset.canvas_plane * jnp.tan(dataset.half_horizontal_fov)
-        real_canvas_height = 2 * dataset.cy
-        virtual_canvas_height = 2 * dataset.canvas_plane * jnp.tan(dataset.half_vertical_fov)
-        # Create ray components from indices by scaling them from points on the real canvas 
-        # to points on the virtual canvas.
-        x_components = width_indices * (virtual_canvas_width / real_canvas_width)
-        y_components = height_indices * (virtual_canvas_height / real_canvas_height)
+        # Scale from real canvas dimensions to virtual canvas dimensions.
+        x_components = width_indices * dataset.canvas_width_ratio
+        y_components = height_indices * dataset.canvas_height_ratio
         z_components = jnp.repeat(jnp.array([dataset.canvas_plane]), x_components.shape[0])
         w_components = jnp.ones(x_components.shape[0])
         print('x_components shape:', x_components.shape)
@@ -268,6 +262,7 @@ def train_loop(batch_size, training_steps, state, dataset):
         print('w_components shape:', w_components.shape)
         print('transform_matrices shape:', dataset.transform_matrices[image_indices].shape)
         rays = jnp.stack([x_components, y_components, z_components, w_components], axis=-1)
+        # Transform rays from camera space to world space.
         transform_matrices = dataset.transform_matrices[image_indices]
         rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
         print('rays shape:', rays.shape)
@@ -275,8 +270,8 @@ def train_loop(batch_size, training_steps, state, dataset):
 
 @dataclass
 class Dataset:
-    half_horizontal_fov: float
-    half_vertical_fov: float
+    horizontal_fov: float
+    vertical_fov: float
     fl_x: float # Focal length x.
     fl_y: float # Focal length y.
     k1: float # First radial distortion parameter.
@@ -288,17 +283,13 @@ class Dataset:
     w: int # Image width.
     h: int # Image height.
     aabb_scale: int # Scale of scene bounding box.
-    canvas_plane: float = 1.0 # Distance from center of projection to canvas plane.
+    canvas_plane: Optional[float] = 1.0 # Distance from center of projection to canvas plane.
     transform_matrices: Optional[jnp.ndarray] = None
     locations: Optional[jnp.ndarray] = None
     directions: Optional[jnp.ndarray] = None
     images: Optional[jnp.ndarray] = None
-    canvas_height: Optional[float] = None
-    canvas_width: Optional[float] = None
-    canvas_left: Optional[float] = None
-    canvas_right: Optional[float] = None
-    canvas_top: Optional[float] = None
-    canvas_bottom: Optional[float] = None
+    canvas_width_ratio: Optional[float] = None
+    canvas_height_ratio: Optional[float] = None
 
 def load_dataset(path):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -323,8 +314,8 @@ def load_dataset(path):
         images.append(jnp.array(image))
 
     dataset = Dataset(
-        half_horizontal_fov=transforms['camera_angle_x']/2,
-        half_vertical_fov=transforms['camera_angle_y']/2,
+        horizontal_fov=transforms['camera_angle_x'],
+        vertical_fov=transforms['camera_angle_y'],
         fl_x=transforms['fl_x'],
         fl_y=transforms['fl_y'],
         k1=transforms['k1'],
@@ -343,14 +334,12 @@ def load_dataset(path):
         images=jnp.array(images) 
     )
 
-    dataset.canvas_width = dataset.canvas_plane * jnp.tan(dataset.half_horizontal_fov)
-    dataset.canvas_height = dataset.canvas_plane * jnp.tan(dataset.half_vertical_fov)
-    #half_canvas_width = dataset.canvas_plane * jnp.tan(dataset.camera_angle_x / 2)
-    #dataset.canvas_left = -half_canvas_width
-    #dataset.canvas_right = half_canvas_width
-    #half_canvas_height = dataset.canvas_plane * jnp.tan(dataset.camera_angle_y / 2)
-    #dataset.canvas_top = half_canvas_height
-    #dataset.canvas_bottom = -half_canvas_height
+    virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)
+    virtual_canvas_y = dataset.canvas_plane * jnp.tan(dataset.vertical_fov/2)
+    real_canvas_x = dataset.cx
+    real_canvas_y = dataset.cy
+    dataset.canvas_width_ratio = virtual_canvas_x / real_canvas_x
+    dataset.canvas_height_ratio = virtual_canvas_y / real_canvas_y
 
     return dataset
 

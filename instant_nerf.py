@@ -5,95 +5,10 @@ import jax
 import optax
 import json
 import os
+import numpy as np
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
-
-def hash_function(x, table_size, hash_offset):
-    pre_xor = x * jnp.array([1, 2654435761, 805459861])
-    x = jnp.bitwise_xor(pre_xor[:, 0], pre_xor[:, 1])
-    x = jnp.bitwise_xor(x, pre_xor[:, 2])
-    x %= table_size
-    x += hash_offset
-    return x
-
-def hash_encoding(
-    x, 
-    hash_table, 
-    table_size, 
-    num_levels, 
-    min_resolution, 
-    max_resolution, 
-    feature_dim
-):
-    num_levels = 16
-    coarsest_resolution = 16
-    finest_resolution = 1024
-    feature_dim = 2
-    spatial_dim = 3
-
-    absolute_table_size = table_size * num_levels
-    hash_table_key = jax.random.PRNGKey(0)
-    # Feature dim comes first so features can be broadcast for operations with point offset.
-    # Feature shape is (feature_dim, num_levels). 
-    # Point offset shape is (spatial_dim, num_levels).
-    hash_table = jax.random.normal(hash_table_key, shape=(feature_dim, absolute_table_size))
-
-    levels = jnp.arange(num_levels)
-    hash_offset = levels * table_size
-    growth_factor = jnp.exp(
-        (jnp.log(max_resolution) - jnp.log(min_resolution)) / (num_levels - 1)
-    ) if num_levels > 1 else 1
-    scalings = jnp.floor(min_resolution * growth_factor**levels)
-    scalings = jnp.reshape(scalings, (scalings.shape[0], 1))
-
-    scaled = x * scalings
-    scaled_c = jnp.ceil(scaled).astype(jnp.int32)
-    scaled_f = jnp.floor(scaled).astype(jnp.int32)
-    point_offset = jnp.reshape(scaled - scaled_f, (spatial_dim, num_levels))
-    
-    vertex_0 = scaled_c
-    vertex_1 = jnp.concatenate([scaled_c[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
-    vertex_2 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
-    vertex_3 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2], scaled_c[:, 2:3]], axis=-1)
-    vertex_4 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
-    vertex_5 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
-    vertex_6 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
-    vertex_7 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
-
-    hashed_0 = hash_function(vertex_0, table_size, hash_offset)
-    hashed_1 = hash_function(vertex_1, table_size, hash_offset)
-    hashed_2 = hash_function(vertex_2, table_size, hash_offset)
-    hashed_3 = hash_function(vertex_3, table_size, hash_offset)
-    hashed_4 = hash_function(vertex_4, table_size, hash_offset)
-    hashed_5 = hash_function(vertex_5, table_size, hash_offset)
-    hashed_6 = hash_function(vertex_6, table_size, hash_offset)
-    hashed_7 = hash_function(vertex_7, table_size, hash_offset)
-
-    f_0 = hash_table[:, hashed_0]
-    f_1 = hash_table[:, hashed_1]
-    f_2 = hash_table[:, hashed_2]
-    f_3 = hash_table[:, hashed_3]
-    f_4 = hash_table[:, hashed_4]
-    f_5 = hash_table[:, hashed_5]
-    f_6 = hash_table[:, hashed_6]
-    f_7 = hash_table[:, hashed_7]
-
-    # Linearly interpolate between all of the features.
-    f_03 = f_0 * point_offset[0:1, :] + f_3 * (1 - point_offset[0:1, :])
-    f_12 = f_1 * point_offset[0:1, :] + f_2 * (1 - point_offset[0:1, :])
-    f_56 = f_5 * point_offset[0:1, :] + f_6 * (1 - point_offset[0:1, :])
-    f_47 = f_4 * point_offset[0:1, :] + f_7 * (1 - point_offset[0:1, :])
-
-    f0312 = f_03 * point_offset[1:2, :] + f_12 * (1 - point_offset[1:2, :])
-    f4756 = f_47 * point_offset[1:2, :] + f_56 * (1 - point_offset[1:2, :])
-
-    encoded_value = f0312 * point_offset[2:3, :] + f4756 * (
-        1 - point_offset[2:3, :]
-    )
-    # Transpose so that features are contiguous.
-    # i.e. [[f_0_x, f_0_y], [f_1_x, f_2_y], ...]
-    return jnp.ravel(jnp.transpose(encoded_value))
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -101,7 +16,9 @@ def hash_encoding(
 # TODO: vectorize this with jax.vmap
 def fourth_order_sh_encoding(directions):
     num_components = 16
-    components = jnp.zeros(directions.shape[-1], num_components)
+    # Using np temporarily for the mutable array.
+    # Need to figure out how to do the component calculation with jnp immutable array.
+    components = np.zeros((directions.shape[-1], num_components))
 
     x = directions[..., 0]
     y = directions[..., 1]
@@ -148,12 +65,93 @@ def render_volume(positions, directions, deltas, state):
     rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors)
     return rendered_color
 
-class DensityMLP(nn.Module):
-    width: int
+class MultiResolutionHashEncoding(nn.Module):
+    table_init_key: jax.random.PRNGKey
+    table_size: int
+    num_levels: int
+    min_resolution: int
+    max_resolution: int
+    feature_dim: int
 
-    def __call__(self, x):
+    def setup(self):
+        self.levels = jnp.arange(self.num_levels)
+        self.hash_offset = self.levels * self.table_size
+        self.spatial_dim = 3
+        if self.num_levels > 1:
+            self.growth_factor = jnp.exp(
+                (jnp.log(self.max_resolution) - jnp.log(self.min_resolution)) 
+                / (self.num_levels - 1)
+            )
+        else:
+            self.growth_factor = 1
+        self.scalings = jnp.floor(self.min_resolution * self.growth_factor**self.levels)
+        self.scalings = jnp.reshape(self.scalings, (self.scalings.shape[0], 1))
+        absolute_table_size = self.table_size * self.num_levels
+        # Feature dim comes first so features can be broadcast with point offset.
+        # Feature shape is (feature_dim, num_levels). 
+        # Point offset shape is (spatial_dim, num_levels).
+        self.hash_table = jax.random.normal(
+            self.table_init_key, 
+            shape=(self.feature_dim, absolute_table_size)
+        )
 
+    def hash_function(self, x, table_size, hash_offset):
+        pre_xor = x * jnp.array([1, 2654435761, 805459861])
+        x = jnp.bitwise_xor(pre_xor[:, 0], pre_xor[:, 1])
+        x = jnp.bitwise_xor(x, pre_xor[:, 2])
+        x %= table_size
+        x += hash_offset
         return x
+    
+    def __call__(self, x):
+        scaled = x * self.scalings
+        scaled_c = jnp.ceil(scaled).astype(jnp.int32)
+        scaled_f = jnp.floor(scaled).astype(jnp.int32)
+        point_offset = jnp.reshape(scaled - scaled_f, (self.spatial_dim, self.num_levels))
+        
+        vertex_0 = scaled_c
+        vertex_1 = jnp.concatenate([scaled_c[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+        vertex_2 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
+        vertex_3 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2], scaled_c[:, 2:3]], axis=-1)
+        vertex_4 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+        vertex_5 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+        vertex_6 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_c[:, 2:3]], axis=-1)
+        vertex_7 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2], scaled_f[:, 2:3]], axis=-1)
+
+        hashed_0 = self.hash_function(vertex_0, self.table_size, self.hash_offset)
+        hashed_1 = self.hash_function(vertex_1, self.table_size, self.hash_offset)
+        hashed_2 = self.hash_function(vertex_2, self.table_size, self.hash_offset)
+        hashed_3 = self.hash_function(vertex_3, self.table_size, self.hash_offset)
+        hashed_4 = self.hash_function(vertex_4, self.table_size, self.hash_offset)
+        hashed_5 = self.hash_function(vertex_5, self.table_size, self.hash_offset)
+        hashed_6 = self.hash_function(vertex_6, self.table_size, self.hash_offset)
+        hashed_7 = self.hash_function(vertex_7, self.table_size, self.hash_offset)
+
+        f_0 = self.hash_table[:, hashed_0]
+        f_1 = self.hash_table[:, hashed_1]
+        f_2 = self.hash_table[:, hashed_2]
+        f_3 = self.hash_table[:, hashed_3]
+        f_4 = self.hash_table[:, hashed_4]
+        f_5 = self.hash_table[:, hashed_5]
+        f_6 = self.hash_table[:, hashed_6]
+        f_7 = self.hash_table[:, hashed_7]
+
+        # Linearly interpolate between all of the features.
+        f_03 = f_0 * point_offset[0:1, :] + f_3 * (1 - point_offset[0:1, :])
+        f_12 = f_1 * point_offset[0:1, :] + f_2 * (1 - point_offset[0:1, :])
+        f_56 = f_5 * point_offset[0:1, :] + f_6 * (1 - point_offset[0:1, :])
+        f_47 = f_4 * point_offset[0:1, :] + f_7 * (1 - point_offset[0:1, :])
+
+        f0312 = f_03 * point_offset[1:2, :] + f_12 * (1 - point_offset[1:2, :])
+        f4756 = f_47 * point_offset[1:2, :] + f_56 * (1 - point_offset[1:2, :])
+
+        encoded_value = f0312 * point_offset[2:3, :] + f4756 * (
+            1 - point_offset[2:3, :]
+        )
+        # Transpose so that features are contiguous.
+        # i.e. [[f_0_x, f_0_y], [f_1_x, f_2_y], ...]
+        # Then ravel to get the entire encoding.
+        return jnp.ravel(jnp.transpose(encoded_value))
 
 class InstantNerf(nn.Module):
     hash_table_init_rng: jax.random.PRNGKey
@@ -162,39 +160,30 @@ class InstantNerf(nn.Module):
     hash_table_feature_dim: int # Corresponds to F in the paper.
     coarsest_resolution: int # Corresponds to N_min in the paper.
     finest_resolution: int # Corresponds to N_max in the paper.
-
     density_mlp_width: int
     color_mlp_width: int
     high_dynamic_range: bool
 
-    def setup(self):
-        absolute_hash_table_size = self.max_hash_table_entries * self.number_of_grid_levels
-        self.hash_table = jax.random.normal(
-            self.hash_table_init_rng, 
-            shape=(
-                absolute_hash_table_size, self.hash_table_feature_dim
-            )
-        )
-
     @nn.compact
     def __call__(self, x):
         position, direction = x
-        encoded_position = hash_encoding(
-            x=position,
-            hash_table=self.hash_table,
+        encoded_position = MultiResolutionHashEncoding(
+            table_init_key=self.hash_table_init_rng,
             table_size=self.max_hash_table_entries,
             num_levels=self.number_of_grid_levels,
             min_resolution=self.coarsest_resolution,
             max_resolution=self.finest_resolution,
             feature_dim=self.hash_table_feature_dim
-        )
+        )(position)
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
         density = nn.Dense(16)(x)
 
         encoded_direction = fourth_order_sh_encoding(direction)
-        x = jax.concatenate([density, encoded_direction], axis=0)
+        # Encoded_direction is currently 3x16 but I'm not sure if it is supposed to be.
+        # For now I'm just going to ravel it to 48x1 so it can be concatenated with density.
+        x = jnp.concatenate([density, jnp.ravel(encoded_direction)], axis=0)
         x = nn.Dense(self.color_mlp_width)(x)
         x = nn.activation.relu(x)
         x = nn.Dense(self.color_mlp_width)(x)

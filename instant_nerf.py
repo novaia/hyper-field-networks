@@ -12,15 +12,6 @@ from dataclasses import dataclass
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
-def load_images(directory):
-    images = []
-    for file in os.listdir(directory):
-        if file.endswith('.png'):
-            image = Image.open(os.path.join(directory, file))
-            image = jax.numpy.array(image)
-            images.append(image)
-    images = jax.numpy.stack(images)
-    return images
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -348,8 +339,8 @@ if __name__ == '__main__':
 
     dataset_path = 'data/generation_0'
     dataset = load_dataset(dataset_path)
-    #print(dataset.camera_angle_x)
-    #print(dataset.camera_angle_y)
+    print(dataset.horizontal_fov)
+    print(dataset.vertical_fov)
     print(dataset.fl_x)
     print(dataset.fl_y)
     print(dataset.k1)

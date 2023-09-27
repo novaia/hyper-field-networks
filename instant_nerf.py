@@ -252,34 +252,53 @@ def train_loop(batch_size, training_steps, state, dataset):
         )
 
         image_indices, width_indices, height_indices = indices
-        camera_locations = dataset.locations[image_indices]
-        camera_directions = dataset.directions[image_indices]
-
-        # Get the camera positions and directions from image indices.
-        # Get the ray directions from camera directions and pixel indices.
-        # Sample rays.
-
-        ray_samples = None
-        #density, color = state.apply_fn(ray_samples)
+        real_canvas_width = 2 * dataset.cx
+        virtual_canvas_width = 2 * dataset.canvas_plane * jnp.tan(dataset.half_horizontal_fov)
+        real_canvas_height = 2 * dataset.cy
+        virtual_canvas_height = 2 * dataset.canvas_plane * jnp.tan(dataset.half_vertical_fov)
+        # Create ray components from indices by scaling them from points on the real canvas 
+        # to points on the virtual canvas.
+        x_components = width_indices * (virtual_canvas_width / real_canvas_width)
+        y_components = height_indices * (virtual_canvas_height / real_canvas_height)
+        z_components = jnp.repeat(jnp.array([dataset.canvas_plane]), x_components.shape[0])
+        w_components = jnp.ones(x_components.shape[0])
+        print('x_components shape:', x_components.shape)
+        print('y_components shape:', y_components.shape)
+        print('z_components shape:', z_components.shape)
+        print('w_components shape:', w_components.shape)
+        print('transform_matrices shape:', dataset.transform_matrices[image_indices].shape)
+        rays = jnp.stack([x_components, y_components, z_components, w_components], axis=-1)
+        transform_matrices = dataset.transform_matrices[image_indices]
+        rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
+        print('rays shape:', rays.shape)
+        break
 
 @dataclass
 class Dataset:
-    camera_angle_x: float
-    camera_angle_y: float
-    fl_x: float
-    fl_y: float
-    k1: float
-    k2: float
-    p1: float
-    p2: float
-    cx: float
-    cy: float
-    w: int
-    h: int
-    aabb_scale: int
+    half_horizontal_fov: float
+    half_vertical_fov: float
+    fl_x: float # Focal length x.
+    fl_y: float # Focal length y.
+    k1: float # First radial distortion parameter.
+    k2: float # Second radial distortion parameter.
+    p1: float # Third radial distortion parameter.
+    p2: float # Fourth radial distortion parameter.
+    cx: float # Principal point x.
+    cy: float # Principal point y.
+    w: int # Image width.
+    h: int # Image height.
+    aabb_scale: int # Scale of scene bounding box.
+    canvas_plane: float = 1.0 # Distance from center of projection to canvas plane.
+    transform_matrices: Optional[jnp.ndarray] = None
     locations: Optional[jnp.ndarray] = None
     directions: Optional[jnp.ndarray] = None
     images: Optional[jnp.ndarray] = None
+    canvas_height: Optional[float] = None
+    canvas_width: Optional[float] = None
+    canvas_left: Optional[float] = None
+    canvas_right: Optional[float] = None
+    canvas_top: Optional[float] = None
+    canvas_bottom: Optional[float] = None
 
 def load_dataset(path):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -288,10 +307,14 @@ def load_dataset(path):
     locations = []
     directions = []
     images = []
+    transform_matrices = []
     for frame in transforms['frames']:
         # Locations and directions can probably be precomputed for all datasets.
         # I don't know why Instant NGP doesn't do this.
+        # A: probably because they don't extract locations and directions, and instead
+        # use the transform matrix to move the camera space rays into world space.
         transform_matrix = jnp.array(frame['transform_matrix'])
+        transform_matrices.append(transform_matrix)
         rotation_scale_matrix = transform_matrix[:3, :3]
         rotation_matrix = rotation_scale_matrix / jnp.linalg.norm(rotation_scale_matrix)
         directions.append(jnp.sum(rotation_matrix, axis=1))
@@ -300,8 +323,8 @@ def load_dataset(path):
         images.append(jnp.array(image))
 
     dataset = Dataset(
-        camera_angle_x=transforms['camera_angle_x'],
-        camera_angle_y=transforms['camera_angle_y'],
+        half_horizontal_fov=transforms['camera_angle_x']/2,
+        half_vertical_fov=transforms['camera_angle_y']/2,
         fl_x=transforms['fl_x'],
         fl_y=transforms['fl_y'],
         k1=transforms['k1'],
@@ -313,10 +336,22 @@ def load_dataset(path):
         w=transforms['w'],
         h=transforms['h'],
         aabb_scale=transforms['aabb_scale'],
+        canvas_plane=1.0,
+        transform_matrices=jnp.array(transform_matrices),
         locations=jnp.array(locations),
         directions=jnp.array(directions),
         images=jnp.array(images) 
     )
+
+    dataset.canvas_width = dataset.canvas_plane * jnp.tan(dataset.half_horizontal_fov)
+    dataset.canvas_height = dataset.canvas_plane * jnp.tan(dataset.half_vertical_fov)
+    #half_canvas_width = dataset.canvas_plane * jnp.tan(dataset.camera_angle_x / 2)
+    #dataset.canvas_left = -half_canvas_width
+    #dataset.canvas_right = half_canvas_width
+    #half_canvas_height = dataset.canvas_plane * jnp.tan(dataset.camera_angle_y / 2)
+    #dataset.canvas_top = half_canvas_height
+    #dataset.canvas_bottom = -half_canvas_height
+
     return dataset
 
 if __name__ == '__main__':
@@ -324,8 +359,8 @@ if __name__ == '__main__':
 
     dataset_path = 'data/generation_0'
     dataset = load_dataset(dataset_path)
-    print(dataset.camera_angle_x)
-    print(dataset.camera_angle_y)
+    #print(dataset.camera_angle_x)
+    #print(dataset.camera_angle_y)
     print(dataset.fl_x)
     print(dataset.fl_y)
     print(dataset.k1)

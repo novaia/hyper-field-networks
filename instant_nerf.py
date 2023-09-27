@@ -7,8 +7,8 @@ import json
 import os
 import numpy as np
 from PIL import Image
-from dataclasses import dataclass
 from typing import Optional
+from dataclasses import dataclass
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
@@ -239,24 +239,21 @@ def sample_pixels(num_samples, image_width, image_height, num_images, rng, image
     indices = (image_indices, width_indices, height_indices)
     return pixel_samples, indices 
 
-def train_loop(batch_size, training_steps, images, state, transforms):
+def train_loop(batch_size, training_steps, state, dataset):
     for step in range(training_steps):
         rng = jax.random.PRNGKey(step)
         pixels, indices = sample_pixels(
             num_samples=batch_size, 
-            image_width=images.shape[1], 
-            image_height=images.shape[2], 
-            num_images=images.shape[0], 
+            image_width=dataset.w, 
+            image_height=dataset.h, 
+            num_images=dataset.images.shape[0], 
             rng=rng, 
-            images=images
+            images=dataset.images
         )
 
         image_indices, width_indices, height_indices = indices
-        # This assumes that the indices of the images and transforms are the same.
-        x_locations = transforms['frames'][image_indices]['transform_matrix'][0, 3]
-        y_locations = transforms['frames'][image_indices]['transform_matrix'][1, 3]
-        z_locations = transforms['frames'][image_indices]['transform_matrix'][2, 3]
-        print(x_locations.shape)
+        camera_locations = dataset.locations[image_indices]
+        camera_directions = dataset.directions[image_indices]
 
         # Get the camera positions and directions from image indices.
         # Get the ray directions from camera directions and pixel indices.
@@ -264,13 +261,6 @@ def train_loop(batch_size, training_steps, images, state, transforms):
 
         ray_samples = None
         #density, color = state.apply_fn(ray_samples)
-
-def extract_frame_data(frame):
-    transform_matrix = frame['transform_matrix']
-    x_location = transform_matrix[0, 3]
-    y_location = transform_matrix[1, 3]
-    z_location = transform_matrix[2, 3]
-    return [x_location, y_location, z_location]
 
 @dataclass
 class Dataset:
@@ -334,28 +324,22 @@ if __name__ == '__main__':
 
     dataset_path = 'data/generation_0'
     dataset = load_dataset(dataset_path)
+    print(dataset.camera_angle_x)
+    print(dataset.camera_angle_y)
+    print(dataset.fl_x)
+    print(dataset.fl_y)
+    print(dataset.k1)
+    print(dataset.k2)
+    print(dataset.p1)
+    print(dataset.p2)
+    print(dataset.cx)
+    print(dataset.cy)
+    print(dataset.w)
+    print(dataset.h)
+    print(dataset.aabb_scale)
     print('Locations shape:', dataset.locations.shape)
     print('Directions shape:', dataset.directions.shape)
     print('Images shape:', dataset.images.shape)
-    
-    '''
-    with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
-        transforms = json.load(f)
-    print('Camera Intrinsics:')
-    print(transforms['camera_angle_x'])
-    print(transforms['camera_angle_y'])
-    print(transforms['fl_x'])
-    print(transforms['fl_y'])
-    print(transforms['k1'])
-    print(transforms['k2'])
-    print(transforms['p1'])
-    print(transforms['p2'])
-    print(transforms['cx'])
-    print(transforms['cy'])
-    print(transforms['w'])
-    print(transforms['h'])
-    print(transforms['aabb_scale'])
-    images = load_images(dataset_path)
 
     model = InstantNerf(
         hash_table_init_rng=jax.random.PRNGKey(0),
@@ -373,8 +357,6 @@ if __name__ == '__main__':
     train_loop(
         batch_size=1000, 
         training_steps=1000, 
-        images=images, 
         state=state, 
-        transforms=transforms
+        dataset=dataset
     )
-    '''

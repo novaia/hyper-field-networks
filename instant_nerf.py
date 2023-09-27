@@ -7,6 +7,8 @@ import json
 import os
 import numpy as np
 from PIL import Image
+from dataclasses import dataclass
+from typing import Optional
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
@@ -270,31 +272,71 @@ def extract_frame_data(frame):
     z_location = transform_matrix[2, 3]
     return [x_location, y_location, z_location]
 
+@dataclass
+class Dataset:
+    camera_angle_x: float
+    camera_angle_y: float
+    fl_x: float
+    fl_y: float
+    k1: float
+    k2: float
+    p1: float
+    p2: float
+    cx: float
+    cy: float
+    w: int
+    h: int
+    aabb_scale: int
+    locations: Optional[jnp.ndarray] = None
+    directions: Optional[jnp.ndarray] = None
+    images: Optional[jnp.ndarray] = None
+
 def load_dataset(path):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
     locations = []
-    local_axes = []
+    directions = []
+    images = []
     for frame in transforms['frames']:
+        # Locations and directions can probably be precomputed for all datasets.
+        # I don't know why Instant NGP doesn't do this.
         transform_matrix = jnp.array(frame['transform_matrix'])
         rotation_scale_matrix = transform_matrix[:3, :3]
         rotation_matrix = rotation_scale_matrix / jnp.linalg.norm(rotation_scale_matrix)
-        local_axes.append(jnp.transpose(rotation_matrix))
-        x_location = transform_matrix[0, 3]
-        y_location = transform_matrix[1, 3]
-        z_location = transform_matrix[2, 3]
-        locations.append([x_location, y_location, z_location])
-    locations = jnp.array(locations)
-    local_axes = jnp.array(local_axes)
-    print('locations shape:', locations.shape)
-    print('local axes shape:', local_axes.shape)
+        directions.append(jnp.sum(rotation_matrix, axis=1))
+        locations.append(transform_matrix[:3, 3])
+        image = Image.open(os.path.join(path, frame['file_path']))
+        images.append(jnp.array(image))
+
+    dataset = Dataset(
+        camera_angle_x=transforms['camera_angle_x'],
+        camera_angle_y=transforms['camera_angle_y'],
+        fl_x=transforms['fl_x'],
+        fl_y=transforms['fl_y'],
+        k1=transforms['k1'],
+        k2=transforms['k2'],
+        p1=transforms['p1'],
+        p2=transforms['p2'],
+        cx=transforms['cx'],
+        cy=transforms['cy'],
+        w=transforms['w'],
+        h=transforms['h'],
+        aabb_scale=transforms['aabb_scale'],
+        locations=jnp.array(locations),
+        directions=jnp.array(directions),
+        images=jnp.array(images) 
+    )
+    return dataset
 
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generation_0'
-    load_dataset(dataset_path)
+    dataset = load_dataset(dataset_path)
+    print('Locations shape:', dataset.locations.shape)
+    print('Directions shape:', dataset.directions.shape)
+    print('Images shape:', dataset.images.shape)
     
     '''
     with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:

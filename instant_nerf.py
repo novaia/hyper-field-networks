@@ -6,9 +6,19 @@ import optax
 import json
 import os
 import numpy as np
+from PIL import Image
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
+def load_images(directory):
+    images = []
+    for file in os.listdir(directory):
+        if file.endswith('.png'):
+            image = Image.open(os.path.join(directory, file))
+            image = jax.numpy.array(image)
+            images.append(image)
+    images = jax.numpy.stack(images)
+    return images
 
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -178,12 +188,13 @@ class InstantNerf(nn.Module):
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
-        density = nn.Dense(16)(x)
+        density_output = nn.Dense(16)(x)
+        density = density_output[0]
 
         encoded_direction = fourth_order_sh_encoding(direction)
         # Encoded_direction is currently 3x16 but I'm not sure if it is supposed to be.
         # For now I'm just going to ravel it to 48x1 so it can be concatenated with density.
-        x = jnp.concatenate([density, jnp.ravel(encoded_direction)], axis=0)
+        x = jnp.concatenate([density_output, jnp.ravel(encoded_direction)], axis=0)
         x = nn.Dense(self.color_mlp_width)(x)
         x = nn.activation.relu(x)
         x = nn.Dense(self.color_mlp_width)(x)
@@ -211,10 +222,50 @@ def create_train_state(model, rng, learning_rate):
     )
     return ts
 
-def train_loop(state):
-    pass
+def sample_pixels(num_samples, image_width, image_height, num_images, rng, images):
+    width_rng, height_rng, image_rng = jax.random.split(rng, num=3) 
+    width_indices = jax.random.randint(
+        width_rng, shape=(num_samples,), minval=0, maxval=image_width
+    )
+    height_indices = jax.random.randint(
+        height_rng, shape=(num_samples,), minval=0, maxval=image_height
+    )
+    image_indices = jax.random.randint(
+        image_rng, shape=(num_samples,), minval=0, maxval=num_images
+    )
+    pixel_samples = images[image_indices, width_indices, height_indices]
+    indices = (image_indices, width_indices, height_indices)
+    return pixel_samples, indices 
+
+def train_loop(batch_size, training_steps, images, state, transforms):
+    for step in range(training_steps):
+        rng = jax.random.PRNGKey(step)
+        pixels, indices = sample_pixels(
+            num_samples=batch_size, 
+            image_width=images.shape[1], 
+            image_height=images.shape[2], 
+            num_images=images.shape[0], 
+            rng=rng, 
+            images=images
+        )
+
+        image_indices, width_indices, height_indices = indices
+        # This assumes that the indices of the images and transforms are the same.
+        x_locations = transforms['frames'][image_indices]['transform_matrix'][0, 3]
+        y_locations = transforms['frames'][image_indices]['transform_matrix'][1, 3]
+        z_locations = transforms['frames'][image_indices]['transform_matrix'][2, 3]
+        print(x_locations.shape)
+
+        # Get the camera positions and directions from image indices.
+        # Get the ray directions from camera directions and pixel indices.
+        # Sample rays.
+
+        ray_samples = None
+        #density, color = state.apply_fn(ray_samples)
 
 if __name__ == '__main__':
+    print('GPU:', jax.devices('gpu'))
+
     dataset_path = 'data/generation_0'
     with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
@@ -232,6 +283,7 @@ if __name__ == '__main__':
     print(transforms['w'])
     print(transforms['h'])
     print(transforms['aabb_scale'])
+    images = load_images(dataset_path)
 
     model = InstantNerf(
         hash_table_init_rng=jax.random.PRNGKey(0),
@@ -246,23 +298,10 @@ if __name__ == '__main__':
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-4)
-    train_loop(state)
-
-'''
-To construct a batch we randomly sample pixels from our training set.
-Then we cast a ray through all of these pixels and sample N points along each ray.
-'''
-
-def sample_pixels(num_samples, image_width, image_height, num_images, rng, images):
-    width_rng, height_rng, image_rng = jax.random.split(rng, num=3) 
-    width_index = jax.random.randint(
-        width_rng, shape=(num_samples,), minval=0, maxval=image_width
+    train_loop(
+        batch_size=1000, 
+        training_steps=1000, 
+        images=images, 
+        state=state, 
+        transforms=transforms
     )
-    height_index = jax.random.randint(
-        height_rng, shape=(num_samples,), minval=0, maxval=image_height
-    )
-    image_index = jax.random.randint(
-        image_rng, shape=(num_samples,), minval=0, maxval=num_images
-    )
-    indices = jnp.transpose(jnp.concatenate([image_index, width_index, height_index]))
-    print(indices)

@@ -2,3 +2,4 @@ jupyterlab==4.0.5
 flax==0.7.2
 keras==2.13.1
 tensorflow==2.13.0
+pillow==10.0.1

@@ -263,10 +263,40 @@ def train_loop(batch_size, training_steps, images, state, transforms):
         ray_samples = None
         #density, color = state.apply_fn(ray_samples)
 
+def extract_frame_data(frame):
+    transform_matrix = frame['transform_matrix']
+    x_location = transform_matrix[0, 3]
+    y_location = transform_matrix[1, 3]
+    z_location = transform_matrix[2, 3]
+    return [x_location, y_location, z_location]
+
+def load_dataset(path):
+    with open(os.path.join(path, 'transforms.json'), 'r') as f:
+        transforms = json.load(f)
+
+    locations = []
+    local_axes = []
+    for frame in transforms['frames']:
+        transform_matrix = jnp.array(frame['transform_matrix'])
+        rotation_scale_matrix = transform_matrix[:3, :3]
+        rotation_matrix = rotation_scale_matrix / jnp.linalg.norm(rotation_scale_matrix)
+        local_axes.append(jnp.transpose(rotation_matrix))
+        x_location = transform_matrix[0, 3]
+        y_location = transform_matrix[1, 3]
+        z_location = transform_matrix[2, 3]
+        locations.append([x_location, y_location, z_location])
+    locations = jnp.array(locations)
+    local_axes = jnp.array(local_axes)
+    print('locations shape:', locations.shape)
+    print('local axes shape:', local_axes.shape)
+
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generation_0'
+    load_dataset(dataset_path)
+    
+    '''
     with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
     print('Camera Intrinsics:')
@@ -305,3 +335,4 @@ if __name__ == '__main__':
         state=state, 
         transforms=transforms
     )
+    '''

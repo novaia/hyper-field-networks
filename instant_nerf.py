@@ -278,7 +278,6 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
         batch_size=batch_size, 
         num_samples=num_ray_samples
     )
-    print(ray_scales.shape)
 
     for step in range(training_steps):
         rng = jax.random.PRNGKey(step)
@@ -309,8 +308,10 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
 
         # Transform rays from camera space to world space.
         transform_matrices = dataset.transform_matrices[image_indices]
-        rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
-        print('rays shape:', rays.shape)
+        # Map both inputs over batch dimenension, then map rays over sample dimension.
+        transform = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
+        rays = transform(transform_matrices, rays)
+        print('Rays shape:', rays.shape)
         break
 
 def load_dataset(path:str):

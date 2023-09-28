@@ -8,7 +8,7 @@ import json
 import os
 import numpy as np
 from PIL import Image
-from typing import Optional, Tuple
+from typing import Optional
 from dataclasses import dataclass
 
 # This is an implementation of the NeRF from the paper:
@@ -271,11 +271,12 @@ def get_ray_scales(ray_near:float, ray_far:float, batch_size:int, num_samples:in
     return ray_scales
 
 def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dataset):
+    num_ray_samples = 64
     ray_scales = get_ray_scales(
         ray_near=dataset.canvas_plane, 
         ray_far=40.0, 
         batch_size=batch_size, 
-        num_samples=64
+        num_samples=num_ray_samples
     )
     print(ray_scales.shape)
 
@@ -292,21 +293,23 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
 
         image_indices, width_indices, height_indices = indices
         # Scale from real canvas dimensions to virtual canvas dimensions.
-        x_components = width_indices * dataset.canvas_width_ratio
-        y_components = height_indices * dataset.canvas_height_ratio
-        z_components = jnp.repeat(jnp.array([dataset.canvas_plane]), x_components.shape[0])
-        w_components = jnp.ones(x_components.shape[0])
-        print('x_components shape:', x_components.shape)
-        print('y_components shape:', y_components.shape)
-        print('z_components shape:', z_components.shape)
-        print('w_components shape:', w_components.shape)
-        print('transform_matrices shape:', dataset.transform_matrices[image_indices].shape)
-        #rays = jnp.stack([x_components, y_components, z_components, w_components], axis=-1)
-        rays = jnp.stack([x_components, y_components, z_components], axis=-1)
+        rays_x = width_indices * dataset.canvas_width_ratio
+        rays_y = height_indices * dataset.canvas_height_ratio
+        rays_z = jnp.repeat(jnp.array([dataset.canvas_plane]), rays_x.shape[0])
+        
+        # Repeat rays along a new axis and then scale them to get samples at different points.
+        rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
+        rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
+        rays = rays * ray_scales
+
+        # Convert rays to homogenous coordinates by adding w = 1 component.
+        rays_w = jnp.ones((num_ray_samples, 1))
+        concat_w = jax.vmap(lambda r, w: jnp.concatenate([r, w], axis=-1), in_axes=(0, None))
+        rays = concat_w(rays, rays_w)
 
         # Transform rays from camera space to world space.
-        #transform_matrices = dataset.transform_matrices[image_indices]
-        #rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
+        transform_matrices = dataset.transform_matrices[image_indices]
+        rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
         print('rays shape:', rays.shape)
         break
 

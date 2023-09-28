@@ -1,22 +1,46 @@
 import flax.linen as nn
-from flax.training import train_state
+from flax.training.train_state import TrainState
 import jax.numpy as jnp
 import jax
+from jax.random import PRNGKeyArray
 import optax
 import json
 import os
 import numpy as np
 from PIL import Image
-from typing import Optional
+from typing import Optional, Tuple
 from dataclasses import dataclass
 
 # This is an implementation of the NeRF from the paper:
 # "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
 
+@dataclass
+class Dataset:
+    horizontal_fov: float
+    vertical_fov: float
+    fl_x: float # Focal length x.
+    fl_y: float # Focal length y.
+    k1: float # First radial distortion parameter.
+    k2: float # Second radial distortion parameter.
+    p1: float # Third radial distortion parameter.
+    p2: float # Fourth radial distortion parameter.
+    cx: float # Principal point x.
+    cy: float # Principal point y.
+    w: int # Image width.
+    h: int # Image height.
+    aabb_scale: int # Scale of scene bounding box.
+    canvas_plane: Optional[float] = 1.0 # Distance from center of projection to canvas plane.
+    transform_matrices: Optional[jnp.ndarray] = None
+    locations: Optional[jnp.ndarray] = None
+    directions: Optional[jnp.ndarray] = None
+    images: Optional[jnp.ndarray] = None
+    canvas_width_ratio: Optional[float] = None
+    canvas_height_ratio: Optional[float] = None
+
 # Calculates the fourth order spherical harmonic encoding for the given directions.
 # The order is always 4, so num_components is always 16 (order^2).
 # This is hardcoded because no other order of spherical harmonics is used.
-def fourth_order_sh_encoding(directions):
+def fourth_order_sh_encoding(directions:jnp.ndarray):
     num_components = 16
     # Using np temporarily for the mutable array.
     # Need to figure out how to do the component calculation with jnp immutable array.
@@ -52,7 +76,9 @@ def fourth_order_sh_encoding(directions):
 
     return components
 
-def render_volume(positions, directions, deltas, state):
+def render_volume(
+    positions:jnp.ndarray, directions:jnp.ndarray, deltas:jnp.ndarray, state:TrainState
+):
     assertion_text = 'Positions, directions, and deltas must have the same shape.'
     assert positions.shape == directions.shape == deltas.shape, assertion_text
     densities, colors = state.apply_fn((positions, directions))
@@ -68,7 +94,7 @@ def render_volume(positions, directions, deltas, state):
     return rendered_color
 
 class MultiResolutionHashEncoding(nn.Module):
-    table_init_key: jax.random.PRNGKey
+    table_init_key: PRNGKeyArray
     table_size: int
     num_levels: int
     min_resolution: int
@@ -97,7 +123,7 @@ class MultiResolutionHashEncoding(nn.Module):
             shape=(self.feature_dim, absolute_table_size)
         )
 
-    def hash_function(self, x, table_size, hash_offset):
+    def hash_function(self, x:jnp.ndarray, table_size:int, hash_offset:jnp.ndarray):
         pre_xor = x * jnp.array([1, 2654435761, 805459861])
         x = jnp.bitwise_xor(pre_xor[:, 0], pre_xor[:, 1])
         x = jnp.bitwise_xor(x, pre_xor[:, 2])
@@ -105,7 +131,7 @@ class MultiResolutionHashEncoding(nn.Module):
         x += hash_offset
         return x
     
-    def __call__(self, x):
+    def __call__(self, x:jnp.ndarray):
         scaled = x * self.scalings
         scaled_c = jnp.ceil(scaled).astype(jnp.int32)
         scaled_f = jnp.floor(scaled).astype(jnp.int32)
@@ -156,7 +182,7 @@ class MultiResolutionHashEncoding(nn.Module):
         return jnp.ravel(jnp.transpose(encoded_value))
 
 class InstantNerf(nn.Module):
-    hash_table_init_rng: jax.random.PRNGKey
+    hash_table_init_rng: PRNGKeyArray
     number_of_grid_levels: int # Corresponds to L in the paper.
     max_hash_table_entries: int # Corresponds to T in the paper.
     hash_table_feature_dim: int # Corresponds to F in the paper.
@@ -202,19 +228,26 @@ class InstantNerf(nn.Module):
 
         return density, color
 
-def create_train_state(model, rng, learning_rate):
+def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float):
     x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
     tx = optax.adam(learning_rate)
-    ts = train_state.TrainState.create(
+    ts = TrainState.create(
         apply_fn=model.apply,
         params=params,
         tx=tx
     )
     return ts
 
-def sample_pixels(num_samples, image_width, image_height, num_images, rng, images):
+def sample_pixels(
+    num_samples:int, 
+    image_width:int, 
+    image_height:int, 
+    num_images:int, 
+    images:jnp.ndarray,
+    rng:PRNGKeyArray
+):
     width_rng, height_rng, image_rng = jax.random.split(rng, num=3) 
     width_indices = jax.random.randint(
         width_rng, shape=(num_samples,), minval=0, maxval=image_width
@@ -229,7 +262,23 @@ def sample_pixels(num_samples, image_width, image_height, num_images, rng, image
     indices = (image_indices, width_indices, height_indices)
     return pixel_samples, indices 
 
-def train_loop(batch_size, training_steps, state, dataset):
+def get_ray_scales(ray_near:float, ray_far:float, batch_size:int, num_samples:int):
+    ray_scales = jnp.linspace(ray_near, ray_far, num_samples)
+    # (1, num_ray_samples, 1)
+    ray_scales = jnp.expand_dims(ray_scales, axis=(0, -1))
+    # (batch_size, num_ray_samples, 3)
+    ray_scales = jnp.repeat(jnp.repeat(ray_scales, 3, axis=-1), batch_size, axis=0)
+    return ray_scales
+
+def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dataset):
+    ray_scales = get_ray_scales(
+        ray_near=dataset.canvas_plane, 
+        ray_far=40.0, 
+        batch_size=batch_size, 
+        num_samples=64
+    )
+    print(ray_scales.shape)
+
     for step in range(training_steps):
         rng = jax.random.PRNGKey(step)
         pixels, indices = sample_pixels(
@@ -252,37 +301,16 @@ def train_loop(batch_size, training_steps, state, dataset):
         print('z_components shape:', z_components.shape)
         print('w_components shape:', w_components.shape)
         print('transform_matrices shape:', dataset.transform_matrices[image_indices].shape)
-        rays = jnp.stack([x_components, y_components, z_components, w_components], axis=-1)
+        #rays = jnp.stack([x_components, y_components, z_components, w_components], axis=-1)
+        rays = jnp.stack([x_components, y_components, z_components], axis=-1)
+
         # Transform rays from camera space to world space.
-        transform_matrices = dataset.transform_matrices[image_indices]
-        rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
+        #transform_matrices = dataset.transform_matrices[image_indices]
+        #rays = jax.vmap(lambda a, b: a @ b, in_axes=0)(transform_matrices, rays)
         print('rays shape:', rays.shape)
         break
 
-@dataclass
-class Dataset:
-    horizontal_fov: float
-    vertical_fov: float
-    fl_x: float # Focal length x.
-    fl_y: float # Focal length y.
-    k1: float # First radial distortion parameter.
-    k2: float # Second radial distortion parameter.
-    p1: float # Third radial distortion parameter.
-    p2: float # Fourth radial distortion parameter.
-    cx: float # Principal point x.
-    cy: float # Principal point y.
-    w: int # Image width.
-    h: int # Image height.
-    aabb_scale: int # Scale of scene bounding box.
-    canvas_plane: Optional[float] = 1.0 # Distance from center of projection to canvas plane.
-    transform_matrices: Optional[jnp.ndarray] = None
-    locations: Optional[jnp.ndarray] = None
-    directions: Optional[jnp.ndarray] = None
-    images: Optional[jnp.ndarray] = None
-    canvas_width_ratio: Optional[float] = None
-    canvas_height_ratio: Optional[float] = None
-
-def load_dataset(path):
+def load_dataset(path:str):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 

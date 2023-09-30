@@ -1,3 +1,6 @@
+# This is an implementation of the NeRF from the paper:
+# "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
+
 import flax.linen as nn
 from flax.training.train_state import TrainState
 import jax.numpy as jnp
@@ -10,9 +13,6 @@ import numpy as np
 from PIL import Image
 from typing import Optional
 from dataclasses import dataclass
-
-# This is an implementation of the NeRF from the paper:
-# "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
 
 @dataclass
 class Dataset:

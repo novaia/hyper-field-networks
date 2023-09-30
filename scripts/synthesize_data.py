@@ -15,7 +15,7 @@ if __name__ == '__main__':
         'blender',
         '--background',
         '-P',
-        'scripts/' + args.script
+        'scripts/pcg/' + args.script
     ]
 
     for i in range(args.number):

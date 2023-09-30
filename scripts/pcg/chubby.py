@@ -5,8 +5,9 @@ import math
 import json
 import os
 import sys
+print(os.getcwd())
 sys.path.append(os.getcwd())
-import nerf_helper as nh
+import synthetic_data_helper as sdh
 
 def extrude(offset, ops_mesh):
     ops_mesh.extrude_vertices_move(
@@ -264,7 +265,7 @@ if __name__ == '__main__':
 
     # Get bounding sphere.
     bounding_box = d_obj.bound_box
-    sphere_radius, sphere_origin = nh.get_bounding_sphere(bounding_box)
+    sphere_radius, sphere_origin = sdh.get_bounding_sphere(bounding_box)
     #bpy.ops.mesh.primitive_uv_sphere_add(radius=sphere_radius, location=sphere_origin)
 
     # Enable GPU rendering.
@@ -289,13 +290,13 @@ if __name__ == '__main__':
 
     # Render.
     camera = bpy.context.scene.objects['Camera']
-    extrinsic_camera_data = nh.random_render_on_sphere(
+    extrinsic_camera_data = sdh.random_render_on_sphere(
         camera, bpy.context.scene, sphere_radius+10, sphere_origin, 200
     )
-    intrinsic_camera_data = nh.get_intrinsic_camera_data(
+    intrinsic_camera_data = sdh.get_intrinsic_camera_data(
         bpy.context.scene, camera, bounding_box
     )
-    transform_data = nh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
-    nh.save_transform_data(transform_data, 'data/renders')
+    transform_data = sdh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
+    sdh.save_transform_data(transform_data, 'data/renders')
             
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

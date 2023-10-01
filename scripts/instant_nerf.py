@@ -268,11 +268,12 @@ def get_ray_scales(ray_near:float, ray_far:float, batch_size:int, num_samples:in
     ray_scales = jnp.repeat(jnp.repeat(ray_scales, 3, axis=-1), batch_size, axis=0)
     return ray_scales
 
-def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dataset):
-    num_ray_samples = 64
+def train_loop(
+    batch_size:int, num_ray_samples:int, training_steps:int, state:TrainState, dataset:Dataset
+):
     ray_scales = get_ray_scales(
         ray_near=dataset.canvas_plane, 
-        ray_far=40.0, 
+        ray_far=15.0, 
         batch_size=batch_size, 
         num_samples=num_ray_samples
     )
@@ -457,7 +458,8 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-4)
     train_loop(
-        batch_size=10000, 
+        batch_size=10000,
+        num_ray_samples=128,
         training_steps=100, 
         state=state, 
         dataset=dataset

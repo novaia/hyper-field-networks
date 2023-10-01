@@ -318,21 +318,11 @@ def load_dataset(path:str):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
-    locations = []
-    directions = []
     images = []
     transform_matrices = []
     for frame in transforms['frames']:
-        # Locations and directions can probably be precomputed for all datasets.
-        # I don't know why Instant NGP doesn't do this.
-        # A: probably because they don't extract locations and directions, and instead
-        # use the transform matrix to move the camera space rays into world space.
         transform_matrix = jnp.array(frame['transform_matrix'])
         transform_matrices.append(transform_matrix)
-        rotation_scale_matrix = transform_matrix[:3, :3]
-        rotation_matrix = rotation_scale_matrix / jnp.linalg.norm(rotation_scale_matrix)
-        directions.append(jnp.sum(rotation_matrix, axis=1))
-        locations.append(transform_matrix[:3, 3])
         image = Image.open(os.path.join(path, frame['file_path']))
         images.append(jnp.array(image))
 
@@ -352,8 +342,6 @@ def load_dataset(path:str):
         aabb_scale=transforms['aabb_scale'],
         canvas_plane=1.0,
         transform_matrices=jnp.array(transform_matrices),
-        locations=jnp.array(locations),
-        directions=jnp.array(directions),
         images=jnp.array(images) 
     )
 
@@ -384,8 +372,6 @@ if __name__ == '__main__':
     print(dataset.w)
     print(dataset.h)
     print(dataset.aabb_scale)
-    print('Locations shape:', dataset.locations.shape)
-    print('Directions shape:', dataset.directions.shape)
     print('Images shape:', dataset.images.shape)
 
     model = InstantNerf(

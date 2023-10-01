@@ -297,10 +297,25 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
         # Transform rays from camera space to world space.
         transform_matrices = dataset.transform_matrices[image_indices]
         # Map both inputs over batch dimenension, then map rays over sample dimension.
-        transform = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
-        rays = transform(transform_matrices, rays)
+        transform_rays = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
+        rays = transform_rays(transform_matrices, rays)
         # Convert rays back to Cartesian coordinates.
         rays = rays[:, :, :3]
+
+        # Calculate the origins of all rays in world space.
+        #ray_origins = jnp.zeros((batch_size, 3))
+        #ray_origins_w = jnp.ones((batch_size, 1))
+        #ray_origins = jnp.concatenate([ray_origins, ray_origins_w], axis=-1)
+        #ray_origins = jax.vmap(lambda t, o: t @ o, in_axes=0)(transform_matrices, ray_origins)
+        #ray_origins = ray_origins[:, :3]
+
+        # Ray origins can be extracted from transform matrices without having to do the above.
+        # They are equal to the translation components of the transform matrices.
+        ray_origins = transform_matrices[:, :3, 3]
+        ray_origins = jnp.expand_dims(ray_origins, axis=1)
+        rays_with_origins = jnp.concatenate([ray_origins, rays], axis=1)
+        print('Ray origins shape:', ray_origins.shape)
+        print('Rays with origins shape:', rays_with_origins.shape)
 
         directions = rays[:, 1] - rays[:, 0]
         directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
@@ -314,9 +329,9 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
 
         print('Densities shape:', densities.shape)
         print('Colors shape:', colors.shape)
-        def get_rendered_pixel(densities, colors, rays):
-            print('Rays shape:', rays.shape)
-            vector_deltas = jnp.diff(rays, axis=0)
+        def get_rendered_pixel(densities, colors, rays_with_origins):
+            print('Rays with origins shape:', rays_with_origins.shape)
+            vector_deltas = jnp.diff(rays_with_origins, axis=0)
             print('Vector deltas shape:', vector_deltas.shape)
             deltas = jnp.sqrt(
                 vector_deltas[:, 0]**2 + 
@@ -324,11 +339,13 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
                 vector_deltas[:, 2]**2
             )
             print('Deltas shape:', deltas.shape)
-            deltas = jnp.concatenate([deltas, jnp.zeros((1,))], axis=0)
-            print('Deltas modified shape:', deltas.shape)
-            return render_pixel(densities, colors, deltas)
-        rendered_pixels = jax.vmap(get_rendered_pixel, in_axes=0)(densities, colors, rays)
-        print('Rendered pixels shape:', rendered_pixels.shape)
+            #return render_pixel(densities, colors, deltas)
+            return None
+        
+        rendered_pixels = jax.vmap(get_rendered_pixel, in_axes=0)(
+            densities, colors, rays_with_origins
+        )
+        #print('Rendered pixels shape:', rendered_pixels.shape)
         print('Source pixels shape:', source_pixels.shape)
         break
 

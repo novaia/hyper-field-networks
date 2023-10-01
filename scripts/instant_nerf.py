@@ -14,6 +14,7 @@ from PIL import Image
 from typing import Optional
 from dataclasses import dataclass
 from functools import partial
+import matplotlib.pyplot as plt
 
 @dataclass
 class Dataset:
@@ -384,6 +385,81 @@ def train_step(
     state = state.apply_gradients(grads=grads)
     return loss, state
 
+def render_scene(
+    num_ray_samples:int, dataset:Dataset, transform_matrix:jnp.ndarray, state:TrainState
+):
+    ray_scales = get_ray_scales(
+        ray_near=dataset.canvas_plane, 
+        ray_far=15.0, 
+        batch_size=1, 
+        num_samples=num_ray_samples
+    )
+    ray_scales = jnp.squeeze(ray_scales, axis=0)
+    transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
+    #rendered_image = np.zeros((dataset.w, dataset.h, 3))
+
+    print('Ray scales shape:', ray_scales.shape)
+    def render_ray(x, y):
+        ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
+        ray = jnp.repeat(ray, num_ray_samples, axis=0)
+        print('Ray shape:', ray.shape)
+        ray_samples = ray * ray_scales
+        ray_samples_w = jnp.ones((num_ray_samples, 1))
+        ray_samples = jnp.concatenate([ray_samples, ray_samples_w], axis=-1)
+        print('Ray samples shape:', ray_samples.shape)
+        ray_samples = transform_ray(transform_matrix, ray_samples)
+        ray_samples = ray_samples[:, :3]
+        print('Ray samples shape pt:', ray_samples.shape)
+        direction = ray_samples[1] - ray_samples[0]
+        print('Direction shape:', direction.shape)
+
+        def get_output(params, rays, directions):
+            print('Test rays shape:', rays.shape)
+            print('Test directions shape:', directions.shape)
+            return state.apply_fn({'params': params}, (rays, directions))
+        get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, None))
+        densities, colors = get_output_sample_vmap(state.params, ray_samples, direction)
+        densities = jnp.expand_dims(densities, axis=-1)
+        print('Density:', densities[0])
+        print('Color:', colors[0])
+        print('Densities shape:', densities.shape)
+        print('Colors shape:', colors.shape)
+
+        ray_origin = jnp.expand_dims(transform_matrix[:3, 3], axis=0)
+        print('Ray origin shape:', ray_origin.shape)
+        ray_with_origin = jnp.concatenate([ray_origin, ray_samples], axis=0)
+        print('Ray with origin shape:', ray_with_origin.shape)
+        vector_deltas = jnp.diff(ray_with_origin, axis=0)
+        deltas = jnp.sqrt(
+            vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
+        )
+        deltas = jnp.expand_dims(deltas, axis=-1)
+        print('Deltas shape:', deltas.shape)
+        rendered_pixel = render_pixel(densities, colors, deltas)
+        print('Rendered pixel shape:', rendered_pixel.shape)
+        #rendered_image[x, y] = np.array(rendered_pixel)
+        return rendered_pixel
+    
+    rendered_image = np.ones((dataset.w, dataset.h, 3))
+    #height_vmap = jax.vmap(render_ray, in_axes=(None, 0))
+    #height_coordinates = jnp.arange(dataset.h)
+    #for x in range(1):
+    #    print('Rendering column:', x)
+    #    rendered_image[x] = height_vmap(x, height_coordinates)
+    #print('Rendered image shape:', rendered_image.shape)
+    #rendered_image -= np.min(rendered_image)
+    #rendered_image /= np.max(rendered_image)
+    #print('Rendered image min:', np.min(rendered_image))
+    #print('Rendered image max:', np.max(rendered_image))
+    
+    for x in range(5):
+        for y in range(5):
+            rendered_image[x, y] = render_ray(x, y)
+    #rendered_image -= np.min(rendered_image)
+    #rendered_image /= np.max(rendered_image)
+    rendered_image = np.clip(rendered_image, 0, 1)
+    plt.imsave('data/rendered_image.png', rendered_image)
+
 def load_dataset(path:str):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
@@ -427,7 +503,7 @@ def load_dataset(path:str):
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    dataset_path = 'data/generation_0'
+    dataset_path = 'data/generations_0_to_948/generation_0'
     dataset = load_dataset(dataset_path)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
@@ -458,9 +534,10 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-4)
     train_loop(
-        batch_size=10000,
-        num_ray_samples=128,
+        batch_size=1000,
+        num_ray_samples=64,
         training_steps=100, 
         state=state, 
         dataset=dataset
     )
+    render_scene(64, dataset, dataset.transform_matrices[0], state)

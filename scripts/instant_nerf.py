@@ -420,8 +420,6 @@ def render_scene(
         get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, None))
         densities, colors = get_output_sample_vmap(state.params, ray_samples, direction)
         densities = jnp.expand_dims(densities, axis=-1)
-        print('Density:', densities[0])
-        print('Color:', colors[0])
         print('Densities shape:', densities.shape)
         print('Colors shape:', colors.shape)
 
@@ -440,24 +438,28 @@ def render_scene(
         #rendered_image[x, y] = np.array(rendered_pixel)
         return rendered_pixel
     
+    patch_size_x = 64
+    patch_size_y = 64
+    num_patches_x = dataset.w // patch_size_x
+    num_patches_y = dataset.h // patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
-    #height_vmap = jax.vmap(render_ray, in_axes=(None, 0))
-    #height_coordinates = jnp.arange(dataset.h)
-    #for x in range(1):
-    #    print('Rendering column:', x)
-    #    rendered_image[x] = height_vmap(x, height_coordinates)
-    #print('Rendered image shape:', rendered_image.shape)
-    #rendered_image -= np.min(rendered_image)
-    #rendered_image /= np.max(rendered_image)
-    #print('Rendered image min:', np.min(rendered_image))
-    #print('Rendered image max:', np.max(rendered_image))
+    render_ray_vmap = jax.vmap(jax.vmap(render_ray, in_axes=(0, None)), in_axes=(None, 0))
     
-    for x in range(5):
-        for y in range(5):
-            rendered_image[x, y] = render_ray(x, y)
+    for x in range(num_patches_x):
+        patch_start_x = patch_size_x * x
+        patch_end_x = patch_start_x + patch_size_x
+        x_coordinates = jnp.arange(patch_start_x, patch_end_x)
+        for y in range(num_patches_y):
+            patch_start_y = patch_size_y * y
+            patch_end_y = patch_start_y + patch_size_y
+            y_coordinates = jnp.arange(patch_start_y, patch_end_y)
+            rendered_patch = render_ray_vmap(x_coordinates, y_coordinates)
+            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
+
     #rendered_image -= np.min(rendered_image)
     #rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
+    print(rendered_image)
     plt.imsave('data/rendered_image.png', rendered_image)
 
 def load_dataset(path:str):
@@ -534,7 +536,7 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-4)
     train_loop(
-        batch_size=1000,
+        batch_size=10000,
         num_ray_samples=64,
         training_steps=100, 
         state=state, 

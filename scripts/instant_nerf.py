@@ -110,9 +110,10 @@ class MultiResolutionHashEncoding(nn.Module):
         # Feature dim comes first so features can be broadcast with point offset.
         # Feature shape is (feature_dim, num_levels). 
         # Point offset shape is (spatial_dim, num_levels).
-        self.hash_table = jax.random.normal(
-            self.table_init_key, 
-            shape=(self.feature_dim, absolute_table_size)
+        self.hash_table = self.param(
+            'hash_table', 
+            nn.initializers.lecun_normal(), 
+            (self.feature_dim, absolute_table_size)
         )
 
     def hash_function(self, x:jnp.ndarray, table_size:int, hash_offset:jnp.ndarray):
@@ -198,7 +199,8 @@ class InstantNerf(nn.Module):
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
-        density_output = nn.Dense(16)(x)
+        x = nn.Dense(16)(x)
+        density_output = nn.activation.relu(x)
         density = density_output[0]
 
         encoded_direction = fourth_order_sh_encoding(direction)
@@ -220,11 +222,11 @@ class InstantNerf(nn.Module):
 
         return density, color
 
-def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float):
+def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, epsilon:float):
     x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
-    tx = optax.adam(learning_rate)
+    tx = optax.adam(learning_rate, eps=epsilon)
     ts = TrainState.create(
         apply_fn=model.apply,
         params=params,
@@ -514,12 +516,16 @@ if __name__ == '__main__':
         high_dynamic_range=False
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 5e-4)
+    state = create_train_state(model, rng, 1e-2, 10**-15)
+    
+    print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
+
     state = train_loop(
-        batch_size=4096,
+        batch_size=30000,
         num_ray_samples=64,
-        training_steps=1000, 
+        training_steps=100, 
         state=state, 
         dataset=dataset
     )
+    print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
     render_scene(64, dataset, dataset.transform_matrices[0], state)

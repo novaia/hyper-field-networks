@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image
 from typing import Optional
 from dataclasses import dataclass
+from functools import partial
 
 @dataclass
 class Dataset:
@@ -278,66 +279,84 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
 
     for step in range(training_steps):
         rng = jax.random.PRNGKey(step)
-        source_pixels, indices = sample_pixels(
-            num_samples=batch_size, 
-            image_width=dataset.w, 
-            image_height=dataset.h, 
-            num_images=dataset.images.shape[0], 
-            rng=rng, 
-            images=dataset.images
+        loss, state = train_step(
+            batch_size=batch_size,
+            image_width=dataset.w,
+            image_height=dataset.h,
+            canvas_width_ratio=dataset.canvas_width_ratio,
+            canvas_height_ratio=dataset.canvas_height_ratio,
+            canvas_plane=dataset.canvas_plane,
+            transform_matrices=dataset.transform_matrices,
+            images=dataset.images,
+            state=state, 
+            num_ray_samples=num_ray_samples, 
+            ray_scales=ray_scales, 
+            rng=rng
         )
-
-        image_indices, width_indices, height_indices = indices
-        # Scale from real canvas dimensions to virtual canvas dimensions.
-        rays_x = width_indices * dataset.canvas_width_ratio
-        rays_y = height_indices * dataset.canvas_height_ratio
-        rays_z = jnp.repeat(jnp.array([dataset.canvas_plane]), rays_x.shape[0])
-        
-        # Repeat rays along a new axis and then scale them to get samples at different points.
-        rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
-        rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
-        rays = rays * ray_scales
-
-        # Convert rays to homogenous coordinates by adding w = 1 component.
-        rays_w = jnp.ones((num_ray_samples, 1))
-        concat_w = jax.vmap(lambda r, w: jnp.concatenate([r, w], axis=-1), in_axes=(0, None))
-        rays = concat_w(rays, rays_w)
-
-        # Transform rays from camera space to world space.
-        transform_matrices = dataset.transform_matrices[image_indices]
-        # Map both inputs over batch dimenension, then map rays over sample dimension.
-        transform_rays = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
-        rays = transform_rays(transform_matrices, rays)
-        # Convert rays back to Cartesian coordinates.
-        rays = rays[:, :, :3]
-
-        # Calculate the origins of all rays in world space.
-        #ray_origins = jnp.zeros((batch_size, 3))
-        #ray_origins_w = jnp.ones((batch_size, 1))
-        #ray_origins = jnp.concatenate([ray_origins, ray_origins_w], axis=-1)
-        #ray_origins = jax.vmap(lambda t, o: t @ o, in_axes=0)(transform_matrices, ray_origins)
-        #ray_origins = ray_origins[:, :3]
-
-        # Ray origins can be extracted from transform matrices without having to do the above.
-        # They are equal to the translation components of the transform matrices.
-        ray_origins = transform_matrices[:, :3, 3]
-        ray_origins = jnp.expand_dims(ray_origins, axis=1)
-        rays_with_origins = jnp.concatenate([ray_origins, rays], axis=1)
-        print('Ray origins shape:', ray_origins.shape)
-        print('Rays with origins shape:', rays_with_origins.shape)
-
-        directions = rays[:, 1] - rays[:, 0]
-        directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
-
-        loss, state = train_step(state, rays, rays_with_origins, directions, source_pixels)
         print('Loss:', loss)
-        break
 
-@jax.jit
+@partial(jax.jit, static_argnames=(
+    'batch_size',
+    'image_width',
+    'image_height',
+    'num_ray_samples',
+))
 def train_step(
-    state:TrainState, rays:jnp.ndarray, rays_with_origins:jnp.ndarray, directions:jnp.ndarray,
-    source_pixels:jnp.ndarray
+    batch_size:int,
+    image_width:int,
+    image_height:int,
+    canvas_width_ratio:float,
+    canvas_height_ratio:float,
+    canvas_plane:float,
+    transform_matrices:jnp.ndarray,
+    images:jnp.ndarray,
+    state:TrainState,
+    num_ray_samples:int,
+    ray_scales:jnp.ndarray,
+    rng:PRNGKeyArray
 ):
+    source_pixels, indices = sample_pixels(
+        num_samples=batch_size, 
+        image_width=image_width, 
+        image_height=image_height, 
+        num_images=images.shape[0], 
+        rng=rng, 
+        images=images
+    )
+
+    image_indices, width_indices, height_indices = indices
+    # Scale from real canvas dimensions to virtual canvas dimensions.
+    rays_x = width_indices * canvas_width_ratio
+    rays_y = height_indices * canvas_height_ratio
+    rays_z = jnp.repeat(jnp.array([canvas_plane]), rays_x.shape[0])
+
+    # Repeat rays along a new axis and then scale them to get samples at different points.
+    rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
+    rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
+    rays = rays * ray_scales
+
+    # Convert rays to homogenous coordinates by adding w = 1 component.
+    rays_w = jnp.ones((num_ray_samples, 1))
+    concat_w = jax.vmap(lambda r, w: jnp.concatenate([r, w], axis=-1), in_axes=(0, None))
+    rays = concat_w(rays, rays_w)
+
+    # Transform rays from camera space to world space.
+    selected_transform_matrices = transform_matrices[image_indices]
+    # Map both inputs over batch dimenension, then map rays over sample dimension.
+    transform_rays = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
+    rays = transform_rays(selected_transform_matrices, rays)
+    # Convert rays back to Cartesian coordinates.
+    rays = rays[:, :, :3]
+
+    # Ray origins can be extracted from transform matrices without matmul.
+    # They are equal to the translation components of the transform matrices.
+    ray_origins = selected_transform_matrices[:, :3, 3]
+    ray_origins = jnp.expand_dims(ray_origins, axis=1)
+    rays_with_origins = jnp.concatenate([ray_origins, rays], axis=1)
+
+    directions = rays[:, 1] - rays[:, 0]
+    directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
+
     def get_output(params, rays, directions):
         return state.apply_fn({'params': params}, (rays, directions))
     get_output_batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
@@ -438,8 +457,8 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-4)
     train_loop(
-        batch_size=1000, 
-        training_steps=1000, 
+        batch_size=10000, 
+        training_steps=100, 
         state=state, 
         dataset=dataset
     )

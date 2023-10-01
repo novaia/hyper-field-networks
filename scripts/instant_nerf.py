@@ -329,32 +329,40 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
         directions = rays[:, 1] - rays[:, 0]
         directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
 
-        def get_output(state, rays, directions):
-            return state.apply_fn({'params': state.params}, (rays, directions))
-        batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
-        sample_vmap = jax.vmap(batch_vmap, in_axes=(None, 0, 0))
-        densities, colors = sample_vmap(state, rays, directions)
-        densities = jnp.expand_dims(densities, axis=-1)
-
-        print('Densities shape:', densities.shape)
-        print('Colors shape:', colors.shape)
-        def get_rendered_pixel(densities, colors, rays_with_origins):
-            print('Rays with origins shape:', rays_with_origins.shape)
-            vector_deltas = jnp.diff(rays_with_origins, axis=0)
-            print('Vector deltas shape:', vector_deltas.shape)
-            deltas = jnp.sqrt(
-                vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
-            )
-            deltas = jnp.expand_dims(deltas, axis=-1)
-            print('Deltas shape:', deltas.shape)
-            return render_pixel(densities, colors, deltas)
-        
-        rendered_pixels = jax.vmap(get_rendered_pixel, in_axes=0)(
-            densities, colors, rays_with_origins
-        )
-        print('Rendered pixels shape:', rendered_pixels.shape)
-        print('Source pixels shape:', source_pixels.shape)
+        loss, state = train_step(state, rays, rays_with_origins, directions, source_pixels)
+        print('Loss:', loss)
         break
+
+@jax.jit
+def train_step(
+    state:TrainState, rays:jnp.ndarray, rays_with_origins:jnp.ndarray, directions:jnp.ndarray,
+    source_pixels:jnp.ndarray
+):
+    def get_output(params, rays, directions):
+        return state.apply_fn({'params': params}, (rays, directions))
+    get_output_batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
+    get_output_sample_vmap = jax.vmap(get_output_batch_vmap, in_axes=(None, 0, 0))
+
+    def get_rendered_pixel(densities, colors, rays_with_origins):
+        vector_deltas = jnp.diff(rays_with_origins, axis=0)
+        deltas = jnp.sqrt(
+            vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
+        )
+        deltas = jnp.expand_dims(deltas, axis=-1)
+        return render_pixel(densities, colors, deltas)
+    get_rendered_pixel_vmap = jax.vmap(get_rendered_pixel, in_axes=0)
+
+    def loss_fn(params):
+        densities, colors = get_output_sample_vmap(params, rays, directions)
+        densities = jnp.expand_dims(densities, axis=-1)
+        rendered_pixels = get_rendered_pixel_vmap(densities, colors, rays_with_origins)
+        loss = jnp.mean((rendered_pixels - source_pixels[:, :3])**2)
+        return loss
+    
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
+    state = state.apply_gradients(grads=grads)
+    return loss, state
 
 def load_dataset(path:str):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -384,7 +392,7 @@ def load_dataset(path:str):
         aabb_scale=transforms['aabb_scale'],
         canvas_plane=1.0,
         transform_matrices=jnp.array(transform_matrices),
-        images=jnp.array(images) 
+        images=jnp.array(images) / 255.0
     )
 
     virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)

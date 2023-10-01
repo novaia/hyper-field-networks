@@ -37,42 +37,36 @@ class Dataset:
     canvas_width_ratio: Optional[float] = None
     canvas_height_ratio: Optional[float] = None
 
-# Calculates the fourth order spherical harmonic encoding for the given directions.
+# Calculates the fourth order spherical harmonic encoding for the given direction.
 # The order is always 4, so num_components is always 16 (order^2).
 # This is hardcoded because no other order of spherical harmonics is used.
-def fourth_order_sh_encoding(directions:jnp.ndarray):
-    num_components = 16
-    # Using np temporarily for the mutable array.
-    # Need to figure out how to do the component calculation with jnp immutable array.
-    components = np.zeros((directions.shape[-1], num_components))
-
-    x = directions[..., 0]
-    y = directions[..., 1]
-    z = directions[..., 2]
+def fourth_order_sh_encoding(direction:jnp.ndarray):
+    x = direction[0]
+    y = direction[1]
+    z = direction[2]
 
     xx = x**2
     yy = y**2
     zz = z**2
 
-    # This could probably be optimized by calculating the components in a 1x16 array, 
-    # then copying it three times to get a 3x16 array. This way, all three axes wouldn't
-    # have to be indexed every time.
-    components[..., 0] = 0.28209479177387814
-    components[..., 1] = 0.4886025119029199 * y
-    components[..., 2] = 0.4886025119029199 * z
-    components[..., 3] = 0.4886025119029199 * x
-    components[..., 4] = 1.0925484305920792 * x * y
-    components[..., 5] = 1.0925484305920792 * y * z
-    components[..., 6] = 0.9461746957575601 * zz - 0.31539156525251999
-    components[..., 7] = 1.0925484305920792 * x * z
-    components[..., 8] = 0.5462742152960396 * (xx - yy)
-    components[..., 9] = 0.5900435899266435 * y * (3 * xx - yy)
-    components[..., 10] = 2.890611442640554 * x * y * z
-    components[..., 11] = 0.4570457994644658 * y * (5 * zz - 1)
-    components[..., 12] = 0.3731763325901154 * z * (5 * zz - 3)
-    components[..., 13] = 0.4570457994644658 * x * (5 * zz - 1)
-    components[..., 14] = 1.445305721320277 * z * (xx - yy)
-    components[..., 15] = 0.5900435899266435 * x * (xx - 3 * yy)
+    components = jnp.array([
+        0.28209479177387814,
+        0.4886025119029199 * y,
+        0.4886025119029199 * z,
+        0.4886025119029199 * x,
+        1.0925484305920792 * x * y,
+        1.0925484305920792 * y * z,
+        0.9461746957575601 * zz - 0.31539156525251999,
+        1.0925484305920792 * x * z,
+        0.5462742152960396 * (xx - yy),
+        0.5900435899266435 * y * (3 * xx - yy),
+        2.890611442640554 * x * y * z,
+        0.4570457994644658 * y * (5 * zz - 1),
+        0.3731763325901154 * z * (5 * zz - 3),
+        0.4570457994644658 * x * (5 * zz - 1),
+        1.445305721320277 * z * (xx - yy),
+        0.5900435899266435 * x * (xx - 3 * yy)
+    ])
 
     return components
 
@@ -229,7 +223,7 @@ class InstantNerf(nn.Module):
         return density, color
 
 def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float):
-    x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
+    x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
     tx = optax.adam(learning_rate)
@@ -311,7 +305,48 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
         # Map both inputs over batch dimenension, then map rays over sample dimension.
         transform = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
         rays = transform(transform_matrices, rays)
+        # Convert rays back to Cartesian coordinates.
+        rays = rays[:, :, :3]
         print('Rays shape:', rays.shape)
+
+        directions = rays[:, 1] - rays[:, 0]
+        directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
+        print('Directions shape:', directions.shape)
+        
+        #densities, colors = jax.vmap(state.apply_fn, in_axes=0)((rays, directions))
+        #densities, colors = state.apply_fn(
+        #   {'params': state.params}, 
+        #    (rays[0, 0], directions[0, 0])
+        #)
+        #def get_output(state, rays, directions):
+        #    return state.apply_fn({'params': state.params}, (rays, directions))
+        #batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
+        #ray_sample_vmap = jax.vmap(batch_vmap, in_axes=(None, 0, 0))
+        #densities, colors = ray_sample_vmap(state, rays, directions)
+        #print('Rays shape instance:', rays[0, 0].shape)
+        #print('Directions shape instance:', directions[0, 0].shape)
+        #print('Rays:', rays[0, 0])
+        #print('Directions:', directions[0, 0])
+        #densities, colors = state.apply_fn(
+        #    {'params': state.params}, 
+        #    (rays[0, 0], directions[0, 0])
+        #)
+
+        #def vmap_test(rays, directions):
+        #    print('Test rays shape:', rays.shape)
+        #    print('Test directions shape:', directions.shape)
+        #jax.vmap(jax.vmap(vmap_test, in_axes=(0, 0)), in_axes=(0, 0))(rays, directions)
+
+        def get_output(state, rays, directions):
+            print('Test rays shape:', rays.shape)
+            print('Test directions shape:', directions.shape)
+            return state.apply_fn({'params': state.params}, (rays, directions))
+        batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
+        sample_vmap = jax.vmap(batch_vmap, in_axes=(None, 0, 0))
+        densities, colors = sample_vmap(state, rays, directions)
+
+        print('Densities shape:', densities.shape)
+        print('Colors shape:', colors.shape)
         break
 
 def load_dataset(path:str):

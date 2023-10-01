@@ -76,20 +76,13 @@ def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):
     expanded_densities = jnp.expand_dims(densities, axis=0)
     repeated_densities = jnp.repeat(expanded_densities, densities.shape[0], axis=0)
     triangular_mask = jnp.tril(jnp.ones(repeated_densities.shape))
-    print('Triangular mask shape:', triangular_mask.shape)
-    print('Repeated densities shape:', repeated_densities.shape)
     triangular_densities = repeated_densities * triangular_mask
-    print('Triangular densities shape:', triangular_densities.shape)
     expanded_deltas = jnp.expand_dims(deltas, axis=0)
-    print('Expanded deltas shape:', expanded_deltas.shape)
     repeated_deltas = jnp.repeat(expanded_deltas, deltas.shape[0], axis=0)
     triangular_deltas = repeated_deltas * triangular_mask
-    print('Triangular deltas shape:', triangular_deltas.shape)
 
     T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas, axis=1))
-    print('T_sum shape:', T_sum.shape)
     rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors, axis=0)
-    print('Rendered color shape:', rendered_color.shape)
     return rendered_color
 
 class MultiResolutionHashEncoding(nn.Module):
@@ -296,6 +289,7 @@ def train_loop(
             rng=rng
         )
         print('Loss:', loss)
+    return state
 
 @partial(jax.jit, static_argnames=(
     'batch_size',
@@ -396,50 +390,35 @@ def render_scene(
     )
     ray_scales = jnp.squeeze(ray_scales, axis=0)
     transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
-    #rendered_image = np.zeros((dataset.w, dataset.h, 3))
 
-    print('Ray scales shape:', ray_scales.shape)
     def render_ray(x, y):
         ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
         ray = jnp.repeat(ray, num_ray_samples, axis=0)
-        print('Ray shape:', ray.shape)
         ray_samples = ray * ray_scales
         ray_samples_w = jnp.ones((num_ray_samples, 1))
         ray_samples = jnp.concatenate([ray_samples, ray_samples_w], axis=-1)
-        print('Ray samples shape:', ray_samples.shape)
         ray_samples = transform_ray(transform_matrix, ray_samples)
         ray_samples = ray_samples[:, :3]
-        print('Ray samples shape pt:', ray_samples.shape)
         direction = ray_samples[1] - ray_samples[0]
-        print('Direction shape:', direction.shape)
 
         def get_output(params, rays, directions):
-            print('Test rays shape:', rays.shape)
-            print('Test directions shape:', directions.shape)
             return state.apply_fn({'params': params}, (rays, directions))
         get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, None))
         densities, colors = get_output_sample_vmap(state.params, ray_samples, direction)
         densities = jnp.expand_dims(densities, axis=-1)
-        print('Densities shape:', densities.shape)
-        print('Colors shape:', colors.shape)
 
         ray_origin = jnp.expand_dims(transform_matrix[:3, 3], axis=0)
-        print('Ray origin shape:', ray_origin.shape)
         ray_with_origin = jnp.concatenate([ray_origin, ray_samples], axis=0)
-        print('Ray with origin shape:', ray_with_origin.shape)
         vector_deltas = jnp.diff(ray_with_origin, axis=0)
         deltas = jnp.sqrt(
             vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
         )
         deltas = jnp.expand_dims(deltas, axis=-1)
-        print('Deltas shape:', deltas.shape)
         rendered_pixel = render_pixel(densities, colors, deltas)
-        print('Rendered pixel shape:', rendered_pixel.shape)
-        #rendered_image[x, y] = np.array(rendered_pixel)
         return rendered_pixel
     
-    patch_size_x = 64
-    patch_size_y = 64
+    patch_size_x = 128
+    patch_size_y = 128
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
@@ -456,10 +435,11 @@ def render_scene(
             rendered_patch = render_ray_vmap(x_coordinates, y_coordinates)
             rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
 
-    #rendered_image -= np.min(rendered_image)
-    #rendered_image /= np.max(rendered_image)
+    rendered_image = np.nan_to_num(rendered_image)
+    rendered_image = np.clip(rendered_image, -20, 20)
+    rendered_image -= np.min(rendered_image)
+    rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
-    print(rendered_image)
     plt.imsave('data/rendered_image.png', rendered_image)
 
 def load_dataset(path:str):
@@ -490,7 +470,7 @@ def load_dataset(path:str):
         aabb_scale=transforms['aabb_scale'],
         canvas_plane=1.0,
         transform_matrices=jnp.array(transform_matrices),
-        images=jnp.array(images) / 255.0
+        images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
 
     virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)
@@ -534,11 +514,11 @@ if __name__ == '__main__':
         high_dynamic_range=False
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 1e-4)
-    train_loop(
-        batch_size=10000,
+    state = create_train_state(model, rng, 5e-4)
+    state = train_loop(
+        batch_size=4096,
         num_ray_samples=64,
-        training_steps=100, 
+        training_steps=1000, 
         state=state, 
         dataset=dataset
     )

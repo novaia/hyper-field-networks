@@ -71,14 +71,23 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
     return components
 
 def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):    
-    triangular_mask = jnp.tril(jnp.ones(densities.shape))
-    repeated_densities = jnp.repeat(densities, densities.shape[0], axis=0)
+    expanded_densities = jnp.expand_dims(densities, axis=0)
+    repeated_densities = jnp.repeat(expanded_densities, densities.shape[0], axis=0)
+    triangular_mask = jnp.tril(jnp.ones(repeated_densities.shape))
+    print('Triangular mask shape:', triangular_mask.shape)
+    print('Repeated densities shape:', repeated_densities.shape)
     triangular_densities = repeated_densities * triangular_mask
-    repeated_deltas = jnp.repeat(deltas, deltas.shape[0], axis=0)
+    print('Triangular densities shape:', triangular_densities.shape)
+    expanded_deltas = jnp.expand_dims(deltas, axis=0)
+    print('Expanded deltas shape:', expanded_deltas.shape)
+    repeated_deltas = jnp.repeat(expanded_deltas, deltas.shape[0], axis=0)
     triangular_deltas = repeated_deltas * triangular_mask
+    print('Triangular deltas shape:', triangular_deltas.shape)
 
-    T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas))
-    rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors)
+    T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas, axis=1))
+    print('T_sum shape:', T_sum.shape)
+    rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors, axis=0)
+    print('Rendered color shape:', rendered_color.shape)
     return rendered_color
 
 class MultiResolutionHashEncoding(nn.Module):
@@ -334,18 +343,16 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
             vector_deltas = jnp.diff(rays_with_origins, axis=0)
             print('Vector deltas shape:', vector_deltas.shape)
             deltas = jnp.sqrt(
-                vector_deltas[:, 0]**2 + 
-                vector_deltas[:, 1]**2 + 
-                vector_deltas[:, 2]**2
+                vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
             )
+            deltas = jnp.expand_dims(deltas, axis=-1)
             print('Deltas shape:', deltas.shape)
-            #return render_pixel(densities, colors, deltas)
-            return None
+            return render_pixel(densities, colors, deltas)
         
         rendered_pixels = jax.vmap(get_rendered_pixel, in_axes=0)(
             densities, colors, rays_with_origins
         )
-        #print('Rendered pixels shape:', rendered_pixels.shape)
+        print('Rendered pixels shape:', rendered_pixels.shape)
         print('Source pixels shape:', source_pixels.shape)
         break
 

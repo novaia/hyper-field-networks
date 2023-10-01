@@ -70,13 +70,7 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
 
     return components
 
-def render_volume(
-    positions:jnp.ndarray, directions:jnp.ndarray, deltas:jnp.ndarray, state:TrainState
-):
-    assertion_text = 'Positions, directions, and deltas must have the same shape.'
-    assert positions.shape == directions.shape == deltas.shape, assertion_text
-    densities, colors = state.apply_fn((positions, directions))
-    
+def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):    
     triangular_mask = jnp.tril(jnp.ones(densities.shape))
     repeated_densities = jnp.repeat(densities, densities.shape[0], axis=0)
     triangular_densities = repeated_densities * triangular_mask
@@ -275,7 +269,7 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
 
     for step in range(training_steps):
         rng = jax.random.PRNGKey(step)
-        pixels, indices = sample_pixels(
+        source_pixels, indices = sample_pixels(
             num_samples=batch_size, 
             image_width=dataset.w, 
             image_height=dataset.h, 
@@ -316,9 +310,26 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
         batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
         sample_vmap = jax.vmap(batch_vmap, in_axes=(None, 0, 0))
         densities, colors = sample_vmap(state, rays, directions)
+        densities = jnp.expand_dims(densities, axis=-1)
 
         print('Densities shape:', densities.shape)
         print('Colors shape:', colors.shape)
+        def get_rendered_pixel(densities, colors, rays):
+            print('Rays shape:', rays.shape)
+            vector_deltas = jnp.diff(rays, axis=0)
+            print('Vector deltas shape:', vector_deltas.shape)
+            deltas = jnp.sqrt(
+                vector_deltas[:, 0]**2 + 
+                vector_deltas[:, 1]**2 + 
+                vector_deltas[:, 2]**2
+            )
+            print('Deltas shape:', deltas.shape)
+            deltas = jnp.concatenate([deltas, jnp.zeros((1,))], axis=0)
+            print('Deltas modified shape:', deltas.shape)
+            return render_pixel(densities, colors, deltas)
+        rendered_pixels = jax.vmap(get_rendered_pixel, in_axes=0)(densities, colors, rays)
+        print('Rendered pixels shape:', rendered_pixels.shape)
+        print('Source pixels shape:', source_pixels.shape)
         break
 
 def load_dataset(path:str):

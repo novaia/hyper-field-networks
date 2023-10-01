@@ -307,39 +307,11 @@ def train_loop(batch_size:int, training_steps:int, state:TrainState, dataset:Dat
         rays = transform(transform_matrices, rays)
         # Convert rays back to Cartesian coordinates.
         rays = rays[:, :, :3]
-        print('Rays shape:', rays.shape)
 
         directions = rays[:, 1] - rays[:, 0]
         directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
-        print('Directions shape:', directions.shape)
-        
-        #densities, colors = jax.vmap(state.apply_fn, in_axes=0)((rays, directions))
-        #densities, colors = state.apply_fn(
-        #   {'params': state.params}, 
-        #    (rays[0, 0], directions[0, 0])
-        #)
-        #def get_output(state, rays, directions):
-        #    return state.apply_fn({'params': state.params}, (rays, directions))
-        #batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
-        #ray_sample_vmap = jax.vmap(batch_vmap, in_axes=(None, 0, 0))
-        #densities, colors = ray_sample_vmap(state, rays, directions)
-        #print('Rays shape instance:', rays[0, 0].shape)
-        #print('Directions shape instance:', directions[0, 0].shape)
-        #print('Rays:', rays[0, 0])
-        #print('Directions:', directions[0, 0])
-        #densities, colors = state.apply_fn(
-        #    {'params': state.params}, 
-        #    (rays[0, 0], directions[0, 0])
-        #)
-
-        #def vmap_test(rays, directions):
-        #    print('Test rays shape:', rays.shape)
-        #    print('Test directions shape:', directions.shape)
-        #jax.vmap(jax.vmap(vmap_test, in_axes=(0, 0)), in_axes=(0, 0))(rays, directions)
 
         def get_output(state, rays, directions):
-            print('Test rays shape:', rays.shape)
-            print('Test directions shape:', directions.shape)
             return state.apply_fn({'params': state.params}, (rays, directions))
         batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
         sample_vmap = jax.vmap(batch_vmap, in_axes=(None, 0, 0))

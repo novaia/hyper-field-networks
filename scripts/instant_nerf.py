@@ -261,7 +261,7 @@ def get_ray_scales(
     ray_near:float, ray_far:float, batch_size:int, num_samples:int, rng:PRNGKeyArray
 ):
     scale_delta = (ray_far - ray_near) / num_samples
-    ray_scales = jnp.linspace(ray_near, ray_far, num_samples)
+    ray_scales = jnp.linspace(0, ray_far-ray_near, num_samples)
     perturbations = jax.random.uniform(rng, ray_scales.shape, minval=0, maxval=scale_delta)
     ray_scales = ray_scales + perturbations
     # (1, num_ray_samples, 1)
@@ -348,10 +348,11 @@ def train_step(
     rays_z = jnp.repeat(jnp.array([canvas_plane]), rays_x.shape[0])
 
     # Repeat rays along a new axis and then scale them to get samples at different points.
-    rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
-    rays = rays / jnp.expand_dims(jnp.linalg.norm(rays, axis=-1), axis=-1)
+    canvas_rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
+    rays = canvas_rays / jnp.expand_dims(jnp.linalg.norm(canvas_rays, axis=-1), axis=-1)
     rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
     rays = rays * ray_scales
+    rays = rays + jnp.repeat(jnp.expand_dims(canvas_rays, axis=1), num_ray_samples, axis=1)
 
     # Convert rays to homogenous coordinates by adding w = 1 component.
     rays_w = jnp.ones((num_ray_samples, 1))
@@ -423,13 +424,16 @@ def render_scene(
     ray_scales = jnp.squeeze(ray_scales, axis=0)
     transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
 
+    @jax.jit
     def render_ray(x, y):
         x = (x - dataset.cx) * dataset.canvas_width_ratio
         y = (y - dataset.cy) * dataset.canvas_height_ratio
         ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
+        canvas_ray = ray
         ray = ray / jnp.linalg.norm(ray, axis=-1)
         ray = jnp.repeat(ray, num_ray_samples, axis=0)
         ray_samples = ray * ray_scales
+        ray_samples = ray_samples + jnp.repeat(canvas_ray, num_ray_samples, axis=0)
         ray_samples_w = jnp.ones((num_ray_samples, 1))
         ray_samples = jnp.concatenate([ray_samples, ray_samples_w], axis=-1)
         ray_samples = transform_ray(transform_matrix, ray_samples)
@@ -519,7 +523,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generations_0_to_948/generation_0'
-    dataset = load_dataset(dataset_path, canvas_plane=0.1)
+    dataset = load_dataset(dataset_path, canvas_plane=1.0)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -552,12 +556,12 @@ if __name__ == '__main__':
     print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
 
     ray_near = dataset.canvas_plane
-    ray_far = 1.0
+    ray_far = 8.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=10000,
-        num_ray_samples=128,
+        batch_size=30000,
+        num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
         training_steps=1000, 

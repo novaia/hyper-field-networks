@@ -402,9 +402,9 @@ def train_step(
         source_alphas = source_pixels[:, -1:]
         source_pixels_rgb = source_pixels[:, :3]
         random_bg_pixels = jax.random.uniform(random_bg_key, source_pixels_rgb.shape)
-        source_pixels_rgb = (
-            source_pixels_rgb * source_alphas + random_bg_pixels * (1 - source_alphas)
-        )
+        random_bg_pixels = random_bg_pixels * (1 - source_alphas)
+        source_pixels_rgb = (source_pixels_rgb * source_alphas) + random_bg_pixels
+        rendered_pixels = rendered_pixels + random_bg_pixels
         loss = jnp.mean((rendered_pixels - source_pixels_rgb)**2)
         return loss
     

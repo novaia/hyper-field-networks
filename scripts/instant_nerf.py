@@ -265,11 +265,16 @@ def get_ray_scales(ray_near:float, ray_far:float, batch_size:int, num_samples:in
     return ray_scales
 
 def train_loop(
-    batch_size:int, num_ray_samples:int, training_steps:int, state:TrainState, dataset:Dataset
+    batch_size:int, 
+    num_ray_samples:int, 
+    ray_far:float, 
+    training_steps:int, 
+    state:TrainState, 
+    dataset:Dataset
 ):
     ray_scales = get_ray_scales(
-        ray_near=dataset.canvas_plane, 
-        ray_far=15.0, 
+        ray_near=1.0, 
+        ray_far=ray_far, 
         batch_size=batch_size, 
         num_samples=num_ray_samples
     )
@@ -280,6 +285,8 @@ def train_loop(
             batch_size=batch_size,
             image_width=dataset.w,
             image_height=dataset.h,
+            principle_point_x=dataset.cx,
+            principle_point_y=dataset.cy,
             canvas_width_ratio=dataset.canvas_width_ratio,
             canvas_height_ratio=dataset.canvas_height_ratio,
             canvas_plane=dataset.canvas_plane,
@@ -303,6 +310,8 @@ def train_step(
     batch_size:int,
     image_width:int,
     image_height:int,
+    principle_point_x:float,
+    principle_point_y:float,
     canvas_width_ratio:float,
     canvas_height_ratio:float,
     canvas_plane:float,
@@ -324,8 +333,8 @@ def train_step(
 
     image_indices, width_indices, height_indices = indices
     # Scale from real canvas dimensions to virtual canvas dimensions.
-    rays_x = width_indices * canvas_width_ratio
-    rays_y = height_indices * canvas_height_ratio
+    rays_x = (width_indices - principle_point_x) * canvas_width_ratio
+    rays_y = (height_indices - principle_point_y) * canvas_height_ratio
     rays_z = jnp.repeat(jnp.array([canvas_plane]), rays_x.shape[0])
 
     # Repeat rays along a new axis and then scale them to get samples at different points.
@@ -382,11 +391,17 @@ def train_step(
     return loss, state
 
 def render_scene(
-    num_ray_samples:int, dataset:Dataset, transform_matrix:jnp.ndarray, state:TrainState
+    num_ray_samples:int,
+    patch_size_x:int,
+    patch_size_y:int,
+    ray_far:float, 
+    dataset:Dataset, 
+    transform_matrix:jnp.ndarray, 
+    state:TrainState
 ):
     ray_scales = get_ray_scales(
-        ray_near=dataset.canvas_plane, 
-        ray_far=15.0, 
+        ray_near=1.0, 
+        ray_far=ray_far, 
         batch_size=1, 
         num_samples=num_ray_samples
     )
@@ -394,6 +409,8 @@ def render_scene(
     transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
 
     def render_ray(x, y):
+        x -= dataset.cx
+        y -= dataset.cy
         ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
         ray = jnp.repeat(ray, num_ray_samples, axis=0)
         ray_samples = ray * ray_scales
@@ -419,8 +436,6 @@ def render_scene(
         rendered_pixel = render_pixel(densities, colors, deltas)
         return rendered_pixel
     
-    patch_size_x = 128
-    patch_size_y = 128
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
@@ -435,16 +450,15 @@ def render_scene(
             patch_end_y = patch_start_y + patch_size_y
             y_coordinates = jnp.arange(patch_start_y, patch_end_y)
             rendered_patch = render_ray_vmap(x_coordinates, y_coordinates)
-            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
+            rendered_image[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
-    rendered_image = np.clip(rendered_image, -20, 20)
     rendered_image -= np.min(rendered_image)
     rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
     plt.imsave('data/rendered_image.png', rendered_image)
 
-def load_dataset(path:str):
+def load_dataset(path:str, canvas_plane:float=1.0):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
@@ -470,7 +484,7 @@ def load_dataset(path:str):
         w=transforms['w'],
         h=transforms['h'],
         aabb_scale=transforms['aabb_scale'],
-        canvas_plane=1.0,
+        canvas_plane=canvas_plane,
         transform_matrices=jnp.array(transform_matrices),
         images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
@@ -488,7 +502,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generations_0_to_948/generation_0'
-    dataset = load_dataset(dataset_path)
+    dataset = load_dataset(dataset_path, canvas_plane=0.5)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -523,9 +537,10 @@ if __name__ == '__main__':
     state = train_loop(
         batch_size=30000,
         num_ray_samples=64,
-        training_steps=100, 
+        ray_far=2.0,
+        training_steps=400, 
         state=state, 
         dataset=dataset
     )
     print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
-    render_scene(64, dataset, dataset.transform_matrices[0], state)
+    render_scene(64, 128, 128, 2.0, dataset, dataset.transform_matrices[9], state)

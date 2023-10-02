@@ -411,8 +411,8 @@ def render_scene(
     transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
 
     def render_ray(x, y):
-        x -= dataset.cx
-        y -= dataset.cy
+        x = (x - dataset.cx) * dataset.canvas_width_ratio
+        y = (y - dataset.cy) * dataset.canvas_height_ratio
         ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
         ray = ray / jnp.linalg.norm(ray, axis=-1)
         ray = jnp.repeat(ray, num_ray_samples, axis=0)

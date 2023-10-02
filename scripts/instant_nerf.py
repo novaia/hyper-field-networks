@@ -403,7 +403,7 @@ def render_scene(
 ):
     ray_scales = get_ray_scales(
         ray_near=1.0, 
-        ray_far=ray_far, 
+        ray_far=ray_far+1, 
         batch_size=1, 
         num_samples=num_ray_samples
     )
@@ -421,8 +421,8 @@ def render_scene(
         ray_samples = jnp.concatenate([ray_samples, ray_samples_w], axis=-1)
         ray_samples = transform_ray(transform_matrix, ray_samples)
         ray_samples = ray_samples[:, :3]
-        direction = ray_samples[1] - ray_samples[0]
-        #direction = direction / jnp.linalg.norm(direction, axis=-1)
+        direction = ray_samples[-1] - ray_samples[0]
+        direction = direction / jnp.linalg.norm(direction, axis=-1)
 
         def get_output(params, rays, directions):
             return state.apply_fn({'params': params}, (rays, directions))

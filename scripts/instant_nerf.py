@@ -547,11 +547,11 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=20000,
+        batch_size=30000,
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=400, 
+        training_steps=10000, 
         state=state, 
         dataset=dataset
     )

@@ -352,7 +352,11 @@ def train_step(
     rays = canvas_rays / jnp.expand_dims(jnp.linalg.norm(canvas_rays, axis=-1), axis=-1)
     rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
     rays = rays * ray_scales
-    rays = rays + jnp.repeat(jnp.expand_dims(canvas_rays, axis=1), num_ray_samples, axis=1)
+    # Add canvas rays to scaled rays so that scaled rays all originate from the canvas.
+    # This effectively turns the canvaas into the near plane.
+    # TODO: maybe remove the canvas_plane arg and just use ray_near.
+    canvas_rays = jnp.repeat(jnp.expand_dims(canvas_rays, axis=1), num_ray_samples, axis=1)
+    rays = rays + canvas_rays
 
     # Convert rays to homogenous coordinates by adding w = 1 component.
     rays_w = jnp.ones((num_ray_samples, 1))
@@ -523,7 +527,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generations_0_to_948/generation_0'
-    dataset = load_dataset(dataset_path, canvas_plane=1.0)
+    dataset = load_dataset(dataset_path, canvas_plane=3.0)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -552,11 +556,9 @@ if __name__ == '__main__':
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-2, 10**-15)
-    
-    print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
 
     ray_near = dataset.canvas_plane
-    ray_far = 8.0
+    ray_far = 20.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -564,15 +566,14 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=1000, 
+        training_steps=10000, 
         state=state, 
         dataset=dataset
     )
-    print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
     render_scene(
-        num_ray_samples=64, 
-        patch_size_x=128, 
-        patch_size_y=128, 
+        num_ray_samples=512, 
+        patch_size_x=32, 
+        patch_size_y=32, 
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 
@@ -581,9 +582,9 @@ if __name__ == '__main__':
         file_name='rendered_image_0'
     )
     render_scene(
-        num_ray_samples=64, 
-        patch_size_x=128, 
-        patch_size_y=128, 
+        num_ray_samples=512, 
+        patch_size_x=32, 
+        patch_size_y=32, 
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 

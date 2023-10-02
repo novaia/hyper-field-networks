@@ -257,8 +257,13 @@ def sample_pixels(
     indices = (image_indices, width_indices, height_indices)
     return pixel_samples, indices 
 
-def get_ray_scales(ray_near:float, ray_far:float, batch_size:int, num_samples:int):
+def get_ray_scales(
+    ray_near:float, ray_far:float, batch_size:int, num_samples:int, rng:PRNGKeyArray
+):
+    scale_delta = (ray_far - ray_near) / num_samples
     ray_scales = jnp.linspace(ray_near, ray_far, num_samples)
+    perturbations = jax.random.uniform(rng, ray_scales.shape, minval=0, maxval=scale_delta)
+    ray_scales = ray_scales + perturbations
     # (1, num_ray_samples, 1)
     ray_scales = jnp.expand_dims(ray_scales, axis=(0, -1))
     # (batch_size, num_ray_samples, 3)
@@ -274,13 +279,6 @@ def train_loop(
     state:TrainState, 
     dataset:Dataset
 ):
-    ray_scales = get_ray_scales(
-        ray_near=ray_near, 
-        ray_far=ray_far, 
-        batch_size=batch_size, 
-        num_samples=num_ray_samples
-    )
-
     for step in range(training_steps):
         rng = jax.random.PRNGKey(step)
         loss, state = train_step(
@@ -292,11 +290,12 @@ def train_loop(
             canvas_width_ratio=dataset.canvas_width_ratio,
             canvas_height_ratio=dataset.canvas_height_ratio,
             canvas_plane=dataset.canvas_plane,
+            ray_near=ray_near,
+            ray_far=ray_far,
             transform_matrices=dataset.transform_matrices,
             images=dataset.images,
             state=state, 
             num_ray_samples=num_ray_samples, 
-            ray_scales=ray_scales, 
             rng=rng
         )
         print('Loss:', loss)
@@ -317,19 +316,28 @@ def train_step(
     canvas_width_ratio:float,
     canvas_height_ratio:float,
     canvas_plane:float,
+    ray_near:float,
+    ray_far:float,
     transform_matrices:jnp.ndarray,
     images:jnp.ndarray,
     state:TrainState,
     num_ray_samples:int,
-    ray_scales:jnp.ndarray,
     rng:PRNGKeyArray
 ):
+    ray_scale_key, pixel_sample_key = jax.random.split(rng, num=2)
+    ray_scales = get_ray_scales(
+        ray_near=ray_near, 
+        ray_far=ray_far, 
+        batch_size=batch_size, 
+        num_samples=num_ray_samples,
+        rng=ray_scale_key
+    )
     source_pixels, indices = sample_pixels(
         num_samples=batch_size, 
         image_width=image_width, 
         image_height=image_height, 
         num_images=images.shape[0], 
-        rng=rng, 
+        rng=pixel_sample_key, 
         images=images
     )
 
@@ -409,7 +417,8 @@ def render_scene(
         ray_near=ray_near, 
         ray_far=ray_far, 
         batch_size=1, 
-        num_samples=num_ray_samples
+        num_samples=num_ray_samples,
+        rng=jax.random.PRNGKey(0)
     )
     ray_scales = jnp.squeeze(ray_scales, axis=0)
     transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
@@ -551,7 +560,7 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=10000, 
+        training_steps=1000, 
         state=state, 
         dataset=dataset
     )

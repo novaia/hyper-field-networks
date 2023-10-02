@@ -196,6 +196,7 @@ class InstantNerf(nn.Module):
             max_resolution=self.finest_resolution,
             feature_dim=self.hash_table_feature_dim
         )(position)
+        #encoded_position = nn.LayerNorm()(encoded_position)
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
@@ -534,7 +535,7 @@ if __name__ == '__main__':
         finest_resolution=1024,
         density_mlp_width=64,
         color_mlp_width=64,
-        high_dynamic_range=False
+        high_dynamic_range=True
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-2, 10**-15)
@@ -546,7 +547,7 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=30000,
+        batch_size=20000,
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,

@@ -401,7 +401,8 @@ def render_scene(
     ray_far:float,
     dataset:Dataset, 
     transform_matrix:jnp.ndarray, 
-    state:TrainState
+    state:TrainState,
+    file_name:Optional[str]='rendered_image'
 ):
     ray_scales = get_ray_scales(
         ray_near=ray_near, 
@@ -462,7 +463,7 @@ def render_scene(
     #rendered_image -= np.min(rendered_image)
     #rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
-    plt.imsave('data/rendered_image.png', rendered_image)
+    plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image)
 
 def load_dataset(path:str, canvas_plane:float=1.0):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -554,4 +555,25 @@ if __name__ == '__main__':
         dataset=dataset
     )
     print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
-    render_scene(64, 128, 128, ray_near, ray_far, dataset, dataset.transform_matrices[9], state)
+    render_scene(
+        num_ray_samples=64, 
+        patch_size_x=128, 
+        patch_size_y=128, 
+        ray_near=ray_near, 
+        ray_far=ray_far, 
+        dataset=dataset, 
+        transform_matrix=dataset.transform_matrices[9], 
+        state=state,
+        file_name='rendered_image_0'
+    )
+    render_scene(
+        num_ray_samples=64, 
+        patch_size_x=128, 
+        patch_size_y=128, 
+        ray_near=ray_near, 
+        ray_far=ray_far, 
+        dataset=dataset, 
+        transform_matrix=dataset.transform_matrices[14], 
+        state=state,
+        file_name='rendered_image_1'
+    )

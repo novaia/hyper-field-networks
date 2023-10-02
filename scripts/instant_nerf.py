@@ -266,15 +266,16 @@ def get_ray_scales(ray_near:float, ray_far:float, batch_size:int, num_samples:in
 
 def train_loop(
     batch_size:int, 
-    num_ray_samples:int, 
+    num_ray_samples:int,
+    ray_near:float,
     ray_far:float, 
     training_steps:int, 
     state:TrainState, 
     dataset:Dataset
 ):
     ray_scales = get_ray_scales(
-        ray_near=1.0, 
-        ray_far=ray_far+1, 
+        ray_near=ray_near, 
+        ray_far=ray_far, 
         batch_size=batch_size, 
         num_samples=num_ray_samples
     )
@@ -339,7 +340,7 @@ def train_step(
 
     # Repeat rays along a new axis and then scale them to get samples at different points.
     rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
-    #rays = rays / jnp.expand_dims(jnp.linalg.norm(rays, axis=-1), axis=-1)
+    rays = rays / jnp.expand_dims(jnp.linalg.norm(rays, axis=-1), axis=-1)
     rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
     rays = rays * ray_scales
 
@@ -396,14 +397,15 @@ def render_scene(
     num_ray_samples:int,
     patch_size_x:int,
     patch_size_y:int,
-    ray_far:float, 
+    ray_near:float,
+    ray_far:float,
     dataset:Dataset, 
     transform_matrix:jnp.ndarray, 
     state:TrainState
 ):
     ray_scales = get_ray_scales(
-        ray_near=1.0, 
-        ray_far=ray_far+1, 
+        ray_near=ray_near, 
+        ray_far=ray_far, 
         batch_size=1, 
         num_samples=num_ray_samples
     )
@@ -414,7 +416,7 @@ def render_scene(
         x = (x - dataset.cx) * dataset.canvas_width_ratio
         y = (y - dataset.cy) * dataset.canvas_height_ratio
         ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
-        #ray = ray / jnp.linalg.norm(ray, axis=-1)
+        ray = ray / jnp.linalg.norm(ray, axis=-1)
         ray = jnp.repeat(ray, num_ray_samples, axis=0)
         ray_samples = ray * ray_scales
         ray_samples_w = jnp.ones((num_ray_samples, 1))
@@ -538,13 +540,18 @@ if __name__ == '__main__':
     
     print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
 
+    ray_near = dataset.canvas_plane
+    ray_far = 1.0
+    assert ray_near < ray_far, 'Ray near must be less than ray far.'
+
     state = train_loop(
         batch_size=30000,
         num_ray_samples=64,
-        ray_far=1.0,
+        ray_near=ray_near,
+        ray_far=ray_far,
         training_steps=400, 
         state=state, 
         dataset=dataset
     )
     print(state.params['MultiResolutionHashEncoding_0']['hash_table'])
-    render_scene(64, 128, 128, 1.0, dataset, dataset.transform_matrices[9], state)
+    render_scene(64, 128, 128, ray_near, ray_far, dataset, dataset.transform_matrices[9], state)

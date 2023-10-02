@@ -324,7 +324,7 @@ def train_step(
     num_ray_samples:int,
     rng:PRNGKeyArray
 ):
-    ray_scale_key, pixel_sample_key = jax.random.split(rng, num=2)
+    ray_scale_key, pixel_sample_key, random_bg_key = jax.random.split(rng, num=3)
     ray_scales = get_ray_scales(
         ray_near=ray_near, 
         ray_far=ray_far, 
@@ -399,7 +399,13 @@ def train_step(
         densities, colors = get_output_sample_vmap(params, rays, directions)
         densities = jnp.expand_dims(densities, axis=-1)
         rendered_pixels = get_rendered_pixel_vmap(densities, colors, rays_with_origins)
-        loss = jnp.mean((rendered_pixels - source_pixels[:, :3])**2)
+        source_alphas = source_pixels[:, -1:]
+        source_pixels_rgb = source_pixels[:, :3]
+        random_bg_pixels = jax.random.uniform(random_bg_key, source_pixels_rgb.shape)
+        source_pixels_rgb = (
+            source_pixels_rgb * source_alphas + random_bg_pixels * (1 - source_alphas)
+        )
+        loss = jnp.mean((rendered_pixels - source_pixels_rgb)**2)
         return loss
     
     grad_fn = jax.value_and_grad(loss_fn)
@@ -566,7 +572,7 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=10000, 
+        training_steps=1000, 
         state=state, 
         dataset=dataset
     )

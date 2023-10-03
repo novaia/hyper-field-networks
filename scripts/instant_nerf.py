@@ -200,6 +200,8 @@ class InstantNerf(nn.Module):
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
+        x = nn.Dense(self.density_mlp_width)(encoded_position)
+        x = nn.activation.relu(x)
         x = nn.Dense(16)(x)
         density_output = nn.activation.relu(x)
         density = density_output[0]
@@ -529,6 +531,13 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     translation_component = translation_component / jnp.linalg.norm(
         translation_component, axis=-1, keepdims=True
     )
+    # Normalized translation components have elements in the range [-1, 1].
+    # Add 1 to all elements to get elements in the range [0, 2], then normalize again
+    # to get elements in the range [0, 1].
+    translation_component = translation_component + jnp.array([1, 1, 1])
+    translation_component = translation_component / jnp.linalg.norm(
+        translation_component, axis=-1, keepdims=True
+    )
     translation_component = jnp.expand_dims(translation_component, axis=-1)
     print('Translation:', translation_component.shape)
     homogenous_component = dataset.transform_matrices[:, 3:, :]
@@ -590,7 +599,7 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=1000, 
+        training_steps=100, 
         state=state, 
         dataset=dataset
     )

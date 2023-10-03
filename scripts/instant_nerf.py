@@ -487,7 +487,7 @@ def render_scene(
     #rendered_image -= np.min(rendered_image)
     #rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
-    plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image)
+    plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
 
 def load_dataset(path:str, canvas_plane:float=1.0):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -520,6 +520,24 @@ def load_dataset(path:str, canvas_plane:float=1.0):
         images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
 
+    rotation_component = dataset.transform_matrices[:, :3, :3]
+    rotation_component = rotation_component / jnp.linalg.norm(
+        rotation_component, axis=(1, 2), keepdims=True
+    )
+    print('Rotation:', rotation_component.shape)
+    translation_component = dataset.transform_matrices[:, :3, -1]
+    translation_component = translation_component / jnp.linalg.norm(
+        translation_component, axis=-1, keepdims=True
+    )
+    translation_component = jnp.expand_dims(translation_component, axis=-1)
+    print('Translation:', translation_component.shape)
+    homogenous_component = dataset.transform_matrices[:, 3:, :]
+    print('Homogenous:', homogenous_component.shape)
+    dataset.transform_matrices = jnp.concatenate([
+        jnp.concatenate([rotation_component, translation_component], axis=-1),
+        homogenous_component,
+    ], axis=1)
+    print('Transforms:', dataset.transform_matrices.shape)
     virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)
     virtual_canvas_y = dataset.canvas_plane * jnp.tan(dataset.vertical_fov/2)
     real_canvas_x = dataset.cx
@@ -533,7 +551,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generations_0_to_948/generation_0'
-    dataset = load_dataset(dataset_path, canvas_plane=3.0)
+    dataset = load_dataset(dataset_path, canvas_plane=0.01)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -564,7 +582,7 @@ if __name__ == '__main__':
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = dataset.canvas_plane
-    ray_far = 20.0
+    ray_far = 1.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -597,4 +615,15 @@ if __name__ == '__main__':
         transform_matrix=dataset.transform_matrices[14], 
         state=state,
         file_name='rendered_image_1'
+    )
+    render_scene(
+        num_ray_samples=512, 
+        patch_size_x=32, 
+        patch_size_y=32, 
+        ray_near=ray_near, 
+        ray_far=ray_far, 
+        dataset=dataset, 
+        transform_matrix=dataset.transform_matrices[7], 
+        state=state,
+        file_name='rendered_image_2'
     )

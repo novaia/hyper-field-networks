@@ -200,11 +200,9 @@ class InstantNerf(nn.Module):
 
         x = nn.Dense(self.density_mlp_width)(encoded_position)
         x = nn.activation.relu(x)
-        x = nn.Dense(self.density_mlp_width)(encoded_position)
-        x = nn.activation.relu(x)
         x = nn.Dense(16)(x)
-        density_output = nn.activation.relu(x)
-        density = density_output[0]
+        density = nn.activation.relu(x[0])
+        density_output = x[1:]
 
         encoded_direction = fourth_order_sh_encoding(direction)
         # Encoded_direction is currently 3x16 but I'm not sure if it is supposed to be.
@@ -514,7 +512,7 @@ def generate_density_grid(
     num_patches_x = num_points // patch_size_x
     num_patches_y = num_points // patch_size_y
     density_grid = np.zeros((num_points, num_points, num_points, 1))
-    get_density_vmap = jax.vmap(jax.vmap(get_density, in_axes=(0, None)), in_axes=(None, 0))
+    get_density_vmap = jax.vmap(jax.vmap(get_density, in_axes=(None, 0)), in_axes=(0, None))
 
     for x in range(num_patches_x):
         patch_start_x = patch_size_x * x
@@ -527,14 +525,10 @@ def generate_density_grid(
             density_patch = jnp.expand_dims(
                 get_density_vmap(x_coordinates, y_coordinates), axis=-1
             )
-            density_grid[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = density_patch
-            break
-        break
+            density_grid[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = density_patch
 
     print('Density grid shape:', density_grid.shape)
-    density_grid_json = {'density_grid': density_grid.tolist()}
-    with open(os.path.join('data/', file_name + '.json'), 'w') as f:
-        json.dump(density_grid_json, f, indent=4)
+    np.save('data/density_grid.npy', density_grid)
 
 def load_dataset(path:str, canvas_plane:float=1.0):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -644,12 +638,11 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=1, 
+        training_steps=1000, 
         state=state, 
         dataset=dataset
     )
     generate_density_grid(64, 32, 32, state)
-    exit(0)
     render_scene(
         num_ray_samples=512, 
         patch_size_x=32, 

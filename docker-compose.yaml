@@ -2,7 +2,7 @@ services:
   pcg:
     build: .
     ports:
-      - 7070:7070
+      - 7070:8888
     volumes:
       - .:/project
       - /tmp/.X11-unix:/tmp/.X11-unix

@@ -491,6 +491,51 @@ def render_scene(
     rendered_image = np.clip(rendered_image, 0, 1)
     plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
 
+def generate_density_grid(
+    num_points:int, 
+    patch_size_x:int, 
+    patch_size_y:int,
+    state:TrainState,
+    file_name:Optional[str]='density_grid'
+):
+    @jax.jit
+    def get_density(x, y):
+        def get_output(rays, directions):
+            return state.apply_fn({'params': state.params}, (rays, directions))
+        get_output_sample_vmap = jax.vmap(get_output, in_axes=(0, None))
+
+        rays = jnp.repeat(jnp.array([[x, y]]), num_points, axis=0)
+        rays_z = jnp.expand_dims(jnp.linspace(0.0, 1.0, num_points), axis=-1)
+        rays = jnp.concatenate([rays, rays_z], axis=-1)
+        direction = jnp.array([0, 0, 1])
+        density, _ = get_output_sample_vmap(rays, direction)
+        return density
+    
+    num_patches_x = num_points // patch_size_x
+    num_patches_y = num_points // patch_size_y
+    density_grid = np.zeros((num_points, num_points, num_points, 1))
+    get_density_vmap = jax.vmap(jax.vmap(get_density, in_axes=(0, None)), in_axes=(None, 0))
+
+    for x in range(num_patches_x):
+        patch_start_x = patch_size_x * x
+        patch_end_x = patch_start_x + patch_size_x
+        x_coordinates = jnp.arange(patch_start_x, patch_end_x)
+        for y in range(num_patches_y):
+            patch_start_y = patch_size_y * y
+            patch_end_y = patch_start_y + patch_size_y
+            y_coordinates = jnp.arange(patch_start_y, patch_end_y)
+            density_patch = jnp.expand_dims(
+                get_density_vmap(x_coordinates, y_coordinates), axis=-1
+            )
+            density_grid[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = density_patch
+            break
+        break
+
+    print('Density grid shape:', density_grid.shape)
+    density_grid_json = {'density_grid': density_grid.tolist()}
+    with open(os.path.join('data/', file_name + '.json'), 'w') as f:
+        json.dump(density_grid_json, f, indent=4)
+
 def load_dataset(path:str, canvas_plane:float=1.0):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
@@ -599,10 +644,12 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=100, 
+        training_steps=1, 
         state=state, 
         dataset=dataset
     )
+    generate_density_grid(64, 32, 32, state)
+    exit(0)
     render_scene(
         num_ray_samples=512, 
         patch_size_x=32, 

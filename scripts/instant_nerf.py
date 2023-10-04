@@ -120,7 +120,7 @@ class MultiResolutionHashEncoding(nn.Module):
         # Point offset shape is (spatial_dim, num_levels).
         self.hash_table = self.param(
             'hash_table', 
-            nn.initializers.lecun_normal(), 
+            nn.initializers.uniform(scale=10**-4), 
             (self.feature_dim, absolute_table_size)
         )
 
@@ -646,7 +646,7 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=400, 
+        training_steps=1000, 
         state=state, 
         dataset=dataset
     )

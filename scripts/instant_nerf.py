@@ -412,7 +412,8 @@ def train_step(
         source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
-        loss = jnp.mean((rendered_colors - source_colors)**2)
+        #loss = jnp.mean((rendered_colors - source_colors)**2)
+        loss = jnp.mean(jnp.mean(optax.huber_loss(rendered_colors, source_colors), axis=-1))
         return loss
     
     grad_fn = jax.value_and_grad(loss_fn)
@@ -642,7 +643,7 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=20000,
+        batch_size=30000,
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,

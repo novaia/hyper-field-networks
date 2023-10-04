@@ -72,18 +72,26 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
 
     return components
 
-def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):    
-    expanded_densities = jnp.expand_dims(densities, axis=0)
-    repeated_densities = jnp.repeat(expanded_densities, densities.shape[0], axis=0)
-    triangular_mask = jnp.tril(jnp.ones(repeated_densities.shape))
-    triangular_densities = repeated_densities * triangular_mask
-    expanded_deltas = jnp.expand_dims(deltas, axis=0)
-    repeated_deltas = jnp.repeat(expanded_deltas, deltas.shape[0], axis=0)
-    triangular_deltas = repeated_deltas * triangular_mask
+def alpha_composite(foreground, background, alpha):
+    return foreground + background * (1 - alpha)
 
-    T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas, axis=1))
-    rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors, axis=0)
-    return rendered_color
+def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):   
+    #expanded_densities = jnp.expand_dims(densities, axis=0)
+    #repeated_densities = jnp.repeat(expanded_densities, densities.shape[0], axis=0)
+    #triangular_mask = jnp.tril(jnp.ones(repeated_densities.shape))
+    #triangular_densities = repeated_densities * triangular_mask
+    #expanded_deltas = jnp.expand_dims(deltas, axis=0)
+    #repeated_deltas = jnp.repeat(expanded_deltas, deltas.shape[0], axis=0)
+    #triangular_deltas = repeated_deltas * triangular_mask
+
+    #T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas, axis=1))
+    #rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors, axis=0)
+    
+    alphas = 1 - jnp.exp(-densities * deltas)
+    quadrature_weights = alphas * jnp.cumprod(1 - alphas + 1e-10, axis=0)
+    rendered_color = jnp.sum(quadrature_weights * colors, axis=0)
+    accumulated_alpha = jnp.sum(quadrature_weights, axis=0)
+    return rendered_color, accumulated_alpha
 
 class MultiResolutionHashEncoding(nn.Module):
     table_init_key: PRNGKeyArray
@@ -324,7 +332,7 @@ def train_step(
     num_ray_samples:int,
     rng:PRNGKeyArray
 ):
-    ray_scale_key, pixel_sample_key, random_bg_key = jax.random.split(rng, num=3)
+    ray_scale_key, pixel_sample_key, random_bg_key1, random_bg_key2 = jax.random.split(rng, num=4)
     ray_scales = get_ray_scales(
         ray_near=ray_near, 
         ray_far=ray_far, 
@@ -383,8 +391,8 @@ def train_step(
 
     def get_output(params, rays, directions):
         return state.apply_fn({'params': params}, (rays, directions))
-    get_output_batch_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
-    get_output_sample_vmap = jax.vmap(get_output_batch_vmap, in_axes=(None, 0, 0))
+    get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
+    get_output_batch_vmap = jax.vmap(get_output_sample_vmap, in_axes=(None, 0, 0))
 
     def get_rendered_pixel(densities, colors, rays_with_origins):
         vector_deltas = jnp.diff(rays_with_origins, axis=0)
@@ -396,16 +404,20 @@ def train_step(
     get_rendered_pixel_vmap = jax.vmap(get_rendered_pixel, in_axes=0)
 
     def loss_fn(params):
-        densities, colors = get_output_sample_vmap(params, rays, directions)
+        densities, colors = get_output_batch_vmap(params, rays, directions)
         densities = jnp.expand_dims(densities, axis=-1)
-        rendered_pixels = get_rendered_pixel_vmap(densities, colors, rays_with_origins)
+        rendered_colors, rendered_alphas = get_rendered_pixel_vmap(
+            densities, colors, rays_with_origins
+        )
         source_alphas = source_pixels[:, -1:]
-        source_pixels_rgb = source_pixels[:, :3]
-        random_bg_pixels = jax.random.uniform(random_bg_key, source_pixels_rgb.shape)
-        random_bg_pixels = random_bg_pixels * (1 - source_alphas)
-        source_pixels_rgb = (source_pixels_rgb * source_alphas) + random_bg_pixels
-        rendered_pixels = rendered_pixels + random_bg_pixels
-        loss = jnp.mean((rendered_pixels - source_pixels_rgb)**2)
+        source_colors = source_pixels[:, :3]
+        random_bg_colors1 = jax.random.uniform(random_bg_key1, source_colors.shape)
+        random_bg_colors2 = jax.random.uniform(random_bg_key1, source_colors.shape)
+
+        source_colors = alpha_composite(source_colors, random_bg_colors1, source_alphas)
+        rendered_colors = alpha_composite(rendered_colors, random_bg_colors2, rendered_alphas)
+
+        loss = jnp.mean((rendered_colors - source_colors)**2)
         return loss
     
     grad_fn = jax.value_and_grad(loss_fn)
@@ -470,6 +482,7 @@ def render_scene(
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
+    background_colors = jnp.ones((patch_size_x, patch_size_y, 3))
     render_ray_vmap = jax.vmap(jax.vmap(render_ray, in_axes=(0, None)), in_axes=(None, 0))
     
     for x in range(num_patches_x):
@@ -480,7 +493,8 @@ def render_scene(
             patch_start_y = patch_size_y * y
             patch_end_y = patch_start_y + patch_size_y
             y_coordinates = jnp.arange(patch_start_y, patch_end_y)
-            rendered_patch = render_ray_vmap(x_coordinates, y_coordinates)
+            rendered_colors, rendered_alphas = render_ray_vmap(x_coordinates, y_coordinates)
+            rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
             rendered_image[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
@@ -638,7 +652,7 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=1000, 
+        training_steps=10000, 
         state=state, 
         dataset=dataset
     )

@@ -332,7 +332,7 @@ def train_step(
     num_ray_samples:int,
     rng:PRNGKeyArray
 ):
-    ray_scale_key, pixel_sample_key, random_bg_key1, random_bg_key2 = jax.random.split(rng, num=4)
+    ray_scale_key, pixel_sample_key, random_bg_key = jax.random.split(rng, num=3)
     ray_scales = get_ray_scales(
         ray_near=ray_near, 
         ray_far=ray_far, 
@@ -406,11 +406,11 @@ def train_step(
         )
         source_alphas = source_pixels[:, -1:]
         source_colors = source_pixels[:, :3]
-        random_bg_colors1 = jax.random.uniform(random_bg_key1, source_colors.shape)
-        random_bg_colors2 = jax.random.uniform(random_bg_key1, source_colors.shape)
+        random_bg_colors = jax.random.uniform(random_bg_key, source_colors.shape)
 
-        source_colors = alpha_composite(source_colors, random_bg_colors1, source_alphas)
-        rendered_colors = alpha_composite(rendered_colors, random_bg_colors2, rendered_alphas)
+        #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
+        source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         loss = jnp.mean((rendered_colors - source_colors)**2)
         return loss
@@ -642,7 +642,7 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=30000,
+        batch_size=20000,
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,

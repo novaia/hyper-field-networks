@@ -579,13 +579,7 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     translation_component = translation_component / jnp.linalg.norm(
         translation_component, axis=-1, keepdims=True
     )
-    # Normalized translation components have elements in the range [-1, 1].
-    # Add 1 to all elements to get elements in the range [0, 2], then normalize again
-    # to get elements in the range [0, 1].
-    translation_component = translation_component + jnp.array([1, 1, 1])
-    translation_component = translation_component / jnp.linalg.norm(
-        translation_component, axis=-1, keepdims=True
-    )
+    translation_component = translation_component * 0.5
     translation_component = jnp.expand_dims(translation_component, axis=-1)
     print('Translation:', translation_component.shape)
     homogenous_component = dataset.transform_matrices[:, 3:, :]

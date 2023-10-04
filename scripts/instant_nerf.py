@@ -379,12 +379,6 @@ def train_step(
     # Convert rays back to Cartesian coordinates.
     rays = rays[:, :, :3]
 
-    # Ray origins can be extracted from transform matrices without matmul.
-    # They are equal to the translation components of the transform matrices.
-    ray_origins = selected_transform_matrices[:, :3, 3]
-    ray_origins = jnp.expand_dims(ray_origins, axis=1)
-    rays_with_origins = jnp.concatenate([ray_origins, rays], axis=1)
-
     directions = rays[:, -1] - rays[:, 0]
     directions = directions / jnp.expand_dims(jnp.linalg.norm(directions, axis=-1), axis=-1)
     directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
@@ -394,11 +388,12 @@ def train_step(
     get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
     get_output_batch_vmap = jax.vmap(get_output_sample_vmap, in_axes=(None, 0, 0))
 
-    def get_rendered_pixel(densities, colors, rays_with_origins):
-        vector_deltas = jnp.diff(rays_with_origins, axis=0)
+    def get_rendered_pixel(densities, colors, rays):
+        vector_deltas = jnp.diff(rays, axis=0)
         deltas = jnp.sqrt(
             vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
         )
+        deltas = jnp.concatenate([jnp.array([0]), deltas], axis=0)
         deltas = jnp.expand_dims(deltas, axis=-1)
         return render_pixel(densities, colors, deltas)
     get_rendered_pixel_vmap = jax.vmap(get_rendered_pixel, in_axes=0)
@@ -407,7 +402,7 @@ def train_step(
         densities, colors = get_output_batch_vmap(params, rays, directions)
         densities = jnp.expand_dims(densities, axis=-1)
         rendered_colors, rendered_alphas = get_rendered_pixel_vmap(
-            densities, colors, rays_with_origins
+            densities, colors, rays
         )
         source_alphas = source_pixels[:, -1:]
         source_colors = source_pixels[:, :3]
@@ -469,12 +464,11 @@ def render_scene(
         densities, colors = get_output_sample_vmap(state.params, ray_samples, direction)
         densities = jnp.expand_dims(densities, axis=-1)
 
-        ray_origin = jnp.expand_dims(transform_matrix[:3, 3], axis=0)
-        ray_with_origin = jnp.concatenate([ray_origin, ray_samples], axis=0)
-        vector_deltas = jnp.diff(ray_with_origin, axis=0)
+        vector_deltas = jnp.diff(ray_samples, axis=0)
         deltas = jnp.sqrt(
             vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
         )
+        deltas = jnp.concatenate([jnp.array([0]), deltas], axis=0)
         deltas = jnp.expand_dims(deltas, axis=-1)
         rendered_pixel = render_pixel(densities, colors, deltas)
         return rendered_pixel
@@ -638,13 +632,13 @@ if __name__ == '__main__':
         finest_resolution=1024,
         density_mlp_width=64,
         color_mlp_width=64,
-        high_dynamic_range=True
+        high_dynamic_range=False
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = dataset.canvas_plane
-    ray_far = 1.0
+    ray_far = 1.0 + ray_near
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -652,7 +646,7 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=10000, 
+        training_steps=400, 
         state=state, 
         dataset=dataset
     )

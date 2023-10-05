@@ -585,13 +585,14 @@ def turntable_render(
 
         transform_matrix = translation_matrix @ z_rotation_matrix @ x_rotation_matrix
         rotation_component = transform_matrix[:3, :3]
-        rotation_component = rotation_component / jnp.linalg.norm(
-            rotation_component, axis=(0, 1), keepdims=True
-        )
+        #rotation_component = rotation_component / jnp.linalg.norm(
+        #    rotation_component, axis=(0, 1), keepdims=True
+        #)
         translation_component = transform_matrix[:3, -1]
         translation_component = translation_component / jnp.linalg.norm(
             translation_component, axis=-1, keepdims=True
         )
+        translation_component = (translation_component + 1) * 0.5
         translation_component = translation_component * 0.5
         translation_component = jnp.expand_dims(translation_component, axis=-1)
         homogenous_component = transform_matrix[3:, :]
@@ -599,6 +600,8 @@ def turntable_render(
             jnp.concatenate([rotation_component, translation_component], axis=-1),
             homogenous_component,
         ], axis=0)
+        #print(transform_matrix)
+        #break
 
         render_scene(
             num_ray_samples=512, 
@@ -644,15 +647,15 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     )
 
     rotation_component = dataset.transform_matrices[:, :3, :3]
-    rotation_component = rotation_component / jnp.linalg.norm(
-        rotation_component, axis=(1, 2), keepdims=True
-    )
+    #rotation_component = rotation_component / jnp.linalg.norm(
+    #    rotation_component, axis=(1, 2), keepdims=True
+    #)
     print('Rotation:', rotation_component.shape)
     translation_component = dataset.transform_matrices[:, :3, -1]
     translation_component = translation_component / jnp.linalg.norm(
         translation_component, axis=-1, keepdims=True
     )
-    translation_component = translation_component * 0.5
+    translation_component = (translation_component + 1) * 0.5
     translation_component = jnp.expand_dims(translation_component, axis=-1)
     print('Translation:', translation_component.shape)
     homogenous_component = dataset.transform_matrices[:, 3:, :]

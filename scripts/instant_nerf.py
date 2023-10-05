@@ -607,6 +607,15 @@ def turntable_render(
             jnp.concatenate([rotation_component, translation_component], axis=-1),
             homogenous_component,
         ], axis=0)
+
+        # Swap axes.
+        first_rows = transform_matrix[0:1]
+        second_rows = transform_matrix[1:2]
+        third_rows = transform_matrix[2:3]
+        fourth_rows = transform_matrix[3:4]
+        transform_matrix = jnp.concatenate([
+            second_rows, third_rows, first_rows, fourth_rows
+        ], axis=0)
         #print(transform_matrix)
         #break
 
@@ -679,6 +688,16 @@ def load_dataset(path:str, canvas_plane:float=1.0):
         dataset.transform_matrices[:, :, 2:3] * -scale,
         dataset.transform_matrices[:, :, 3:4] * scale + translation,
     ], axis=-1)
+
+    # Swap axes.
+    first_rows = dataset.transform_matrices[:, 0:1]
+    second_rows = dataset.transform_matrices[:, 1:2]
+    third_rows = dataset.transform_matrices[:, 2:3]
+    fourth_rows = dataset.transform_matrices[:, 3:4]
+    dataset.transform_matrices = jnp.concatenate([
+        second_rows, third_rows, first_rows, fourth_rows
+    ], axis=1)
+
     dataset.transform_matrices = dataset.transform_matrices[1:]
     dataset.holdout_matrix = dataset.transform_matrices[0]
     print('Transforms:', dataset.transform_matrices.shape)

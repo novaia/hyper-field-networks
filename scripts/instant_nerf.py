@@ -407,9 +407,9 @@ def train_step(
         source_alphas = source_pixels[:, -1:]
         source_colors = source_pixels[:, :3]
         random_bg_colors = jax.random.uniform(random_bg_key, source_colors.shape)
-
-        #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
-        source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        # Maybe try a single random background color?
+        source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
+        #source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         #loss = jnp.mean((rendered_colors - source_colors)**2)
@@ -645,26 +645,35 @@ def load_dataset(path:str, canvas_plane:float=1.0):
         transform_matrices=jnp.array(transform_matrices),
         images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
-
-    rotation_component = dataset.transform_matrices[:, :3, :3]
-    #rotation_component = rotation_component / jnp.linalg.norm(
-    #    rotation_component, axis=(1, 2), keepdims=True
-    #)
-    print('Rotation:', rotation_component.shape)
+    
+    # Isolate translation, rotation, and homogenous components.
     translation_component = dataset.transform_matrices[:, :3, -1]
+    rotation_component = dataset.transform_matrices[:, :3, :3]
+    homogenous_component = dataset.transform_matrices[:, 3:, :]
+
+    # Normalize translations so all camera positions are in [-1, 1].
     translation_component = translation_component / jnp.linalg.norm(
         translation_component, axis=-1, keepdims=True
     )
-    translation_component = (translation_component + 1) * 0.5
     translation_component = jnp.expand_dims(translation_component, axis=-1)
-    print('Translation:', translation_component.shape)
-    homogenous_component = dataset.transform_matrices[:, 3:, :]
-    print('Homogenous:', homogenous_component.shape)
+    
+    # Recombine translation, rotation, and homogenous components.
     dataset.transform_matrices = jnp.concatenate([
         jnp.concatenate([rotation_component, translation_component], axis=-1),
         homogenous_component,
     ], axis=1)
+
+    # Scale to [-0.5, 0.5], then translate to [0, 1].
+    scale = 0.5
+    translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
+    dataset.transform_matrices = jnp.concatenate([
+        dataset.transform_matrices[:, :, 0:1] * scale,
+        dataset.transform_matrices[:, :, 1:2] * scale,
+        dataset.transform_matrices[:, :, 2:3] * scale,
+        dataset.transform_matrices[:, :, 3:4] * scale + translation,
+    ], axis=-1)
     print('Transforms:', dataset.transform_matrices.shape)
+
     virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)
     virtual_canvas_y = dataset.canvas_plane * jnp.tan(dataset.vertical_fov/2)
     real_canvas_x = dataset.cx

@@ -513,7 +513,7 @@ def generate_density_grid(
         get_output_sample_vmap = jax.vmap(get_output, in_axes=(0, None))
 
         rays = jnp.repeat(jnp.array([[x, y]]), num_points, axis=0)
-        rays_z = jnp.expand_dims(jnp.linspace(-0.5, 0.5, num_points), axis=-1)
+        rays_z = jnp.expand_dims(jnp.linspace(0, 1, num_points), axis=-1)
         rays = jnp.concatenate([rays, rays_z], axis=-1)
         direction = jnp.array([0, 0, 1])
         density, _ = get_output_sample_vmap(rays, direction)
@@ -527,15 +527,15 @@ def generate_density_grid(
     for x in range(num_patches_x):
         patch_start_x = patch_size_x * x
         patch_end_x = patch_start_x + patch_size_x
-        x_coordinates = jnp.arange(patch_start_x, patch_end_x) / num_points - 0.5
+        x_coordinates = jnp.arange(patch_start_x, patch_end_x) / num_points
         for y in range(num_patches_y):
             patch_start_y = patch_size_y * y
             patch_end_y = patch_start_y + patch_size_y
-            y_coordinates = jnp.arange(patch_start_y, patch_end_y) / num_points - 0.5
+            y_coordinates = jnp.arange(patch_start_y, patch_end_y) / num_points
             density_patch = jnp.expand_dims(
                 get_density_vmap(x_coordinates, y_coordinates), axis=-1
             )
-            density_grid[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = density_patch
+            density_grid[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = density_patch
 
     print('Density grid shape:', density_grid.shape)
     np.save('data/density_grid.npy', density_grid)
@@ -758,8 +758,8 @@ if __name__ == '__main__':
         state=state, 
         dataset=dataset
     )
-    turntable_render(10, ray_near, ray_far, state, dataset)
-    #generate_density_grid(128, 32, 32, state)
+    #turntable_render(10, ray_near, ray_far, state, dataset)
+    generate_density_grid(128, 32, 32, state)
     '''
     render_scene(
         num_ray_samples=512, 

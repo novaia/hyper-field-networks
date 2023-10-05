@@ -38,6 +38,7 @@ class Dataset:
     images: Optional[jnp.ndarray] = None
     canvas_width_ratio: Optional[float] = None
     canvas_height_ratio: Optional[float] = None
+    holdout_matrix: Optional[jnp.ndarray] = None
 
 # Calculates the fourth order spherical harmonic encoding for the given direction.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -408,8 +409,8 @@ def train_step(
         source_colors = source_pixels[:, :3]
         random_bg_colors = jax.random.uniform(random_bg_key, source_colors.shape)
         # Maybe try a single random background color?
-        source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
-        #source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
+        source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         #loss = jnp.mean((rendered_colors - source_colors)**2)
@@ -585,17 +586,23 @@ def turntable_render(
 
         transform_matrix = translation_matrix @ z_rotation_matrix @ x_rotation_matrix
         rotation_component = transform_matrix[:3, :3]
-        #rotation_component = rotation_component / jnp.linalg.norm(
-        #    rotation_component, axis=(0, 1), keepdims=True
-        #)
         translation_component = transform_matrix[:3, -1]
         translation_component = translation_component / jnp.linalg.norm(
             translation_component, axis=-1, keepdims=True
         )
-        translation_component = (translation_component + 1) * 0.5
-        translation_component = translation_component * 0.5
         translation_component = jnp.expand_dims(translation_component, axis=-1)
         homogenous_component = transform_matrix[3:, :]
+        
+        # Scale to [-0.5, 0.5], then translate to [0, 1].
+        scale = 0.5
+        translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
+        transform_matrix = jnp.concatenate([
+            transform_matrix[:, 0:1] * scale,
+            transform_matrix[:, 1:2] * -scale,
+            transform_matrix[:, 2:3] * -scale,
+            transform_matrix[:, 3:4] * scale + translation,
+        ], axis=-1)
+
         transform_matrix = jnp.concatenate([
             jnp.concatenate([rotation_component, translation_component], axis=-1),
             homogenous_component,
@@ -668,10 +675,12 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
     dataset.transform_matrices = jnp.concatenate([
         dataset.transform_matrices[:, :, 0:1] * scale,
-        dataset.transform_matrices[:, :, 1:2] * scale,
-        dataset.transform_matrices[:, :, 2:3] * scale,
+        dataset.transform_matrices[:, :, 1:2] * -scale,
+        dataset.transform_matrices[:, :, 2:3] * -scale,
         dataset.transform_matrices[:, :, 3:4] * scale + translation,
     ], axis=-1)
+    dataset.transform_matrices = dataset.transform_matrices[1:]
+    dataset.holdout_matrix = dataset.transform_matrices[0]
     print('Transforms:', dataset.transform_matrices.shape)
 
     virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)
@@ -740,9 +749,9 @@ if __name__ == '__main__':
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 
-        transform_matrix=dataset.transform_matrices[9], 
+        transform_matrix=dataset.holdout_matrix, 
         state=state,
-        file_name='rendered_image_0'
+        file_name='rendered_image_holdout'
     )
     render_scene(
         num_ray_samples=512, 
@@ -767,3 +776,4 @@ if __name__ == '__main__':
         file_name='rendered_image_2'
     )
     '''
+    

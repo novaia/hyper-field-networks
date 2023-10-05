@@ -128,8 +128,8 @@ class MultiResolutionHashEncoding(nn.Module):
         pre_xor = x * jnp.array([1, 2654435761, 805459861])
         x = jnp.bitwise_xor(pre_xor[:, 0], pre_xor[:, 1])
         x = jnp.bitwise_xor(x, pre_xor[:, 2])
-        x %= table_size
-        x += hash_offset
+        x = x % table_size
+        x = x + hash_offset
         return x
     
     def __call__(self, x:jnp.ndarray):
@@ -539,6 +539,79 @@ def generate_density_grid(
     print('Density grid shape:', density_grid.shape)
     np.save('data/density_grid.npy', density_grid)
 
+def turntable_render(
+    num_frames:int, ray_near:float, ray_far:float, state:TrainState, dataset:Dataset
+):
+    xy_start_position = jnp.array([0.0, -1.0])
+    xy_start_position_angle_2d = 0
+    z_start_rotation_angle_3d = 0
+    x_rotation_angle_3d = jnp.pi / 2
+    angle_delta = 2 * jnp.pi / num_frames
+
+    for i in range(num_frames):
+        xy_position_angle_2d = xy_start_position_angle_2d + i * angle_delta
+        z_rotation_angle_3d = xy_position_angle_2d
+
+        xy_rotation_matrix_2d = jnp.array([
+            [jnp.cos(xy_position_angle_2d), -jnp.sin(xy_position_angle_2d)], 
+            [jnp.sin(xy_position_angle_2d), jnp.cos(xy_position_angle_2d)]
+        ])
+        current_xy_position = xy_rotation_matrix_2d @ xy_start_position
+        translation_matrix = jnp.array([
+            [1, 0, 0, current_xy_position[0]],
+            [0, 1, 0, current_xy_position[1]],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+        
+        x_rotation_matrix = jnp.array([
+            [1, 0, 0, 0],
+            [0, jnp.cos(x_rotation_angle_3d), -jnp.sin(x_rotation_angle_3d), 0],
+            [0, jnp.sin(x_rotation_angle_3d), jnp.cos(x_rotation_angle_3d), 0],
+            [0, 0, 0, 1]
+        ])
+        y_rotation_matrix = jnp.array([
+            [jnp.cos(x_rotation_angle_3d), 0, jnp.sin(x_rotation_angle_3d), 0],
+            [0, 1, 0, 0],
+            [-jnp.sin(x_rotation_angle_3d), 0, jnp.cos(x_rotation_angle_3d), 0],
+            [0, 0, 0, 1]
+        ])
+        z_rotation_matrix = jnp.array([
+            [jnp.cos(z_rotation_angle_3d), -jnp.sin(z_rotation_angle_3d), 0, 0],
+            [jnp.sin(z_rotation_angle_3d), jnp.cos(z_rotation_angle_3d), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+
+        transform_matrix = translation_matrix @ z_rotation_matrix @ x_rotation_matrix
+        rotation_component = transform_matrix[:3, :3]
+        rotation_component = rotation_component / jnp.linalg.norm(
+            rotation_component, axis=(0, 1), keepdims=True
+        )
+        translation_component = transform_matrix[:3, -1]
+        translation_component = translation_component / jnp.linalg.norm(
+            translation_component, axis=-1, keepdims=True
+        )
+        translation_component = translation_component * 0.5
+        translation_component = jnp.expand_dims(translation_component, axis=-1)
+        homogenous_component = transform_matrix[3:, :]
+        transform_matrix = jnp.concatenate([
+            jnp.concatenate([rotation_component, translation_component], axis=-1),
+            homogenous_component,
+        ], axis=0)
+
+        render_scene(
+            num_ray_samples=512, 
+            patch_size_x=32, 
+            patch_size_y=32, 
+            ray_near=ray_near, 
+            ray_far=ray_far, 
+            dataset=dataset, 
+            transform_matrix=transform_matrix, 
+            state=state,
+            file_name=f'turntable_render_frame_{i}'
+        )
+
 def load_dataset(path:str, canvas_plane:float=1.0):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
@@ -641,11 +714,13 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=1000, 
+        training_steps=400, 
         state=state, 
         dataset=dataset
     )
-    generate_density_grid(128, 32, 32, state)
+    turntable_render(10, ray_near, ray_far, state, dataset)
+    #generate_density_grid(128, 32, 32, state)
+    '''
     render_scene(
         num_ray_samples=512, 
         patch_size_x=32, 
@@ -679,3 +754,4 @@ if __name__ == '__main__':
         state=state,
         file_name='rendered_image_2'
     )
+    '''

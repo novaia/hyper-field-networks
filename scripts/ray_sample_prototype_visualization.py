@@ -23,13 +23,10 @@ class Dataset:
     w: int # Image width.
     h: int # Image height.
     aabb_scale: int # Scale of scene bounding box.
-    canvas_plane: Optional[float] = 1.0 # Distance from center of projection to canvas plane.
     transform_matrices: Optional[jnp.ndarray] = None
     locations: Optional[jnp.ndarray] = None
     directions: Optional[jnp.ndarray] = None
     images: Optional[jnp.ndarray] = None
-    canvas_width_ratio: Optional[float] = None
-    canvas_height_ratio: Optional[float] = None
 
 def load_dataset(path:str):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -189,7 +186,7 @@ def get_ray_samples_no_clipping(
     
     return ray_samples, repeated_directions
 
-def plot_ray_samples(ray_samples, plot_name):
+def plot_ray_samples(ray_samples, plot_name, aabb_min, aabb_max):
     x_scatter = jnp.ravel(ray_samples[:, :, 0])
     y_scatter = jnp.ravel(ray_samples[:, :, 1])
     z_scatter = jnp.ravel(ray_samples[:, :, 2])
@@ -204,12 +201,12 @@ def plot_ray_samples(ray_samples, plot_name):
     inside_box = np.repeat(
         np.expand_dims(np.array([0, 0, 1]), axis=0), x_scatter.shape[0], axis=0
     )
-    colors = np.where(x_scatter_expanded > 1.1, outside_box, inside_box)
-    colors = np.where(x_scatter_expanded < -0.1, outside_box, colors)
-    colors = np.where(y_scatter_expanded > 1.1, outside_box, colors)
-    colors = np.where(y_scatter_expanded < -0.1, outside_box, colors)
-    colors = np.where(z_scatter_expanded > 1.1, outside_box, colors)
-    colors = np.where(z_scatter_expanded < -0.1, outside_box, colors)
+    colors = np.where(x_scatter_expanded > aabb_max, outside_box, inside_box)
+    colors = np.where(x_scatter_expanded < aabb_min, outside_box, colors)
+    colors = np.where(y_scatter_expanded > aabb_max, outside_box, colors)
+    colors = np.where(y_scatter_expanded < aabb_min, outside_box, colors)
+    colors = np.where(z_scatter_expanded > aabb_max, outside_box, colors)
+    colors = np.where(z_scatter_expanded < aabb_min, outside_box, colors)
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
@@ -261,8 +258,10 @@ def display_ray_samples(dataset):
         num_ray_samples
     )
 
-    plot_ray_samples(ray_samples, 'Clipped Ray Samples')
-    plot_ray_samples(ray_samples_unclipped, 'Unclipped Ray Samples')
+    aabb_min = -0.01
+    aabb_max = 1.01
+    plot_ray_samples(ray_samples, 'Clipped Ray Samples', aabb_min, aabb_max)
+    plot_ray_samples(ray_samples_unclipped, 'Unclipped Ray Samples', aabb_min, aabb_max)
 
 dataset = load_dataset('data/generation_0')
 display_ray_samples(dataset)

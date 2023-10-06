@@ -124,7 +124,7 @@ def get_ray_samples(
 ):
     direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
     direction = transform_matrix[:3, :3] @ direction
-    origin = transform_matrix[:3, 3]
+    origin = transform_matrix[:3, 3] + direction * ray_near
     normalized_direction = direction / jnp.linalg.norm(direction)
     min_scale, max_scale = ray_intersect(origin, normalized_direction)
     #ray_scales_delta = (ray_far - ray_near) / num_ray_samples
@@ -135,6 +135,7 @@ def get_ray_samples(
     #samples_removed = num_ray_samples - (samples_before_min + samples_after_max)
     #scrap_scales = jnp.repeat(jnp.array([max_scale]), samples_removed)
     #ray_scales = jnp.concatenate([ray_scales, scrap_scales])
+
     ray_scales = jnp.where(
         ray_scales < min_scale, jnp.full((num_ray_samples,), min_scale), ray_scales
     )
@@ -263,7 +264,7 @@ class InstantNerf(nn.Module):
         x = nn.activation.relu(x)
         x = nn.Dense(16)(x)
         density = nn.activation.relu(x[0])
-        density_output = x
+        density_output = x[1:]
 
         encoded_direction = fourth_order_sh_encoding(direction)
         # Encoded_direction is currently 3x16 but I'm not sure if it is supposed to be.
@@ -359,7 +360,6 @@ def train_loop(
             rng=rng
         )
         print('Loss:', loss)
-        #break
     return state
 
 @partial(jax.jit, static_argnames=(
@@ -411,11 +411,6 @@ def train_step(
         num_ray_samples
     )
 
-    #print('Rays:', rays.shape)
-    #print('Directions:', directions.shape)
-    #print('Deltas:', deltas.shape)
-    #return 0, state
-
     def get_output(params, rays, directions):
         return state.apply_fn({'params': params}, (rays, directions))
     get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
@@ -437,6 +432,7 @@ def train_step(
         # Maybe try a single random background color?
         #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
         source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        rendered_colors = jnp.clip(rendered_colors, 0, 1)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         #loss = jnp.mean((rendered_colors - source_colors)**2)
@@ -459,45 +455,33 @@ def render_scene(
     state:TrainState,
     file_name:Optional[str]='rendered_image'
 ):
-    ray_scales = get_ray_scales(
-        ray_near=ray_near, 
-        ray_far=ray_far, 
-        batch_size=1, 
-        num_samples=num_ray_samples,
-        rng=jax.random.PRNGKey(0)
-    )
-    ray_scales = jnp.squeeze(ray_scales, axis=0)
-    transform_ray = jax.vmap(lambda t, r: t @ r, in_axes=(None, 0))
+    principle_point_x = dataset.cx
+    principle_point_y = dataset.cy
+    focal_length_x = dataset.fl_x 
+    focal_length_y = dataset.fl_y
 
     @jax.jit
-    def render_ray(x, y):
+    def render_ray(x, y, transform_matrix):
         x = (x - dataset.cx) * dataset.canvas_width_ratio
         y = (y - dataset.cy) * dataset.canvas_height_ratio
-        ray = jnp.expand_dims(jnp.array([x, y, dataset.canvas_plane]), axis=0)
-        canvas_ray = ray
-        ray = ray / jnp.linalg.norm(ray, axis=-1)
-        ray = jnp.repeat(ray, num_ray_samples, axis=0)
-        ray_samples = ray * ray_scales
-        ray_samples = ray_samples + jnp.repeat(canvas_ray, num_ray_samples, axis=0)
-        ray_samples_w = jnp.ones((num_ray_samples, 1))
-        ray_samples = jnp.concatenate([ray_samples, ray_samples_w], axis=-1)
-        ray_samples = transform_ray(transform_matrix, ray_samples)
-        ray_samples = ray_samples[:, :3]
-        direction = ray_samples[-1] - ray_samples[0]
-        direction = direction / jnp.linalg.norm(direction, axis=-1)
+        rays, directions, deltas = get_ray_samples(
+            x, 
+            y,
+            transform_matrix, 
+            principle_point_x, 
+            principle_point_y, 
+            focal_length_x, 
+            focal_length_y, 
+            ray_near, 
+            ray_far, 
+            num_ray_samples
+        )
 
         def get_output(params, rays, directions):
             return state.apply_fn({'params': params}, (rays, directions))
-        get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, None))
-        densities, colors = get_output_sample_vmap(state.params, ray_samples, direction)
+        get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
+        densities, colors = get_output_sample_vmap(state.params, rays, directions)
         densities = jnp.expand_dims(densities, axis=-1)
-
-        vector_deltas = jnp.diff(ray_samples, axis=0)
-        deltas = jnp.sqrt(
-            vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
-        )
-        deltas = jnp.concatenate([jnp.array([0]), deltas], axis=0)
-        deltas = jnp.expand_dims(deltas, axis=-1)
         rendered_pixel = render_pixel(densities, colors, deltas)
         return rendered_pixel
     
@@ -505,7 +489,9 @@ def render_scene(
     num_patches_y = dataset.h // patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
     background_colors = jnp.ones((patch_size_x, patch_size_y, 3))
-    render_ray_vmap = jax.vmap(jax.vmap(render_ray, in_axes=(0, None)), in_axes=(None, 0))
+    render_ray_vmap = jax.vmap(
+        jax.vmap(render_ray, in_axes=(0, None, None)), in_axes=(None, 0, None)
+    )
     
     for x in range(num_patches_x):
         patch_start_x = patch_size_x * x
@@ -515,13 +501,15 @@ def render_scene(
             patch_start_y = patch_size_y * y
             patch_end_y = patch_start_y + patch_size_y
             y_coordinates = jnp.arange(patch_start_y, patch_end_y)
-            rendered_colors, rendered_alphas = render_ray_vmap(x_coordinates, y_coordinates)
+            rendered_colors, rendered_alphas = render_ray_vmap(
+                x_coordinates, y_coordinates, transform_matrix
+            )
             rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
             rendered_image[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
-    #rendered_image -= np.min(rendered_image)
-    #rendered_image /= np.max(rendered_image)
+    rendered_image -= np.min(rendered_image)
+    rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
     plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
 
@@ -585,8 +573,8 @@ def turntable_render(
         ])
         current_xy_position = xy_rotation_matrix_2d @ xy_start_position
         translation_matrix = jnp.array([
-            [1, 0, 0, current_xy_position[0]],
-            [0, 1, 0, current_xy_position[1]],
+            [1, 0, 0, current_xy_position[0] * 2],
+            [0, 1, 0, current_xy_position[1] * 2],
             [0, 0, 1, 0],
             [0, 0, 0, 1]
         ])
@@ -613,14 +601,11 @@ def turntable_render(
         transform_matrix = translation_matrix @ z_rotation_matrix @ x_rotation_matrix
         rotation_component = transform_matrix[:3, :3]
         translation_component = transform_matrix[:3, -1]
-        translation_component = translation_component / jnp.linalg.norm(
-            translation_component, axis=-1, keepdims=True
-        )
         translation_component = jnp.expand_dims(translation_component, axis=-1)
         homogenous_component = transform_matrix[3:, :]
         
         # Scale to [-0.5, 0.5], then translate to [0, 1].
-        scale = 0.5
+        scale = 1
         translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
         transform_matrix = jnp.concatenate([
             transform_matrix[:, 0:1] * scale,
@@ -642,8 +627,6 @@ def turntable_render(
         transform_matrix = jnp.concatenate([
             second_rows, third_rows, first_rows, fourth_rows
         ], axis=0)
-        #print(transform_matrix)
-        #break
 
         render_scene(
             num_ray_samples=512, 
@@ -693,10 +676,7 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     rotation_component = dataset.transform_matrices[:, :3, :3]
     homogenous_component = dataset.transform_matrices[:, 3:, :]
 
-    # Normalize translations so all camera positions are in [-1, 1].
-    translation_component = translation_component / jnp.linalg.norm(
-        translation_component, axis=-1, keepdims=True
-    )
+    translation_component = translation_component * 0.1
     translation_component = jnp.expand_dims(translation_component, axis=-1)
     
     # Recombine translation, rotation, and homogenous components.
@@ -706,7 +686,7 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     ], axis=1)
 
     # Scale to [-0.5, 0.5], then translate to [0, 1].
-    scale = 0.5
+    scale = 1
     translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
     dataset.transform_matrices = jnp.concatenate([
         dataset.transform_matrices[:, :, 0:1] * scale,
@@ -737,7 +717,7 @@ def load_dataset(path:str, canvas_plane:float=1.0):
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    dataset_path = 'data/generations_0_to_948/generation_0'
+    dataset_path = 'data/generation_0'
     dataset = load_dataset(dataset_path, canvas_plane=0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
@@ -768,7 +748,7 @@ if __name__ == '__main__':
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = dataset.canvas_plane
-    ray_far = 2.0
+    ray_far = 4.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -780,9 +760,9 @@ if __name__ == '__main__':
         state=state, 
         dataset=dataset
     )
-    #turntable_render(10, ray_near, ray_far, state, dataset)
+    turntable_render(10, ray_near, ray_far, state, dataset)
     generate_density_grid(128, 32, 32, state)
-    '''
+    exit(0)
     render_scene(
         num_ray_samples=512, 
         patch_size_x=32, 
@@ -790,9 +770,9 @@ if __name__ == '__main__':
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 
-        transform_matrix=dataset.holdout_matrix, 
+        transform_matrix=dataset.transform_matrices[9], 
         state=state,
-        file_name='rendered_image_holdout'
+        file_name='rendered_image_0'
     )
     render_scene(
         num_ray_samples=512, 
@@ -816,5 +796,4 @@ if __name__ == '__main__':
         state=state,
         file_name='rendered_image_2'
     )
-    '''
     

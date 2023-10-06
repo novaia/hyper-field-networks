@@ -35,12 +35,16 @@ def ray_intersect(origin, direction, ray_far):
     min_z_scale, max_z_scale = blow_up_non_intersections(min_z_scale, max_z_scale, ray_far)
     print('Min z scale:', min_z_scale, 'Max z scale:', max_z_scale)
 
+    # The maximum of the minimum axis scales represents the minimum scale at which all axes 
+    # have been intersected once.
     min_scale = jnp.max(jnp.linalg.norm(
         jnp.array([
             direction * min_x_scale, direction * min_y_scale, direction * min_z_scale
         ]), axis=-1
     ))
 
+    # The minimum of the maximum axis scales represents the minimum scale at which a single 
+    # axis has been intersected twice.
     max_scale = jnp.min(jnp.linalg.norm(
         jnp.array([
             direction * max_x_scale, direction * max_y_scale, direction * max_z_scale

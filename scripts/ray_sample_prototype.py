@@ -21,44 +21,6 @@ def ray_intersect(origin, direction, ray_far):
     max_x_scale = (box_max - origin[0]) / direction[0]
     min_x_scale, max_x_scale = correct_min_max(min_x_scale, max_x_scale)
     min_x_scale, max_x_scale = blow_up_non_intersections(min_x_scale, max_x_scale, ray_far)
-
-    min_y_scale = (box_min - origin[1]) / direction[1]
-    max_y_scale = (box_max - origin[1]) / direction[1]
-    min_y_scale, max_y_scale = correct_min_max(min_y_scale, max_y_scale)
-    min_y_scale, max_y_scale = blow_up_non_intersections(min_y_scale, max_y_scale, ray_far)
-    
-    min_z_scale = (box_min - origin[2]) / direction[2]
-    max_z_scale = (box_max - origin[2]) / direction[2]
-    min_z_scale, max_z_scale = correct_min_max(min_z_scale, max_z_scale)
-    min_z_scale, max_z_scale = blow_up_non_intersections(min_z_scale, max_z_scale, ray_far)
-
-    min_scaled_directions = jnp.stack([
-        direction * min_x_scale, direction * min_y_scale, direction * min_z_scale
-    ], axis=0)
-    min_scale = jnp.min(jnp.linalg.norm(min_scaled_directions, axis=-1))
-
-    max_scaled_directions = jnp.stack([
-        direction * max_x_scale, direction * max_y_scale, direction * max_z_scale
-    ], axis=0)
-    max_scale = jnp.max(jnp.linalg.norm(max_scaled_directions, axis=-1))
-
-    return min_scale, max_scale
-
-def test_intersection():
-    box_min = 0
-    box_max = 1
-    ray_near = 0.1
-    ray_far = 3
-    num_ray_samples = 10
-    direction = jnp.array([-1, -0.01, -0.01])
-    #irection = jnp.array([-1, -1, -1])
-    direction = direction / jnp.linalg.norm(direction)
-    origin = jnp.array([2, 1.01, 1.01])
-    
-    min_x_scale = (box_min - origin[0]) / direction[0]
-    max_x_scale = (box_max - origin[0]) / direction[0]
-    min_x_scale, max_x_scale = correct_min_max(min_x_scale, max_x_scale)
-    min_x_scale, max_x_scale = blow_up_non_intersections(min_x_scale, max_x_scale, ray_far)
     print('Min x scale:', min_x_scale, 'Max x scale:', max_x_scale)
 
     min_y_scale = (box_min - origin[1]) / direction[1]
@@ -86,6 +48,21 @@ def test_intersection():
     ))
 
     print('Min scale:', min_scale, 'Max Scale:', max_scale)
+
+    return min_scale, max_scale
+
+def test_intersection():
+    box_min = 0
+    box_max = 1
+    ray_near = 0.1
+    ray_far = 3
+    num_ray_samples = 10
+    direction = jnp.array([-1, -0.01, -0.01])
+    #irection = jnp.array([-1, -1, -1])
+    direction = direction / jnp.linalg.norm(direction)
+    origin = jnp.array([2, 1.01, 1.01])
+    
+    min_scale, max_scale = ray_intersect(origin, direction, ray_far)
     
     ray_scales = jnp.linspace(ray_near, ray_far, num_ray_samples)
     print('Original ray scales:', ray_scales)

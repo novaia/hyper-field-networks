@@ -94,30 +94,37 @@ def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):
     accumulated_alpha = jnp.sum(quadrature_weights, axis=0)
     return rendered_color, accumulated_alpha
 
-def ray_intersect(origin, direction):
+def get_sample_mask(samples):
     box_min = 0
     box_max = 1
-    
-    min_x_scale = (box_min - origin[0]) / direction[0]
-    max_x_scale = (box_max - origin[0]) / direction[0]
+    sample_mask_zeros = jnp.zeros((samples.shape[0], 1))
+    sample_mask_ones = jnp.ones((samples.shape[0], 1))
+    samples_x = samples[:, 0:1]
+    samples_y = samples[:, 1:2]
+    samples_z = samples[:, 2:3]
+    sample_mask = jnp.where(samples_x < box_min, sample_mask_zeros, sample_mask_ones)
+    sample_mask = jnp.where(samples_x > box_max, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_y < box_min, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_y > box_max, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_z < box_min, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_z > box_max, sample_mask_zeros, sample_mask)
+    return sample_mask
 
-    min_y_scale = (box_min - origin[1]) / direction[1]
-    max_y_scale = (box_max - origin[1]) / direction[1]
-
-    min_z_scale = (box_min - origin[2]) / direction[2]
-    max_z_scale = (box_max - origin[2]) / direction[2]
-
-    min_scaled_directions = jnp.stack([
-        direction * min_x_scale, direction * min_y_scale, direction * min_z_scale
-    ], axis=0)
-    min_scale = jnp.min(jnp.linalg.norm(min_scaled_directions, axis=-1))
-
-    max_scaled_directions = jnp.stack([
-        direction * max_x_scale, direction * max_y_scale, direction * max_z_scale
-    ], axis=0)
-    max_scale = jnp.max(jnp.linalg.norm(max_scaled_directions, axis=-1))
-
-    return min_scale, max_scale
+def get_sample_mask(samples):
+    box_min = 0
+    box_max = 1
+    sample_mask_zeros = jnp.zeros((samples.shape[0], 1))
+    sample_mask_ones = jnp.ones((samples.shape[0], 1))
+    samples_x = samples[:, 0:1]
+    samples_y = samples[:, 1:2]
+    samples_z = samples[:, 2:3]
+    sample_mask = jnp.where(samples_x < box_min, sample_mask_zeros, sample_mask_ones)
+    sample_mask = jnp.where(samples_x > box_max, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_y < box_min, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_y > box_max, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_z < box_min, sample_mask_zeros, sample_mask)
+    sample_mask = jnp.where(samples_z > box_max, sample_mask_zeros, sample_mask)
+    return sample_mask
 
 def get_ray_samples(
     uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y, ray_near, ray_far, num_ray_samples
@@ -126,28 +133,22 @@ def get_ray_samples(
     direction = transform_matrix[:3, :3] @ direction
     origin = transform_matrix[:3, 3] + direction * ray_near
     normalized_direction = direction / jnp.linalg.norm(direction)
-    min_scale, max_scale = ray_intersect(origin, normalized_direction)
-    #ray_scales_delta = (ray_far - ray_near) / num_ray_samples
+    
     ray_scales = jnp.linspace(ray_near, ray_far, num_ray_samples)
-    #samples_before_min = jnp.ceil(min_scale / ray_scales_delta)
-    #samples_after_max = jnp.floor(max_scale / ray_scales_delta)
-    #ray_scales = ray_scales[samples_before_min:samples_after_max]
-    #samples_removed = num_ray_samples - (samples_before_min + samples_after_max)
-    #scrap_scales = jnp.repeat(jnp.array([max_scale]), samples_removed)
-    #ray_scales = jnp.concatenate([ray_scales, scrap_scales])
+    ray_scales = jnp.expand_dims(ray_scales, axis=-1)
 
-    ray_scales = jnp.where(
-        ray_scales < min_scale, jnp.full((num_ray_samples,), min_scale), ray_scales
-    )
-    ray_scales = jnp.where(
-        ray_scales > max_scale, jnp.full((num_ray_samples,), max_scale), ray_scales
-    )
     repeated_directions = jnp.repeat(
         jnp.expand_dims(normalized_direction, axis=0), num_ray_samples, axis=0
     )
-    ray_samples = jnp.expand_dims(ray_scales, axis=-1) * repeated_directions + origin
+    repeated_origins = jnp.repeat(jnp.expand_dims(origin, axis=0), num_ray_samples, axis=0)
+
+    ray_samples = repeated_directions * ray_scales + repeated_origins
+    sample_mask = get_sample_mask(ray_samples)
     deltas = jnp.linalg.norm(jnp.diff(ray_samples, axis=0), keepdims=True, axis=-1)
-    deltas = jnp.concatenate([deltas, jnp.zeros((1, 1))], axis=0)
+    deltas = jnp.concatenate([jnp.zeros((1, 1)), deltas], axis=0)
+    deltas = deltas * sample_mask
+    ray_samples = ray_samples * sample_mask
+    repeated_directions = repeated_directions * sample_mask
     return ray_samples, repeated_directions, deltas
 
 class MultiResolutionHashEncoding(nn.Module):
@@ -432,7 +433,7 @@ def train_step(
         # Maybe try a single random background color?
         #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
         source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
-        rendered_colors = jnp.clip(rendered_colors, 0, 1)
+        #rendered_colors = jnp.clip(rendered_colors, 0, 1)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         #loss = jnp.mean((rendered_colors - source_colors)**2)
@@ -508,8 +509,8 @@ def render_scene(
             rendered_image[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
-    rendered_image -= np.min(rendered_image)
-    rendered_image /= np.max(rendered_image)
+    #rendered_image -= np.min(rendered_image)
+    #rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
     plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
 
@@ -748,7 +749,7 @@ if __name__ == '__main__':
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = dataset.canvas_plane
-    ray_far = 4.0
+    ray_far = 3.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -760,9 +761,8 @@ if __name__ == '__main__':
         state=state, 
         dataset=dataset
     )
-    turntable_render(10, ray_near, ray_far, state, dataset)
+    #turntable_render(10, ray_near, ray_far, state, dataset)
     generate_density_grid(128, 32, 32, state)
-    exit(0)
     render_scene(
         num_ray_samples=512, 
         patch_size_x=32, 

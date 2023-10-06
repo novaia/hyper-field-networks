@@ -36,7 +36,8 @@ def ray_intersect(origin, direction, ray_far):
     print('Min z scale:', min_z_scale, 'Max z scale:', max_z_scale)
 
     # The maximum of the minimum axis scales represents the minimum scale at which all axes 
-    # have been intersected once.
+    # have been intersected once. Rays with direction components less than this scale have yet
+    # to enter the AABB.
     min_scale = jnp.max(jnp.linalg.norm(
         jnp.array([
             direction * min_x_scale, direction * min_y_scale, direction * min_z_scale
@@ -44,7 +45,8 @@ def ray_intersect(origin, direction, ray_far):
     ))
 
     # The minimum of the maximum axis scales represents the minimum scale at which a single 
-    # axis has been intersected twice.
+    # axis has been intersected twice. Rays with direction components greater than this scale
+    # have exited the AABB.
     max_scale = jnp.min(jnp.linalg.norm(
         jnp.array([
             direction * max_x_scale, direction * max_y_scale, direction * max_z_scale

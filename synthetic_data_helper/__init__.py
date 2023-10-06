@@ -142,7 +142,7 @@ def get_bounding_sphere(bounding_box):
 
     sphere_radius = math.sqrt(max_vector_size)
     sphere_origin = (x_center, y_center, z_center)
-    return sphere_radius, sphere_origin
+    return sphere_radius, (0, 0, 0)#sphere_origin
 
 def render_multiple_on_plane(
     plane_width, 

@@ -38,7 +38,6 @@ class Dataset:
     images: Optional[jnp.ndarray] = None
     canvas_width_ratio: Optional[float] = None
     canvas_height_ratio: Optional[float] = None
-    holdout_matrix: Optional[jnp.ndarray] = None
 
 # Calculates the fourth order spherical harmonic encoding for the given direction.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -88,14 +87,69 @@ def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):
     #T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas, axis=1))
     #rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors, axis=0)
     
+    # Maybe clip rendered color to [0, 1]?
     alphas = 1 - jnp.exp(-densities * deltas)
     quadrature_weights = alphas * jnp.cumprod(1 - alphas + 1e-10, axis=0)
     rendered_color = jnp.sum(quadrature_weights * colors, axis=0)
     accumulated_alpha = jnp.sum(quadrature_weights, axis=0)
     return rendered_color, accumulated_alpha
 
+def ray_intersect(origin, direction):
+    box_min = 0
+    box_max = 1
+    
+    min_x_scale = (box_min - origin[0]) / direction[0]
+    max_x_scale = (box_max - origin[0]) / direction[0]
+
+    min_y_scale = (box_min - origin[1]) / direction[1]
+    max_y_scale = (box_max - origin[1]) / direction[1]
+
+    min_z_scale = (box_min - origin[2]) / direction[2]
+    max_z_scale = (box_max - origin[2]) / direction[2]
+
+    min_scaled_directions = jnp.stack([
+        direction * min_x_scale, direction * min_y_scale, direction * min_z_scale
+    ], axis=0)
+    min_scale = jnp.min(jnp.linalg.norm(min_scaled_directions, axis=-1))
+
+    max_scaled_directions = jnp.stack([
+        direction * max_x_scale, direction * max_y_scale, direction * max_z_scale
+    ], axis=0)
+    max_scale = jnp.max(jnp.linalg.norm(max_scaled_directions, axis=-1))
+
+    return min_scale, max_scale
+
+def get_ray_samples(
+    uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y, ray_near, ray_far, num_ray_samples
+):
+    direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
+    direction = transform_matrix[:3, :3] @ direction
+    origin = transform_matrix[:3, 3]
+    normalized_direction = direction / jnp.linalg.norm(direction)
+    min_scale, max_scale = ray_intersect(origin, normalized_direction)
+    #ray_scales_delta = (ray_far - ray_near) / num_ray_samples
+    ray_scales = jnp.linspace(ray_near, ray_far, num_ray_samples)
+    #samples_before_min = jnp.ceil(min_scale / ray_scales_delta)
+    #samples_after_max = jnp.floor(max_scale / ray_scales_delta)
+    #ray_scales = ray_scales[samples_before_min:samples_after_max]
+    #samples_removed = num_ray_samples - (samples_before_min + samples_after_max)
+    #scrap_scales = jnp.repeat(jnp.array([max_scale]), samples_removed)
+    #ray_scales = jnp.concatenate([ray_scales, scrap_scales])
+    ray_scales = jnp.where(
+        ray_scales < min_scale, jnp.full((num_ray_samples,), min_scale), ray_scales
+    )
+    ray_scales = jnp.where(
+        ray_scales > max_scale, jnp.full((num_ray_samples,), max_scale), ray_scales
+    )
+    repeated_directions = jnp.repeat(
+        jnp.expand_dims(normalized_direction, axis=0), num_ray_samples, axis=0
+    )
+    ray_samples = jnp.expand_dims(ray_scales, axis=-1) * repeated_directions + origin
+    deltas = jnp.linalg.norm(jnp.diff(ray_samples, axis=0), keepdims=True, axis=-1)
+    deltas = jnp.concatenate([deltas, jnp.zeros((1, 1))], axis=0)
+    return ray_samples, repeated_directions, deltas
+
 class MultiResolutionHashEncoding(nn.Module):
-    table_init_key: PRNGKeyArray
     table_size: int
     num_levels: int
     min_resolution: int
@@ -184,7 +238,6 @@ class MultiResolutionHashEncoding(nn.Module):
         return jnp.ravel(jnp.transpose(encoded_value))
 
 class InstantNerf(nn.Module):
-    hash_table_init_rng: PRNGKeyArray
     number_of_grid_levels: int # Corresponds to L in the paper.
     max_hash_table_entries: int # Corresponds to T in the paper.
     hash_table_feature_dim: int # Corresponds to F in the paper.
@@ -198,7 +251,6 @@ class InstantNerf(nn.Module):
     def __call__(self, x):
         position, direction = x
         encoded_position = MultiResolutionHashEncoding(
-            table_init_key=self.hash_table_init_rng,
             table_size=self.max_hash_table_entries,
             num_levels=self.number_of_grid_levels,
             min_resolution=self.coarsest_resolution,
@@ -211,7 +263,7 @@ class InstantNerf(nn.Module):
         x = nn.activation.relu(x)
         x = nn.Dense(16)(x)
         density = nn.activation.relu(x[0])
-        density_output = x[1:]
+        density_output = x
 
         encoded_direction = fourth_order_sh_encoding(direction)
         # Encoded_direction is currently 3x16 but I'm not sure if it is supposed to be.
@@ -270,7 +322,7 @@ def get_ray_scales(
     ray_near:float, ray_far:float, batch_size:int, num_samples:int, rng:PRNGKeyArray
 ):
     scale_delta = (ray_far - ray_near) / num_samples
-    ray_scales = jnp.linspace(0, ray_far-ray_near, num_samples)
+    ray_scales = jnp.linspace(ray_near, ray_far, num_samples)
     perturbations = jax.random.uniform(rng, ray_scales.shape, minval=0, maxval=scale_delta)
     ray_scales = ray_scales + perturbations
     # (1, num_ray_samples, 1)
@@ -296,9 +348,8 @@ def train_loop(
             image_height=dataset.h,
             principle_point_x=dataset.cx,
             principle_point_y=dataset.cy,
-            canvas_width_ratio=dataset.canvas_width_ratio,
-            canvas_height_ratio=dataset.canvas_height_ratio,
-            canvas_plane=dataset.canvas_plane,
+            focal_length_x=dataset.fl_x,
+            focal_length_y=dataset.fl_y,
             ray_near=ray_near,
             ray_far=ray_far,
             transform_matrices=dataset.transform_matrices,
@@ -308,6 +359,7 @@ def train_loop(
             rng=rng
         )
         print('Loss:', loss)
+        #break
     return state
 
 @partial(jax.jit, static_argnames=(
@@ -322,9 +374,8 @@ def train_step(
     image_height:int,
     principle_point_x:float,
     principle_point_y:float,
-    canvas_width_ratio:float,
-    canvas_height_ratio:float,
-    canvas_plane:float,
+    focal_length_x:float,
+    focal_length_y:float,
     ray_near:float,
     ray_far:float,
     transform_matrices:jnp.ndarray,
@@ -333,14 +384,7 @@ def train_step(
     num_ray_samples:int,
     rng:PRNGKeyArray
 ):
-    ray_scale_key, pixel_sample_key, random_bg_key = jax.random.split(rng, num=3)
-    ray_scales = get_ray_scales(
-        ray_near=ray_near, 
-        ray_far=ray_far, 
-        batch_size=batch_size, 
-        num_samples=num_ray_samples,
-        rng=ray_scale_key
-    )
+    pixel_sample_key, random_bg_key = jax.random.split(rng, num=2)
     source_pixels, indices = sample_pixels(
         num_samples=batch_size, 
         image_width=image_width, 
@@ -351,51 +395,33 @@ def train_step(
     )
 
     image_indices, width_indices, height_indices = indices
-    # Scale from real canvas dimensions to virtual canvas dimensions.
-    rays_x = (width_indices - principle_point_x) * canvas_width_ratio
-    rays_y = (height_indices - principle_point_y) * canvas_height_ratio
-    rays_z = jnp.repeat(jnp.array([canvas_plane]), rays_x.shape[0])
+    get_ray_samples_vmap = jax.vmap(
+        get_ray_samples, in_axes=(0, 0, 0, None, None, None, None, None, None, None)
+    )
+    rays, directions, deltas = get_ray_samples_vmap(
+        width_indices, 
+        height_indices, 
+        transform_matrices[image_indices], 
+        principle_point_x, 
+        principle_point_y, 
+        focal_length_x, 
+        focal_length_y, 
+        ray_near, 
+        ray_far, 
+        num_ray_samples
+    )
 
-    # Repeat rays along a new axis and then scale them to get samples at different points.
-    canvas_rays = jnp.stack([rays_x, rays_y, rays_z], axis=-1)
-    rays = canvas_rays / jnp.expand_dims(jnp.linalg.norm(canvas_rays, axis=-1), axis=-1)
-    rays = jnp.repeat(jnp.expand_dims(rays, axis=1), num_ray_samples, axis=1)
-    rays = rays * ray_scales
-    # Add canvas rays to scaled rays so that scaled rays all originate from the canvas.
-    # This effectively turns the canvaas into the near plane.
-    # TODO: maybe remove the canvas_plane arg and just use ray_near.
-    canvas_rays = jnp.repeat(jnp.expand_dims(canvas_rays, axis=1), num_ray_samples, axis=1)
-    rays = rays + canvas_rays
-
-    # Convert rays to homogenous coordinates by adding w = 1 component.
-    rays_w = jnp.ones((num_ray_samples, 1))
-    concat_w = jax.vmap(lambda r, w: jnp.concatenate([r, w], axis=-1), in_axes=(0, None))
-    rays = concat_w(rays, rays_w)
-
-    # Transform rays from camera space to world space.
-    selected_transform_matrices = transform_matrices[image_indices]
-    # Map both inputs over batch dimenension, then map rays over sample dimension.
-    transform_rays = jax.vmap(jax.vmap(lambda t, r: t @ r, in_axes=(None, 0)), in_axes=0)
-    rays = transform_rays(selected_transform_matrices, rays)
-    # Convert rays back to Cartesian coordinates.
-    rays = rays[:, :, :3]
-
-    directions = rays[:, -1] - rays[:, 0]
-    directions = directions / jnp.expand_dims(jnp.linalg.norm(directions, axis=-1), axis=-1)
-    directions = jnp.repeat(jnp.expand_dims(directions, axis=1), num_ray_samples, axis=1)
+    #print('Rays:', rays.shape)
+    #print('Directions:', directions.shape)
+    #print('Deltas:', deltas.shape)
+    #return 0, state
 
     def get_output(params, rays, directions):
         return state.apply_fn({'params': params}, (rays, directions))
     get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
     get_output_batch_vmap = jax.vmap(get_output_sample_vmap, in_axes=(None, 0, 0))
 
-    def get_rendered_pixel(densities, colors, rays):
-        vector_deltas = jnp.diff(rays, axis=0)
-        deltas = jnp.sqrt(
-            vector_deltas[:, 0]**2 + vector_deltas[:, 1]**2 + vector_deltas[:, 2]**2
-        )
-        deltas = jnp.concatenate([jnp.array([0]), deltas], axis=0)
-        deltas = jnp.expand_dims(deltas, axis=-1)
+    def get_rendered_pixel(densities, colors, deltas):
         return render_pixel(densities, colors, deltas)
     get_rendered_pixel_vmap = jax.vmap(get_rendered_pixel, in_axes=0)
 
@@ -403,7 +429,7 @@ def train_step(
         densities, colors = get_output_batch_vmap(params, rays, directions)
         densities = jnp.expand_dims(densities, axis=-1)
         rendered_colors, rendered_alphas = get_rendered_pixel_vmap(
-            densities, colors, rays
+            densities, colors, deltas
         )
         source_alphas = source_pixels[:, -1:]
         source_colors = source_pixels[:, :3]
@@ -697,9 +723,6 @@ def load_dataset(path:str, canvas_plane:float=1.0):
     dataset.transform_matrices = jnp.concatenate([
         second_rows, third_rows, first_rows, fourth_rows
     ], axis=1)
-
-    dataset.transform_matrices = dataset.transform_matrices[1:]
-    dataset.holdout_matrix = dataset.transform_matrices[0]
     print('Transforms:', dataset.transform_matrices.shape)
 
     virtual_canvas_x = dataset.canvas_plane * jnp.tan(dataset.horizontal_fov/2)
@@ -715,7 +738,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset_path = 'data/generations_0_to_948/generation_0'
-    dataset = load_dataset(dataset_path, canvas_plane=0.01)
+    dataset = load_dataset(dataset_path, canvas_plane=0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -732,7 +755,6 @@ if __name__ == '__main__':
     print('Images shape:', dataset.images.shape)
 
     model = InstantNerf(
-        hash_table_init_rng=jax.random.PRNGKey(0),
         number_of_grid_levels=16,
         max_hash_table_entries=2**14,
         hash_table_feature_dim=2,
@@ -746,11 +768,11 @@ if __name__ == '__main__':
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = dataset.canvas_plane
-    ray_far = 1.0 + ray_near
+    ray_far = 2.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=30000,
+        batch_size=10000,
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,

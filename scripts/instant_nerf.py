@@ -116,7 +116,7 @@ def get_ray_samples(
 ):
     direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
     direction = transform_matrix[:3, :3] @ direction
-    origin = transform_matrix[:3, 3] + direction * ray_near
+    origin = transform_matrix[:3, -1] + direction * ray_near
     normalized_direction = direction / jnp.linalg.norm(direction)
     
     ray_scales = jnp.linspace(ray_near, ray_far, num_ray_samples)
@@ -660,6 +660,14 @@ def load_dataset(path:str, translation_scale:float):
         homogenous_component,
     ], axis=1)
 
+    # Scaling element (4, 4) results in unexpected behaviour if the matrix is later
+    # treated as an affine transformation of a homogenous. Because of this the matrix should be
+    # be treated as a 4x4 matrix (with an excess 1x4 row) from a which a 3x3 rotation matrix 
+    # and 3x1 translation vector can be extracted. It may be useful to have two separate
+    # processing functions: one for the former case which returns a 4x4 affine transformation
+    # matrix, and one for the latter which returns a 3x4 matrix containing a separate rotation
+    # and translation component.
+
     scale = translation_scale
     translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
     dataset.transform_matrices = jnp.concatenate([
@@ -681,6 +689,14 @@ def load_dataset(path:str, translation_scale:float):
 
     return dataset
 
+def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
+    new = jnp.array([
+        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale + 0.5],
+        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale + 0.5],
+        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale + 0.5],
+    ])
+    return new
+
 def load_lego_dataset(path:str, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
@@ -693,6 +709,10 @@ def load_lego_dataset(path:str, translation_scale:float):
         current_image_path = path + frame['file_path'][1:] + '.png'
         image = Image.open(current_image_path)
         images.append(jnp.array(image))
+
+    transform_matrices = jnp.array(transform_matrices)[:, :3, :]
+    process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
+    transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
 
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
@@ -708,42 +728,9 @@ def load_lego_dataset(path:str, translation_scale:float):
         w=800,
         h=800,
         aabb_scale=1,
-        transform_matrices=jnp.array(transform_matrices),
+        transform_matrices=transform_matrices,
         images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
-    
-    # Isolate translation, rotation, and homogenous components.
-    translation_component = dataset.transform_matrices[:, :3, -1]
-    rotation_component = dataset.transform_matrices[:, :3, :3]
-    homogenous_component = dataset.transform_matrices[:, 3:, :]
-
-    translation_component = translation_component #* translation_scale
-    translation_component = jnp.expand_dims(translation_component, axis=-1)
-    
-    # Recombine translation, rotation, and homogenous components.
-    dataset.transform_matrices = jnp.concatenate([
-        jnp.concatenate([rotation_component, translation_component], axis=-1),
-        homogenous_component,
-    ], axis=1)
-
-    scale = translation_scale
-    translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
-    dataset.transform_matrices = jnp.concatenate([
-        dataset.transform_matrices[:, :, 0:1] * scale,
-        dataset.transform_matrices[:, :, 1:2] * -scale,
-        dataset.transform_matrices[:, :, 2:3] * -scale,
-        dataset.transform_matrices[:, :, 3:4] * scale + translation,
-    ], axis=-1)
-
-    # Swap axes.
-    first_rows = dataset.transform_matrices[:, 0:1]
-    second_rows = dataset.transform_matrices[:, 1:2]
-    third_rows = dataset.transform_matrices[:, 2:3]
-    fourth_rows = dataset.transform_matrices[:, 3:4]
-    dataset.transform_matrices = jnp.concatenate([
-        second_rows, third_rows, first_rows, fourth_rows
-    ], axis=1)
-    print('Transforms:', dataset.transform_matrices.shape)
 
     return dataset
 
@@ -779,18 +766,18 @@ if __name__ == '__main__':
         exponential_density_activation=True
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 1e-2, 10**-15)
+    state = create_train_state(model, rng, 1e-3, 10**-15)
 
     ray_near = 0.1
     ray_far = 5.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=50000,
-        num_ray_samples=32,
+        batch_size=1024,
+        num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=30000, 
+        training_steps=10000, 
         state=state, 
         dataset=dataset
     )

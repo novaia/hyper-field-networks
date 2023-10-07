@@ -134,8 +134,7 @@ def get_ray_samples(
     sample_mask = get_sample_mask(ray_samples)
     deltas = jnp.linalg.norm(jnp.diff(ray_samples, axis=0), keepdims=True, axis=-1)
     deltas = jnp.concatenate([jnp.zeros((1, 1)), deltas], axis=0)
-    #deltas = deltas * sample_mask
-    #deltas = jax.nn.softmax(deltas, axis=0)
+    deltas = deltas * sample_mask
     ray_samples = ray_samples * sample_mask
     return ray_samples, repeated_directions, deltas
 
@@ -236,6 +235,7 @@ class InstantNerf(nn.Module):
     density_mlp_width: int
     color_mlp_width: int
     high_dynamic_range: bool
+    exponential_density_activation: bool
 
     @nn.compact
     def __call__(self, x):
@@ -252,8 +252,10 @@ class InstantNerf(nn.Module):
         x = nn.Dense(self.density_mlp_width)(x)
         x = nn.activation.relu(x)
         x = nn.Dense(16)(x)
-        #density = nn.activation.relu(x[0])
-        density = jnp.exp(x[0])
+        if self.exponential_density_activation:
+            density = jnp.exp(x[0])
+        else:
+            density = nn.activation.relu(x[0])
         density_output = x[1:]
 
         encoded_direction = fourth_order_sh_encoding(direction)
@@ -649,7 +651,7 @@ def load_dataset(path:str, translation_scale:float):
     rotation_component = dataset.transform_matrices[:, :3, :3]
     homogenous_component = dataset.transform_matrices[:, 3:, :]
 
-    translation_component = translation_component * translation_scale
+    translation_component = translation_component #* translation_scale
     translation_component = jnp.expand_dims(translation_component, axis=-1)
     
     # Recombine translation, rotation, and homogenous components.
@@ -658,8 +660,7 @@ def load_dataset(path:str, translation_scale:float):
         homogenous_component,
     ], axis=1)
 
-    # Scale to [-0.5, 0.5], then translate to [0, 1].
-    scale = 1
+    scale = translation_scale
     translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
     dataset.transform_matrices = jnp.concatenate([
         dataset.transform_matrices[:, :, 0:1] * scale,
@@ -684,7 +685,6 @@ def load_lego_dataset(path:str, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
-    print(path)
     images = []
     transform_matrices = []
     for frame in transforms['frames']:
@@ -697,8 +697,8 @@ def load_lego_dataset(path:str, translation_scale:float):
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
         vertical_fov=transforms['camera_angle_x'],
-        fl_x=1000,
-        fl_y=1000,
+        fl_x=1111.111,
+        fl_y=1111.111,
         k1=0,
         k2=0,
         p1=0,
@@ -717,7 +717,7 @@ def load_lego_dataset(path:str, translation_scale:float):
     rotation_component = dataset.transform_matrices[:, :3, :3]
     homogenous_component = dataset.transform_matrices[:, 3:, :]
 
-    translation_component = translation_component * translation_scale
+    translation_component = translation_component #* translation_scale
     translation_component = jnp.expand_dims(translation_component, axis=-1)
     
     # Recombine translation, rotation, and homogenous components.
@@ -726,8 +726,7 @@ def load_lego_dataset(path:str, translation_scale:float):
         homogenous_component,
     ], axis=1)
 
-    # Scale to [-0.5, 0.5], then translate to [0, 1].
-    scale = 1
+    scale = translation_scale
     translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
     dataset.transform_matrices = jnp.concatenate([
         dataset.transform_matrices[:, :, 0:1] * scale,
@@ -752,7 +751,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset = load_lego_dataset('data/lego', 0.33)
-    #dataset = load_dataset('data/generation_0')
+    #dataset = load_dataset('data/generation_0', 0.15)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -776,21 +775,22 @@ if __name__ == '__main__':
         finest_resolution=1024,
         density_mlp_width=64,
         color_mlp_width=64,
-        high_dynamic_range=False
+        high_dynamic_range=False,
+        exponential_density_activation=True
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = 0.1
-    ray_far = 2.0
+    ray_far = 5.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=4096,
-        num_ray_samples=256,
+        batch_size=50000,
+        num_ray_samples=32,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=400, 
+        training_steps=30000, 
         state=state, 
         dataset=dataset
     )

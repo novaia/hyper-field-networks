@@ -531,78 +531,49 @@ def generate_density_grid(
     np.save('data/density_grid.npy', density_grid)
 
 def turntable_render(
-    num_frames:int, ray_near:float, ray_far:float, state:TrainState, dataset:Dataset
+    num_frames:int, 
+    camera_distance:float, 
+    ray_near:float, 
+    ray_far:float, 
+    state:TrainState, 
+    dataset:Dataset
 ):
     xy_start_position = jnp.array([0.0, -1.0])
     xy_start_position_angle_2d = 0
     z_start_rotation_angle_3d = 0
-    x_rotation_angle_3d = jnp.pi / 2
     angle_delta = 2 * jnp.pi / num_frames
+
+    x_rotation_angle_3d = jnp.pi / 2
+    x_rotation_matrix = jnp.array([
+        [1, 0, 0],
+        [0, jnp.cos(x_rotation_angle_3d), -jnp.sin(x_rotation_angle_3d)],
+        [0, jnp.sin(x_rotation_angle_3d), jnp.cos(x_rotation_angle_3d)],
+    ])
 
     for i in range(num_frames):
         xy_position_angle_2d = xy_start_position_angle_2d + i * angle_delta
-        z_rotation_angle_3d = xy_position_angle_2d
+        z_rotation_angle_3d = z_start_rotation_angle_3d + i * angle_delta
 
         xy_rotation_matrix_2d = jnp.array([
             [jnp.cos(xy_position_angle_2d), -jnp.sin(xy_position_angle_2d)], 
             [jnp.sin(xy_position_angle_2d), jnp.cos(xy_position_angle_2d)]
         ])
         current_xy_position = xy_rotation_matrix_2d @ xy_start_position
-        translation_matrix = jnp.array([
-            [1, 0, 0, current_xy_position[0] * 2],
-            [0, 1, 0, current_xy_position[1] * 2],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ])
-        
-        x_rotation_matrix = jnp.array([
-            [1, 0, 0, 0],
-            [0, jnp.cos(x_rotation_angle_3d), -jnp.sin(x_rotation_angle_3d), 0],
-            [0, jnp.sin(x_rotation_angle_3d), jnp.cos(x_rotation_angle_3d), 0],
-            [0, 0, 0, 1]
-        ])
-        y_rotation_matrix = jnp.array([
-            [jnp.cos(x_rotation_angle_3d), 0, jnp.sin(x_rotation_angle_3d), 0],
-            [0, 1, 0, 0],
-            [-jnp.sin(x_rotation_angle_3d), 0, jnp.cos(x_rotation_angle_3d), 0],
-            [0, 0, 0, 1]
-        ])
+    
         z_rotation_matrix = jnp.array([
-            [jnp.cos(z_rotation_angle_3d), -jnp.sin(z_rotation_angle_3d), 0, 0],
-            [jnp.sin(z_rotation_angle_3d), jnp.cos(z_rotation_angle_3d), 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
+            [jnp.cos(z_rotation_angle_3d), -jnp.sin(z_rotation_angle_3d), 0],
+            [jnp.sin(z_rotation_angle_3d), jnp.cos(z_rotation_angle_3d), 0],
+            [0, 0, 1],
         ])
 
-        transform_matrix = translation_matrix @ z_rotation_matrix @ x_rotation_matrix
-        rotation_component = transform_matrix[:3, :3]
-        translation_component = transform_matrix[:3, -1]
-        translation_component = jnp.expand_dims(translation_component, axis=-1)
-        homogenous_component = transform_matrix[3:, :]
-        
-        # Scale to [-0.5, 0.5], then translate to [0, 1].
-        scale = 1
-        translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
-        transform_matrix = jnp.concatenate([
-            transform_matrix[:, 0:1] * scale,
-            transform_matrix[:, 1:2] * -scale,
-            transform_matrix[:, 2:3] * -scale,
-            transform_matrix[:, 3:4] * scale + translation,
-        ], axis=-1)
-
-        transform_matrix = jnp.concatenate([
-            jnp.concatenate([rotation_component, translation_component], axis=-1),
-            homogenous_component,
-        ], axis=0)
-
-        # Swap axes.
-        first_rows = transform_matrix[0:1]
-        second_rows = transform_matrix[1:2]
-        third_rows = transform_matrix[2:3]
-        fourth_rows = transform_matrix[3:4]
-        transform_matrix = jnp.concatenate([
-            second_rows, third_rows, first_rows, fourth_rows
-        ], axis=0)
+        rotation_matrix = z_rotation_matrix @ x_rotation_matrix
+        translation_matrix = jnp.array([
+            [current_xy_position[0]],
+            [current_xy_position[1]],
+            [0],
+        ])
+        transform_matrix = jnp.concatenate([rotation_matrix, translation_matrix], axis=-1)
+        transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
 
         render_scene(
             num_ray_samples=512, 
@@ -616,6 +587,14 @@ def turntable_render(
             file_name=f'turntable_render_frame_{i}'
         )
 
+def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
+    new = jnp.array([
+        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale + 0.5],
+        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale + 0.5],
+        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale + 0.5],
+    ])
+    return new
+
 def load_dataset(path:str, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
@@ -627,6 +606,10 @@ def load_dataset(path:str, translation_scale:float):
         transform_matrices.append(transform_matrix)
         image = Image.open(os.path.join(path, frame['file_path']))
         images.append(jnp.array(image))
+
+    transform_matrices = jnp.array(transform_matrices)[:, :3, :]
+    process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
+    transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
 
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
@@ -645,57 +628,7 @@ def load_dataset(path:str, translation_scale:float):
         transform_matrices=jnp.array(transform_matrices),
         images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
-    
-    # Isolate translation, rotation, and homogenous components.
-    translation_component = dataset.transform_matrices[:, :3, -1]
-    rotation_component = dataset.transform_matrices[:, :3, :3]
-    homogenous_component = dataset.transform_matrices[:, 3:, :]
-
-    translation_component = translation_component #* translation_scale
-    translation_component = jnp.expand_dims(translation_component, axis=-1)
-    
-    # Recombine translation, rotation, and homogenous components.
-    dataset.transform_matrices = jnp.concatenate([
-        jnp.concatenate([rotation_component, translation_component], axis=-1),
-        homogenous_component,
-    ], axis=1)
-
-    # Scaling element (4, 4) results in unexpected behaviour if the matrix is later
-    # treated as an affine transformation of a homogenous. Because of this the matrix should be
-    # be treated as a 4x4 matrix (with an excess 1x4 row) from a which a 3x3 rotation matrix 
-    # and 3x1 translation vector can be extracted. It may be useful to have two separate
-    # processing functions: one for the former case which returns a 4x4 affine transformation
-    # matrix, and one for the latter which returns a 3x4 matrix containing a separate rotation
-    # and translation component.
-
-    scale = translation_scale
-    translation = jnp.array([[0.5], [0.5], [0.5], [0.5]])
-    dataset.transform_matrices = jnp.concatenate([
-        dataset.transform_matrices[:, :, 0:1] * scale,
-        dataset.transform_matrices[:, :, 1:2] * -scale,
-        dataset.transform_matrices[:, :, 2:3] * -scale,
-        dataset.transform_matrices[:, :, 3:4] * scale + translation,
-    ], axis=-1)
-
-    # Swap axes.
-    first_rows = dataset.transform_matrices[:, 0:1]
-    second_rows = dataset.transform_matrices[:, 1:2]
-    third_rows = dataset.transform_matrices[:, 2:3]
-    fourth_rows = dataset.transform_matrices[:, 3:4]
-    dataset.transform_matrices = jnp.concatenate([
-        second_rows, third_rows, first_rows, fourth_rows
-    ], axis=1)
-    print('Transforms:', dataset.transform_matrices.shape)
-
     return dataset
-
-def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
-    new = jnp.array([
-        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale + 0.5],
-        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale + 0.5],
-        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale + 0.5],
-    ])
-    return new
 
 def load_lego_dataset(path:str, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
@@ -731,14 +664,13 @@ def load_lego_dataset(path:str, translation_scale:float):
         transform_matrices=transform_matrices,
         images=jnp.array(images, dtype=jnp.float32) / 255.0
     )
-
     return dataset
 
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     dataset = load_lego_dataset('data/lego', 0.33)
-    #dataset = load_dataset('data/generation_0', 0.15)
+    #dataset = load_dataset('data/generation_0', 0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -766,10 +698,10 @@ if __name__ == '__main__':
         exponential_density_activation=True
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 1e-3, 10**-15)
+    state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = 0.1
-    ray_far = 5.0
+    ray_far = 3.3
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -777,12 +709,13 @@ if __name__ == '__main__':
         num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=10000, 
+        training_steps=2000, 
         state=state, 
         dataset=dataset
     )
-    #turntable_render(10, ray_near, ray_far, state, dataset)
+    turntable_render(10, ray_near, ray_far, state, dataset)
     generate_density_grid(128, 32, 32, state)
+    exit(0)
     render_scene(
         num_ray_samples=512, 
         patch_size_x=32, 

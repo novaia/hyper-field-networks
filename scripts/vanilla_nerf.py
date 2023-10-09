@@ -97,16 +97,33 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
 
     return components
 
+class FrequencyEncoding(nn.Module):
+    encoding_dim: int
+
+    def setup(self):
+        self.coefficients = jnp.repeat(2, self.encoding_dim)**jnp.arange(self.encoding_dim)
+        self.coefficients = self.coefficients * jnp.pi
+
+    def __call__(self, p):
+        p = p * self.coefficients
+        p_sine = jnp.expand_dims(jnp.sin(p), axis=-1)
+        p_cosine = jnp.expand_dims(jnp.cos(p), axis=-1)
+        p = jnp.ravel(jnp.concatenate([p_sine, p_cosine], axis=-1))
+        return p
+
 class VanillaNerf(nn.Module):
     density_mlp_width: int
     density_mlp_depth: int
     color_mlp_width: int
     exponential_density_activation: bool
+    positional_encoding_dim: int
+    directional_encoding_dim: int
 
     @nn.compact
     def __call__(self, x):
         position, direction = x
-        encoded_position = position
+        encoded_position = jnp.expand_dims(position, axis=-1)
+        encoded_position = FrequencyEncoding(self.positional_encoding_dim)(encoded_position)
 
         x = encoded_position
         for i in range(self.density_mlp_depth):
@@ -121,8 +138,9 @@ class VanillaNerf(nn.Module):
             density = nn.activation.relu(x[0])
         density_output = x[1:]
 
-        encoded_direction = fourth_order_sh_encoding(direction)
-        x = jnp.concatenate([density_output, jnp.ravel(encoded_direction)], axis=0)
+        encoded_direction = jnp.expand_dims(direction, axis=-1)
+        encoded_direction = FrequencyEncoding(self.directional_encoding_dim)(encoded_direction)
+        x = jnp.concatenate([density_output, encoded_direction], axis=0)
         x = nn.Dense(self.color_mlp_width)(x)
         x = nn.activation.relu(x)
         x = nn.Dense(3)(x)
@@ -402,9 +420,9 @@ def turntable_render(
 
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
     new = jnp.array([
-        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale + 0.5],
-        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale + 0.5],
-        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale + 0.5],
+        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
+        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
+        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
     ])
     return new
 
@@ -448,7 +466,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     #dataset = load_lego_dataset('data/lego', 0.33)
-    dataset = load_lego_dataset('data/lego', 0.33)
+    dataset = load_lego_dataset('data/lego', 0.1)
     #dataset = load_dataset('data/generation_0', 0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
@@ -469,27 +487,29 @@ if __name__ == '__main__':
         density_mlp_width=256,
         density_mlp_depth=8,
         color_mlp_width=128,
-        exponential_density_activation=True
+        exponential_density_activation=True,
+        positional_encoding_dim=10,
+        directional_encoding_dim=4
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 5e-4, 10**-15)
 
     ray_near = 0.1
-    ray_far = 3.0
+    ray_far = 1
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=1024,
-        num_ray_samples=128,
+        batch_size=512,
+        num_ray_samples=256,
         ray_near=ray_near,
         ray_far=ray_far,
         training_steps=1000, 
         state=state, 
         dataset=dataset
     )
-    turntable_render(10, 128, 32, 32, 2, ray_near, ray_far, state, dataset)
+    #turntable_render(10, 128, 32, 32, 2, ray_near, ray_far, state, dataset)
     render_scene(
-        num_ray_samples=128, 
+        num_ray_samples=256, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -500,7 +520,7 @@ if __name__ == '__main__':
         file_name='rendered_image_0'
     )
     render_scene(
-        num_ray_samples=128, 
+        num_ray_samples=256, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -511,7 +531,7 @@ if __name__ == '__main__':
         file_name='rendered_image_1'
     )
     render_scene(
-        num_ray_samples=128, 
+        num_ray_samples=256, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 

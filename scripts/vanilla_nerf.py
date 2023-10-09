@@ -437,29 +437,34 @@ def load_lego_dataset(path:str, translation_scale:float):
         transform_matrices.append(transform_matrix)
         current_image_path = path + frame['file_path'][1:] + '.png'
         image = Image.open(current_image_path)
+        image = image.resize((100, 100), resample=Image.NEAREST)
         images.append(jnp.array(image))
 
     transform_matrices = jnp.array(transform_matrices)[:, :3, :]
     process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
+    images = jnp.array(images, dtype=jnp.float32) / 255.0
 
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
         vertical_fov=transforms['camera_angle_x'],
-        fl_x=1111.111,
-        fl_y=1111.111,
+        fl_x=1,
+        fl_y=1,
         k1=0,
         k2=0,
         p1=0,
         p2=0,
-        cx=800/2,
-        cy=800/2,
-        w=800,
-        h=800,
+        cx=images.shape[1]/2,
+        cy=images.shape[2]/2,
+        w=images.shape[1],
+        h=images.shape[2],
         aabb_scale=1,
         transform_matrices=transform_matrices,
-        images=jnp.array(images, dtype=jnp.float32) / 255.0
+        images=images
     )
+    focal_length = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
+    dataset.fl_x = focal_length
+    dataset.fl_y = focal_length
     return dataset
 
 if __name__ == '__main__':
@@ -507,7 +512,7 @@ if __name__ == '__main__':
         state=state, 
         dataset=dataset
     )
-    #turntable_render(10, 128, 32, 32, 2, ray_near, ray_far, state, dataset)
+    turntable_render(10, 128, 32, 32, 0.4, ray_near, ray_far, state, dataset)
     render_scene(
         num_ray_samples=256, 
         patch_size_x=32, 

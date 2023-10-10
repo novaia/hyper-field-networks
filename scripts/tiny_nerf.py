@@ -13,6 +13,7 @@ from typing import Optional
 from dataclasses import dataclass
 from functools import partial
 import matplotlib.pyplot as plt
+import numpy as np
 
 @dataclass
 class Dataset:
@@ -47,7 +48,18 @@ def render_pixel(
     return rendered_color, accumulated_alpha
 
 def get_ray_samples(
-    uv_x, uv_y, transform_matrix, rng, c_x, c_y, fl_x, fl_y, ray_near, ray_far, num_ray_samples
+    uv_x, 
+    uv_y, 
+    transform_matrix, 
+    rng, 
+    c_x, 
+    c_y, 
+    fl_x, 
+    fl_y, 
+    ray_near, 
+    ray_far, 
+    num_ray_samples, 
+    randomize=False
 ):
     direction = jnp.array([(uv_x - c_x) / fl_x, -(uv_y - c_y) / fl_y, -1.0])
     direction = transform_matrix[:3, :3] @ direction
@@ -56,11 +68,12 @@ def get_ray_samples(
     t_vals = jnp.linspace(0., 1., num_ray_samples)
     z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
 
-    mids = .5 * (z_vals[1:] + z_vals[:-1])
-    upper = jnp.concatenate([mids, z_vals[-1:]], -1)
-    lower = jnp.concatenate([z_vals[:1], mids], -1)
-    t_rand = jax.random.uniform(rng, (num_ray_samples,))
-    z_vals = lower + (upper - lower) * t_rand
+    if randomize:
+        mids = .5 * (z_vals[1:] + z_vals[:-1])
+        upper = jnp.concatenate([mids, z_vals[-1:]], -1)
+        lower = jnp.concatenate([z_vals[:1], mids], -1)
+        t_rand = jax.random.uniform(rng, (num_ray_samples,))
+        z_vals = lower + (upper - lower) * t_rand
 
     repeated_directions = jnp.repeat(jnp.expand_dims(direction, axis=0), num_ray_samples, axis=0)
     expanded_zvals = jnp.expand_dims(z_vals, axis=-1)
@@ -102,11 +115,11 @@ class TinyVanillaNerf(nn.Module):
         color = nn.activation.sigmoid(x[1:])
         return density, color
     
-def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, epsilon:float):
+def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float):
     x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
-    tx = optax.adam(learning_rate, eps=epsilon)
+    tx = optax.adam(learning_rate)
     ts = TrainState.create(
         apply_fn=model.apply,
         params=params,
@@ -200,7 +213,7 @@ def train_step(
 
     image_indices, width_indices, height_indices = indices
     get_ray_samples_vmap = jax.vmap(
-        get_ray_samples, in_axes=(0, 0, 0, 0, None, None, None, None, None, None, None)
+        get_ray_samples, in_axes=(0, 0, 0, 0, None, None, None, None, None, None, None, None)
     )
     rays_samples, directions, z_vals = get_ray_samples_vmap(
         width_indices, 
@@ -214,6 +227,7 @@ def train_step(
         ray_near, 
         ray_far, 
         num_ray_samples,
+        True
     )
 
     def get_output(params, rays, directions):
@@ -270,6 +284,7 @@ def render_scene(
             ray_near, 
             ray_far, 
             num_ray_samples,
+            False
         )
 
         def get_output(params, rays, directions):
@@ -302,8 +317,67 @@ def render_scene(
 
     rendered_image = np.nan_to_num(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
-    #plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
     plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image)
+
+def turntable_render(
+    num_frames:int, 
+    num_ray_samples:int,
+    patch_size_x:int,
+    patch_size_y:int,
+    camera_distance:float, 
+    ray_near:float, 
+    ray_far:float, 
+    state:TrainState, 
+    dataset:Dataset
+):
+    xy_start_position = jnp.array([0.0, -1.0])
+    xy_start_position_angle_2d = 0
+    z_start_rotation_angle_3d = 0
+    angle_delta = 2 * jnp.pi / num_frames
+
+    x_rotation_angle_3d = jnp.pi / 2
+    x_rotation_matrix = jnp.array([
+        [1, 0, 0],
+        [0, jnp.cos(x_rotation_angle_3d), -jnp.sin(x_rotation_angle_3d)],
+        [0, jnp.sin(x_rotation_angle_3d), jnp.cos(x_rotation_angle_3d)],
+    ])
+
+    for i in range(num_frames):
+        xy_position_angle_2d = xy_start_position_angle_2d + i * angle_delta
+        z_rotation_angle_3d = z_start_rotation_angle_3d + i * angle_delta
+
+        xy_rotation_matrix_2d = jnp.array([
+            [jnp.cos(xy_position_angle_2d), -jnp.sin(xy_position_angle_2d)], 
+            [jnp.sin(xy_position_angle_2d), jnp.cos(xy_position_angle_2d)]
+        ])
+        current_xy_position = xy_rotation_matrix_2d @ xy_start_position
+    
+        z_rotation_matrix = jnp.array([
+            [jnp.cos(z_rotation_angle_3d), -jnp.sin(z_rotation_angle_3d), 0],
+            [jnp.sin(z_rotation_angle_3d), jnp.cos(z_rotation_angle_3d), 0],
+            [0, 0, 1],
+        ])
+
+        rotation_matrix = z_rotation_matrix @ x_rotation_matrix
+        translation_matrix = jnp.array([
+            [current_xy_position[0]],
+            [current_xy_position[1]],
+            [0],
+        ])
+        transform_matrix = jnp.concatenate([rotation_matrix, translation_matrix], axis=-1)
+        transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
+
+        render_scene(
+            num_ray_samples=num_ray_samples, 
+            patch_size_x=patch_size_x, 
+            patch_size_y=patch_size_y, 
+            ray_near=ray_near, 
+            ray_far=ray_far, 
+            dataset=dataset, 
+            transform_matrix=transform_matrix, 
+            state=state,
+            file_name=f'turntable_render_frame_{i}'
+        )
 
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
     new = jnp.array([
@@ -347,12 +421,34 @@ def load_lego_dataset(path:str, translation_scale:float):
     focal_length = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
     dataset.fl_x = focal_length
     dataset.fl_y = focal_length
+    print('image test:', dataset.images[0, 0, 0])
+    return dataset
+
+def load_tiny_dataset():
+    data = jnp.load('data/tiny_nerf_data.npz')
+    images = data['images']
+    poses = data['poses']
+    print('poses:', poses.shape)
+    focal = data['focal']
+
+    dataset = Dataset(
+        horizontal_fov=0,
+        vertical_fov=0,
+        fl_x=focal,
+        fl_y=focal,
+        cx=images.shape[1]/2,
+        cy=images.shape[2]/2,
+        w=images.shape[1],
+        h=images.shape[2],
+        transform_matrices=poses,
+        images=images
+    )
     return dataset
 
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    dataset = load_lego_dataset('data/lego', 1)
+    dataset = load_tiny_dataset()
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -370,7 +466,7 @@ if __name__ == '__main__':
         positional_encoding_dim=6
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 5e-4, 10**-7)
+    state = create_train_state(model, rng, 5e-4)
 
     ray_near = 2.0
     ray_far = 6.0
@@ -385,6 +481,7 @@ if __name__ == '__main__':
         state=state, 
         dataset=dataset
     )
+    turntable_render(30, 64, 32, 32, 4.0, ray_near, ray_far, state, dataset)
     render_scene(
         num_ray_samples=64, 
         patch_size_x=32, 

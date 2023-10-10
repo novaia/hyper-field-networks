@@ -35,12 +35,28 @@ class Dataset:
 def alpha_composite(foreground, background, alpha):
     return foreground + background * (1 - alpha)
 
-def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):   
-    alphas = 1 - jnp.exp(-densities * deltas)
-    #quadrature_weights = alphas * jnp.cumprod(1 - alphas + 1e-10, axis=0)
-    quadrature_weights = alphas * jnp.cumprod(1 - alphas, axis=0)
+def render_pixel_old(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):  
+    alphas = jnp.ravel(1 - jnp.exp(-densities * deltas))
+    quadrature_weights = jnp.expand_dims(alphas * jnp.cumprod(1 - alphas, axis=0), axis=-1)
     rendered_color = jnp.sum(quadrature_weights * colors, axis=0)
     accumulated_alpha = jnp.sum(quadrature_weights, axis=0)
+    return rendered_color, accumulated_alpha
+
+def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, z_vals:jnp.ndarray):  
+    eps = 1e-10
+    deltas = jnp.concatenate([
+        z_vals[1:] - z_vals[:-1], 
+        jnp.broadcast_to(1e10, z_vals[:1].shape)
+    ], axis=-1)
+    deltas = jnp.expand_dims(deltas, axis=-1)
+    alphas = 1.0 - jnp.exp(-densities * deltas)
+    accum_prod = jnp.concatenate([
+        jnp.ones_like(alphas[:1], alphas.dtype),
+        jnp.cumprod(1.0 - alphas[:-1] + eps, axis=0)
+    ], axis=0)
+    weights = alphas * accum_prod
+    rendered_color = jnp.sum(weights * colors, axis=0)
+    accumulated_alpha = jnp.sum(weights, axis=0)
     return rendered_color, accumulated_alpha
 
 def get_ray_samples(
@@ -51,8 +67,8 @@ def get_ray_samples(
     origin = transform_matrix[:3, -1] + direction * ray_near
     normalized_direction = direction / jnp.linalg.norm(direction)
     
-    ray_scales = jnp.linspace(ray_near, ray_far, num_ray_samples)
-    scale_delta = (ray_far - ray_near) / num_ray_samples
+    ray_scales = jnp.linspace(0, ray_far, num_ray_samples)
+    scale_delta = ray_far / num_ray_samples
     perturbations = jax.random.uniform(rng, ray_scales.shape, minval=0, maxval=scale_delta)
     ray_scales = ray_scales + perturbations
     ray_scales = jnp.expand_dims(ray_scales, axis=-1)
@@ -111,6 +127,12 @@ class FrequencyEncoding(nn.Module):
         p = jnp.ravel(jnp.concatenate([p_sine, p_cosine], axis=-1))
         return p
 
+def positional_encoding(x, min_deg, max_deg):
+    scales = jnp.array([2**i for i in range(min_deg, max_deg)])
+    xb = x * scales
+    four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
+    return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
+
 class VanillaNerf(nn.Module):
     density_mlp_width: int
     density_mlp_depth: int
@@ -122,12 +144,17 @@ class VanillaNerf(nn.Module):
     @nn.compact
     def __call__(self, x):
         position, direction = x
-        encoded_position = jnp.expand_dims(position, axis=-1)
-        encoded_position = FrequencyEncoding(self.positional_encoding_dim)(encoded_position)
+        #encoded_position = jnp.expand_dims(position, axis=-1)
+        encoded_position = positional_encoding(
+            jnp.expand_dims(position, axis=-1), 
+            0, 
+            self.positional_encoding_dim
+        )
+        #encoded_position = FrequencyEncoding(self.positional_encoding_dim)(encoded_position)
 
         x = encoded_position
         for i in range(self.density_mlp_depth):
-            if i % 5 == 0:
+            if i % 5 == 0 and i > 0:
                 x = jnp.concatenate([x, encoded_position], axis=0)
             x = nn.Dense(self.density_mlp_width)(x)
             x = nn.activation.relu(x)
@@ -145,6 +172,37 @@ class VanillaNerf(nn.Module):
         x = nn.activation.relu(x)
         x = nn.Dense(3)(x)
         color = nn.activation.sigmoid(x)
+        return density, color
+    
+class TinyVanillaNerf(nn.Module):
+    mlp_width: int
+    mlp_depth: int
+    exponential_density_activation: bool
+    positional_encoding_dim: int
+
+    @nn.compact
+    def __call__(self, x):
+        position, _ = x
+        encoded_position = positional_encoding(
+            jnp.expand_dims(position, axis=-1), 
+            0, 
+            self.positional_encoding_dim
+        )
+        #encoded_position = jnp.expand_dims(position, axis=-1)
+        #encoded_position = FrequencyEncoding(self.positional_encoding_dim)(encoded_position)
+
+        x = encoded_position
+        for i in range(self.mlp_depth):
+            if i % 5 == 0 and i > 0:
+                x = jnp.concatenate([x, encoded_position], axis=0)
+            x = nn.Dense(self.mlp_width)(x)
+            x = nn.activation.relu(x)
+        x = nn.Dense(4)(x)
+        if self.exponential_density_activation:
+            density = jnp.exp(x[0:1])
+        else:
+            density = nn.activation.relu(x[0:1])
+        color = nn.activation.sigmoid(x[1:])
         return density, color
 
 def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, epsilon:float):
@@ -266,15 +324,15 @@ def train_step(
     get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
     get_output_batch_vmap = jax.vmap(get_output_sample_vmap, in_axes=(None, 0, 0))
 
-    def get_rendered_pixel(densities, colors, deltas):
-        return render_pixel(densities, colors, deltas)
+    def get_rendered_pixel(densities, colors, rays):
+        return render_pixel(densities, colors, rays[:, -1])
     get_rendered_pixel_vmap = jax.vmap(get_rendered_pixel, in_axes=0)
 
     def loss_fn(params):
         densities, colors = get_output_batch_vmap(params, rays, directions)
-        densities = jnp.expand_dims(densities, axis=-1)
+        #densities = jnp.expand_dims(densities, axis=-1)
         rendered_colors, rendered_alphas = get_rendered_pixel_vmap(
-            densities, colors, deltas
+            densities, colors, rays
         )
         source_alphas = source_pixels[:, -1:]
         source_colors = source_pixels[:, :3]
@@ -283,8 +341,8 @@ def train_step(
         source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
-        #loss = jnp.mean((rendered_colors - source_colors)**2)
-        loss = jnp.mean(jnp.mean(optax.huber_loss(rendered_colors, source_colors), axis=-1))
+        loss = jnp.mean((rendered_colors - source_colors)**2)
+        #loss = jnp.mean(jnp.mean(optax.huber_loss(rendered_colors, source_colors), axis=-1))
         return loss
     
     grad_fn = jax.value_and_grad(loss_fn)
@@ -328,16 +386,16 @@ def render_scene(
             return state.apply_fn({'params': params}, (rays, directions))
         get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
         densities, colors = get_output_sample_vmap(state.params, rays, directions)
-        densities = jnp.expand_dims(densities, axis=-1)
-        rendered_pixel = render_pixel(densities, colors, deltas)
+        #densities = jnp.expand_dims(densities, axis=-1)
+        rendered_pixel = render_pixel(densities, colors, rays[:, -1])
         return rendered_pixel
     
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
-    background_colors = jnp.ones((patch_size_x, patch_size_y, 3))
+    background_colors = jnp.zeros((patch_size_x, patch_size_y, 3))
     render_ray_vmap = jax.vmap(
-        jax.vmap(render_ray, in_axes=(0, None, None)), in_axes=(None, 0, None)
+        jax.vmap(render_ray, in_axes=(None, 0, None)), in_axes=(0, None, None)
     )
     
     for x in range(num_patches_x):
@@ -351,8 +409,9 @@ def render_scene(
             rendered_colors, rendered_alphas = render_ray_vmap(
                 x_coordinates, y_coordinates, transform_matrix
             )
-            rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
-            rendered_image[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = rendered_patch
+            #rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
+            rendered_patch = rendered_colors * rendered_alphas + background_colors * (1 - rendered_alphas)
+            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
@@ -424,6 +483,11 @@ def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
         [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
         [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
     ])
+    #new = jnp.array([
+    #    [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
+    #    [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
+    #    [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
+    #])
     return new
 
 def load_lego_dataset(path:str, translation_scale:float):
@@ -465,13 +529,24 @@ def load_lego_dataset(path:str, translation_scale:float):
     focal_length = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
     dataset.fl_x = focal_length
     dataset.fl_y = focal_length
+
+    #test_image = dataset.images[0]
+    #est_image_colors = test_image[:, :, :3]
+    #test_image_alphas = test_image[:, :, 3:]
+    #background = jax.random.uniform(jax.random.PRNGKey(0), test_image_colors.shape)
+    #test_image_str = test_image_colors * test_image_alphas + background * (1 - test_image_alphas)
+    #plt.imsave(os.path.join('data/', 'test_image_str.png'), test_image_str)
+    #test_image_pre = jnp.clip(alpha_composite(test_image_colors, background, test_image_alphas), 0, 1)
+    #plt.imsave(os.path.join('data/', 'test_image_pre.png'), test_image_pre)
+    #plt.imsave(os.path.join('data/', 'test_image_rgb.png'), test_image_colors)
+
     return dataset
 
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     #dataset = load_lego_dataset('data/lego', 0.33)
-    dataset = load_lego_dataset('data/lego', 0.1)
+    dataset = load_lego_dataset('data/lego', 1)
     #dataset = load_dataset('data/generation_0', 0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
@@ -488,31 +563,37 @@ if __name__ == '__main__':
     print(dataset.aabb_scale)
     print('Images shape:', dataset.images.shape)
 
-    model = VanillaNerf(
-        density_mlp_width=256,
-        density_mlp_depth=8,
-        color_mlp_width=128,
+    #model = VanillaNerf(
+    #    density_mlp_width=256,
+    #    density_mlp_depth=8,
+    #    color_mlp_width=128,
+    #    exponential_density_activation=True,
+    #    positional_encoding_dim=6,
+    #    directional_encoding_dim=4
+    #)
+    model = TinyVanillaNerf(
+        mlp_width=256,
+        mlp_depth=8,
         exponential_density_activation=True,
-        positional_encoding_dim=10,
-        directional_encoding_dim=4
+        positional_encoding_dim=6
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 5e-4, 10**-15)
+    state = create_train_state(model, rng, 5e-4, 10**-7)
 
-    ray_near = 0.1
-    ray_far = 1
+    ray_near = 0.2
+    ray_far = 6.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=512,
-        num_ray_samples=256,
+        batch_size=4096,
+        num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
         training_steps=1000, 
         state=state, 
         dataset=dataset
     )
-    turntable_render(10, 128, 32, 32, 0.4, ray_near, ray_far, state, dataset)
+    turntable_render(10, 256, 32, 32, 3, ray_near, ray_far, state, dataset)
     render_scene(
         num_ray_samples=256, 
         patch_size_x=32, 
@@ -520,7 +601,7 @@ if __name__ == '__main__':
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 
-        transform_matrix=dataset.transform_matrices[9], 
+        transform_matrix=dataset.transform_matrices[2], 
         state=state,
         file_name='rendered_image_0'
     )
@@ -531,7 +612,7 @@ if __name__ == '__main__':
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 
-        transform_matrix=dataset.transform_matrices[14], 
+        transform_matrix=dataset.transform_matrices[4], 
         state=state,
         file_name='rendered_image_1'
     )
@@ -542,7 +623,7 @@ if __name__ == '__main__':
         ray_near=ray_near, 
         ray_far=ray_far, 
         dataset=dataset, 
-        transform_matrix=dataset.transform_matrices[7], 
+        transform_matrix=dataset.transform_matrices[20], 
         state=state,
         file_name='rendered_image_2'
     )

@@ -102,8 +102,9 @@ def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
 def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):    
     box_min = 0
     box_max = 1
-    num_valid_z_vals = 0
+    num_valid_samples = 0
     valid_z_vals = np.zeros((num_ray_samples,), dtype=np.float32)
+    valid_samples = np.zeros((num_ray_samples, 3), dtype=np.float32)
     for z in z_vals:
         current_sample = [
             ray_origin[0] + ray_direction[0] * z, 
@@ -114,24 +115,33 @@ def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):
         y_check = current_sample[1] >= box_min and current_sample[1] <= box_max
         z_check = current_sample[2] >= box_min and current_sample[2] <= box_max
         if x_check and y_check and z_check:
-            valid_z_vals[num_valid_z_vals] = z
-            num_valid_z_vals += 1
-    for i in range(num_ray_samples - num_valid_z_vals):
-        valid_z_vals[num_valid_z_vals + i] = z_vals[num_valid_z_vals-1]
-    return valid_z_vals
+            valid_z_vals[num_valid_samples] = z
+            valid_samples[num_valid_samples] = current_sample
+            num_valid_samples += 1
+
+    valid_z_vals = valid_z_vals[:num_valid_samples]
+    valid_samples = valid_samples[:num_valid_samples]
+    return valid_samples, valid_z_vals, num_valid_samples
 
 @numba.njit
 def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_samples):
-    new_z_vals = np.zeros((batch_size, num_ray_samples))
+    batch_samples = np.zeros((batch_size * num_ray_samples, 3), dtype=np.float32)
+    batch_z_vals = np.zeros((batch_size * num_ray_samples,))
+    ray_start_indices = np.zeros((batch_size,), dtype=np.int32)
+    num_samples = 0
     for i in range(batch_size):
-        current_z_vals = trace_ray(
+        new_samples, new_z_vals, num_new_samples = trace_ray(
             ray_origins[i],
             ray_directions[i],
             z_vals,
             num_ray_samples
         )
-        new_z_vals[i] = current_z_vals
-    return new_z_vals
+        ray_start_indices[i] = num_samples
+        updated_num_samples = num_samples + num_new_samples
+        batch_z_vals[num_samples:updated_num_samples] = new_z_vals
+        batch_samples[num_samples:updated_num_samples] = new_samples
+        num_samples = updated_num_samples
+    return batch_samples, batch_z_vals, ray_start_indices
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -339,20 +349,29 @@ def train_loop(
         cpu_ray_origins = jax.device_put(ray_origins, cpus[0])
         cpu_ray_directions = jax.device_put(ray_directions, cpus[0])
         cpu_z_vals = jax.device_put(z_vals, cpus[0])
-        new_z_vals = jnp.array(batch_trace_rays(
+        batch_samples, batch_z_vals, ray_start_indices = batch_trace_rays(
             cpu_ray_origins, cpu_ray_directions, cpu_z_vals, batch_size, num_ray_samples
-        ))
-
-        loss, state = train_step(
-            pixels, 
-            ray_origins, 
-            ray_directions, 
-            new_z_vals, 
-            random_bg_key, 
-            state, 
-            num_ray_samples
         )
-        print('Loss:', loss)
+        batch_samples = jnp.array(batch_samples)
+        batch_z_vals = jnp.array(batch_z_vals)
+        ray_start_indices = jnp.array(ray_start_indices)
+
+        print('Batch samples shape:', batch_samples.shape)
+        print('Batch z vals shape:', batch_z_vals.shape)
+        print('Ray start indices shape:', ray_start_indices.shape)
+        print(ray_start_indices[:20])
+        print(jnp.diff(ray_start_indices[:20]))
+
+        #loss, state = train_step(
+        #    pixels, 
+        #    ray_origins, 
+        #    ray_directions, 
+        #    new_z_vals, 
+        #    random_bg_key, 
+        #    state, 
+        #    num_ray_samples
+        #)
+        #print('Loss:', loss)
     return state
 
 @partial(jax.jit, static_argnames=('num_ray_samples'))

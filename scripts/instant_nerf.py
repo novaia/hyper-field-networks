@@ -15,6 +15,7 @@ from typing import Optional
 from dataclasses import dataclass
 from functools import partial
 import matplotlib.pyplot as plt
+import numba
 
 @dataclass
 class Dataset:
@@ -31,13 +32,8 @@ class Dataset:
     w: int # Image width.
     h: int # Image height.
     aabb_scale: int # Scale of scene bounding box.
-    canvas_plane: Optional[float] = 1.0 # Distance from center of projection to canvas plane.
     transform_matrices: Optional[jnp.ndarray] = None
-    locations: Optional[jnp.ndarray] = None
-    directions: Optional[jnp.ndarray] = None
     images: Optional[jnp.ndarray] = None
-    canvas_width_ratio: Optional[float] = None
-    canvas_height_ratio: Optional[float] = None
 
 # Calculates the fourth order spherical harmonic encoding for the given direction.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -75,68 +71,67 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
 def alpha_composite(foreground, background, alpha):
     return foreground + background * (1 - alpha)
 
-def render_pixel(densities:jnp.ndarray, colors:jnp.ndarray, deltas:jnp.ndarray):   
-    #expanded_densities = jnp.expand_dims(densities, axis=0)
-    #repeated_densities = jnp.repeat(expanded_densities, densities.shape[0], axis=0)
-    #triangular_mask = jnp.tril(jnp.ones(repeated_densities.shape))
-    #triangular_densities = repeated_densities * triangular_mask
-    #expanded_deltas = jnp.expand_dims(deltas, axis=0)
-    #repeated_deltas = jnp.repeat(expanded_deltas, deltas.shape[0], axis=0)
-    #triangular_deltas = repeated_deltas * triangular_mask
-
-    #T_sum = jnp.exp(-jnp.sum(triangular_densities * triangular_deltas, axis=1))
-    #rendered_color = jnp.sum(T_sum * (1 - jnp.exp(-densities * deltas)) * colors, axis=0)
-    
-    # Maybe clip rendered color to [0, 1]?
-    alphas = 1 - jnp.exp(-densities * deltas)
-    #quadrature_weights = alphas * jnp.cumprod(1 - alphas + 1e-10, axis=0)
-    quadrature_weights = alphas * jnp.cumprod(1 - alphas, axis=0)
-    rendered_color = jnp.sum(quadrature_weights * colors, axis=0)
-    accumulated_alpha = jnp.sum(quadrature_weights, axis=0)
+def render_pixel(
+    densities:jnp.ndarray, colors:jnp.ndarray, z_vals:jnp.ndarray, directions:jnp.ndarray
+):  
+    eps = 1e-10
+    deltas = jnp.concatenate([
+        z_vals[1:] - z_vals[:-1], 
+        jnp.broadcast_to(1e10, z_vals[:1].shape)
+    ], axis=-1)
+    deltas = jnp.expand_dims(deltas, axis=-1)
+    deltas = deltas * jnp.linalg.norm(directions, keepdims=True, axis=-1)
+    alphas = 1.0 - jnp.exp(-densities * deltas)
+    accum_prod = jnp.concatenate([
+        jnp.ones_like(alphas[:1], alphas.dtype),
+        jnp.cumprod(1.0 - alphas[:-1] + eps, axis=0)
+    ], axis=0)
+    weights = alphas * accum_prod
+    rendered_color = jnp.sum(weights * colors, axis=0)
+    accumulated_alpha = jnp.sum(weights, axis=0)
     return rendered_color, accumulated_alpha
 
-def get_sample_mask(samples):
-    box_min = 0
-    box_max = 1
-    sample_mask_zeros = jnp.zeros((samples.shape[0], 1))
-    sample_mask_ones = jnp.ones((samples.shape[0], 1))
-    samples_x = samples[:, 0:1]
-    samples_y = samples[:, 1:2]
-    samples_z = samples[:, 2:3]
-    sample_mask = jnp.where(samples_x < box_min, sample_mask_zeros, sample_mask_ones)
-    sample_mask = jnp.where(samples_x > box_max, sample_mask_zeros, sample_mask)
-    sample_mask = jnp.where(samples_y < box_min, sample_mask_zeros, sample_mask)
-    sample_mask = jnp.where(samples_y > box_max, sample_mask_zeros, sample_mask)
-    sample_mask = jnp.where(samples_z < box_min, sample_mask_zeros, sample_mask)
-    sample_mask = jnp.where(samples_z > box_max, sample_mask_zeros, sample_mask)
-    return sample_mask
-
-def get_ray_samples(
-    uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y, ray_near, ray_far, num_ray_samples, rng
-):
+@jax.jit
+def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
     direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
     direction = transform_matrix[:3, :3] @ direction
-    origin = transform_matrix[:3, -1] + direction * ray_near
-    normalized_direction = direction / jnp.linalg.norm(direction)
-    
-    ray_scales = jnp.linspace(ray_near, ray_far, num_ray_samples)
-    scale_delta = (ray_far - ray_near) / num_ray_samples
-    perturbations = jax.random.uniform(rng, ray_scales.shape, minval=0, maxval=scale_delta)
-    ray_scales = ray_scales + perturbations
-    ray_scales = jnp.expand_dims(ray_scales, axis=-1)
+    origin = transform_matrix[:3, -1]
+    return origin, direction
 
-    repeated_directions = jnp.repeat(
-        jnp.expand_dims(normalized_direction, axis=0), num_ray_samples, axis=0
-    )
-    repeated_origins = jnp.repeat(jnp.expand_dims(origin, axis=0), num_ray_samples, axis=0)
+@numba.njit
+def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):    
+    box_min = 0
+    box_max = 1
+    num_valid_z_vals = 0
+    valid_z_vals = np.zeros((num_ray_samples,), dtype=np.float32)
+    for z in z_vals:
+        current_sample = [
+            ray_origin[0] + ray_direction[0] * z, 
+            ray_origin[1] + ray_direction[1] * z, 
+            ray_origin[2] + ray_direction[2] * z
+        ]
+        x_check = current_sample[0] >= box_min and current_sample[0] <= box_max
+        y_check = current_sample[1] >= box_min and current_sample[1] <= box_max
+        z_check = current_sample[2] >= box_min and current_sample[2] <= box_max
+        if x_check and y_check and z_check:
+            valid_z_vals[num_valid_z_vals] = z
+            num_valid_z_vals += 1
+    for i in range(num_ray_samples - num_valid_z_vals):
+        valid_z_vals[num_valid_z_vals + i] = z_vals[num_valid_z_vals-1]
+    return valid_z_vals
 
-    ray_samples = repeated_directions * ray_scales + repeated_origins
-    sample_mask = get_sample_mask(ray_samples)
-    deltas = jnp.linalg.norm(jnp.diff(ray_samples, axis=0), keepdims=True, axis=-1)
-    deltas = jnp.concatenate([jnp.zeros((1, 1)), deltas], axis=0)
-    deltas = deltas * sample_mask
-    ray_samples = ray_samples * sample_mask
-    return ray_samples, repeated_directions, deltas
+@numba.njit
+def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_samples):
+    new_z_vals = np.zeros((batch_size, num_ray_samples))
+    for i in range(batch_size):
+        current_z_vals = trace_ray(
+            ray_origins[i],
+            ray_directions[i],
+            z_vals,
+            num_ray_samples
+        )
+        new_z_vals[i] = current_z_vals
+    return new_z_vals
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -251,17 +246,15 @@ class InstantNerf(nn.Module):
 
         x = nn.Dense(self.density_mlp_width)(x)
         x = nn.activation.relu(x)
-        x = nn.Dense(16)(x)
+        x = nn.Dense(16+1)(x)
         if self.exponential_density_activation:
-            density = jnp.exp(x[0])
+            density = jnp.exp(x[0:1])
         else:
-            density = nn.activation.relu(x[0])
-        density_output = x[1:]
+            density = nn.activation.relu(x[0:1])
+        density_feature = x[1:]
 
         encoded_direction = fourth_order_sh_encoding(direction)
-        # Encoded_direction is currently 3x16 but I'm not sure if it is supposed to be.
-        # For now I'm just going to ravel it to 48x1 so it can be concatenated with density.
-        x = jnp.concatenate([density_output, jnp.ravel(encoded_direction)], axis=0)
+        x = jnp.concatenate([density_feature, jnp.ravel(encoded_direction)], axis=0)
         x = nn.Dense(self.color_mlp_width)(x)
         x = nn.activation.relu(x)
         x = nn.Dense(self.color_mlp_width)(x)
@@ -288,12 +281,12 @@ def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, e
     return ts
 
 def sample_pixels(
+    rng,
     num_samples:int, 
     image_width:int, 
     image_height:int, 
     num_images:int, 
     images:jnp.ndarray,
-    rng:PRNGKeyArray
 ):
     width_rng, height_rng, image_rng = jax.random.split(rng, num=3) 
     width_indices = jax.random.randint(
@@ -318,98 +311,82 @@ def train_loop(
     state:TrainState, 
     dataset:Dataset
 ):
+    get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
+    t_vals = jnp.linspace(0., 1., num_ray_samples)
+    z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
+    cpus = jax.devices("cpu")
     for step in range(training_steps):
-        rng = jax.random.PRNGKey(step)
+        pixel_sample_key, random_bg_key = jax.random.split(jax.random.PRNGKey(step), num=2)
+        pixels, indices = sample_pixels(
+            pixel_sample_key,
+            batch_size,
+            dataset.w,
+            dataset.h,
+            dataset.images.shape[0],
+            dataset.images
+        )
+        image_indices, width_indices, height_indices = indices
+        ray_origins, ray_directions = get_ray_vmap(
+            width_indices, 
+            height_indices, 
+            dataset.transform_matrices[image_indices], 
+            dataset.cx, 
+            dataset.cy, 
+            dataset.fl_x, 
+            dataset.fl_y
+        )
+        
+        cpu_ray_origins = jax.device_put(ray_origins, cpus[0])
+        cpu_ray_directions = jax.device_put(ray_directions, cpus[0])
+        cpu_z_vals = jax.device_put(z_vals, cpus[0])
+        new_z_vals = jnp.array(batch_trace_rays(
+            cpu_ray_origins, cpu_ray_directions, cpu_z_vals, batch_size, num_ray_samples
+        ))
+
         loss, state = train_step(
-            batch_size=batch_size,
-            image_width=dataset.w,
-            image_height=dataset.h,
-            principle_point_x=dataset.cx,
-            principle_point_y=dataset.cy,
-            focal_length_x=dataset.fl_x,
-            focal_length_y=dataset.fl_y,
-            ray_near=ray_near,
-            ray_far=ray_far,
-            transform_matrices=dataset.transform_matrices,
-            images=dataset.images,
-            state=state, 
-            num_ray_samples=num_ray_samples, 
-            rng=rng
+            pixels, 
+            ray_origins, 
+            ray_directions, 
+            new_z_vals, 
+            random_bg_key, 
+            state, 
+            num_ray_samples
         )
         print('Loss:', loss)
     return state
 
-@partial(jax.jit, static_argnames=(
-    'batch_size',
-    'image_width',
-    'image_height',
-    'num_ray_samples',
-))
+@partial(jax.jit, static_argnames=('num_ray_samples'))
 def train_step(
-    batch_size:int,
-    image_width:int,
-    image_height:int,
-    principle_point_x:float,
-    principle_point_y:float,
-    focal_length_x:float,
-    focal_length_y:float,
-    ray_near:float,
-    ray_far:float,
-    transform_matrices:jnp.ndarray,
-    images:jnp.ndarray,
-    state:TrainState,
-    num_ray_samples:int,
-    rng:PRNGKeyArray
+    pixels,
+    origins,
+    directions,
+    z_vals,
+    rng,
+    state,
+    num_ray_samples
 ):
-    ray_sample_key, pixel_sample_key, random_bg_key = jax.random.split(rng, num=3)
-    source_pixels, indices = sample_pixels(
-        num_samples=batch_size, 
-        image_width=image_width, 
-        image_height=image_height, 
-        num_images=images.shape[0], 
-        rng=pixel_sample_key, 
-        images=images
-    )
+    normalized_directions = directions / jnp.linalg.norm(directions, keepdims=True, axis=-1)
+    repeated_origins = jnp.repeat(jnp.expand_dims(origins, axis=1), num_ray_samples, axis=1)
+    repeated_directions = jnp.repeat(jnp.expand_dims(origins, axis=1), num_ray_samples, axis=1)
+    expanded_z_vals = jnp.expand_dims(z_vals, axis=-1)
+    ray_samples = repeated_origins + repeated_directions * expanded_z_vals
 
-    image_indices, width_indices, height_indices = indices
-    get_ray_samples_vmap = jax.vmap(
-        get_ray_samples, in_axes=(0, 0, 0, None, None, None, None, None, None, None, None)
-    )
-    rays, directions, deltas = get_ray_samples_vmap(
-        width_indices, 
-        height_indices, 
-        transform_matrices[image_indices], 
-        principle_point_x, 
-        principle_point_y, 
-        focal_length_x, 
-        focal_length_y, 
-        ray_near, 
-        ray_far, 
-        num_ray_samples,
-        ray_sample_key
-    )
-
-    def get_output(params, rays, directions):
-        return state.apply_fn({'params': params}, (rays, directions))
-    get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
+    def get_output(params, rays, normalized_directions):
+        return state.apply_fn({'params': params}, (rays, normalized_directions))
+    get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, None))
     get_output_batch_vmap = jax.vmap(get_output_sample_vmap, in_axes=(None, 0, 0))
-
-    def get_rendered_pixel(densities, colors, deltas):
-        return render_pixel(densities, colors, deltas)
-    get_rendered_pixel_vmap = jax.vmap(get_rendered_pixel, in_axes=0)
+    get_rendered_pixel_vmap = jax.vmap(render_pixel, in_axes=0)
 
     def loss_fn(params):
-        densities, colors = get_output_batch_vmap(params, rays, directions)
-        densities = jnp.expand_dims(densities, axis=-1)
+        densities, colors = get_output_batch_vmap(params, ray_samples, normalized_directions)
         rendered_colors, rendered_alphas = get_rendered_pixel_vmap(
-            densities, colors, deltas
+            densities, colors, z_vals, directions
         )
-        source_alphas = source_pixels[:, -1:]
-        source_colors = source_pixels[:, :3]
-        random_bg_colors = jax.random.uniform(random_bg_key, source_colors.shape)
-        # Maybe try a single random background color?
-        #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
-        source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        source_alphas = pixels[:, -1:]
+        source_colors = pixels[:, :3]
+        random_bg_colors = jax.random.uniform(rng, source_colors.shape)
+        #source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
         rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         #loss = jnp.mean((rendered_colors - source_colors)**2)
@@ -431,43 +408,40 @@ def render_scene(
     transform_matrix:jnp.ndarray, 
     state:TrainState,
     file_name:Optional[str]='rendered_image'
-):
-    principle_point_x = dataset.cx
-    principle_point_y = dataset.cy
-    focal_length_x = dataset.fl_x 
-    focal_length_y = dataset.fl_y
-
-    @jax.jit
-    def render_ray(x, y, transform_matrix):
-        rays, directions, deltas = get_ray_samples(
-            x, 
-            y,
-            transform_matrix, 
-            principle_point_x, 
-            principle_point_y, 
-            focal_length_x, 
-            focal_length_y, 
-            ray_near, 
-            ray_far, 
-            num_ray_samples,
-            jax.random.PRNGKey(0)
-        )
-
-        def get_output(params, rays, directions):
-            return state.apply_fn({'params': params}, (rays, directions))
-        get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, 0))
-        densities, colors = get_output_sample_vmap(state.params, rays, directions)
-        densities = jnp.expand_dims(densities, axis=-1)
-        rendered_pixel = render_pixel(densities, colors, deltas)
-        return rendered_pixel
-    
+):    
+    get_ray_vmap = jax.vmap(
+        jax.vmap(get_ray, in_axes=(None, 0, None, None, None, None, None)), 
+        in_axes=(0, None, None, None, None, None, None)
+    )
+    cpus = jax.devices("cpu")
+    t_vals = jnp.linspace(0., 1., num_ray_samples)
+    z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
+    cpu_z_vals = jax.device_put(z_vals, cpus[0])
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
+    patch_area = patch_size_x * patch_size_y
     rendered_image = np.ones((dataset.w, dataset.h, 3))
     background_colors = jnp.ones((patch_size_x, patch_size_y, 3))
-    render_ray_vmap = jax.vmap(
-        jax.vmap(render_ray, in_axes=(0, None, None)), in_axes=(None, 0, None)
-    )
+
+    @jax.jit
+    def render_ray(origin, direction, z_vals):
+        repeated_origin = jnp.repeat(
+            jnp.expand_dims(origin, axis=0), z_vals.shape[0], axis=0
+        )
+        repeated_direction = jnp.repeat(
+            jnp.expand_dims(direction, axis=0), z_vals.shape[0], axis=0
+        )
+        expanded_z_vals = jnp.expand_dims(z_vals, axis=-1)
+        ray_samples = repeated_origin + repeated_direction * expanded_z_vals
+        normalized_direction = direction / jnp.linalg.norm(direction, axis=-1)
+
+        def get_output(ray_samples, normalized_directions):
+            return state.apply_fn({'params': state.params}, (ray_samples, normalized_directions))
+        get_output_sample_vmap = jax.vmap(get_output, in_axes=(0, None))
+        densities, colors = get_output_sample_vmap(ray_samples, normalized_direction)
+        rendered_pixel = render_pixel(densities, colors, z_vals, direction)
+        return rendered_pixel
+    render_ray_vmap = jax.vmap(jax.vmap(render_ray, in_axes=0), in_axes=0)
     
     for x in range(num_patches_x):
         patch_start_x = patch_size_x * x
@@ -477,15 +451,30 @@ def render_scene(
             patch_start_y = patch_size_y * y
             patch_end_y = patch_start_y + patch_size_y
             y_coordinates = jnp.arange(patch_start_y, patch_end_y)
+            
+            ray_origins, ray_directions = get_ray_vmap(
+                x_coordinates, 
+                y_coordinates, 
+                transform_matrix,
+                dataset.cx,
+                dataset.cy,
+                dataset.fl_x,
+                dataset.fl_y
+            )
+            new_shape = (patch_area, 3)
+            cpu_ray_origins = jax.device_put(jnp.reshape(ray_origins, new_shape), cpus[0])
+            cpu_ray_directions = jax.device_put(jnp.reshape(ray_directions, new_shape), cpus[0])
+            new_z_vals = jnp.array(batch_trace_rays(
+                cpu_ray_origins, cpu_ray_directions, cpu_z_vals, patch_area, num_ray_samples
+            ))
+            new_z_vals = jnp.reshape(new_z_vals, (patch_size_x, patch_size_y, num_ray_samples))
             rendered_colors, rendered_alphas = render_ray_vmap(
-                x_coordinates, y_coordinates, transform_matrix
+                ray_origins, ray_directions, new_z_vals
             )
             rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
-            rendered_image[patch_start_y:patch_end_y, patch_start_x:patch_end_x] = rendered_patch
+            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
-    #rendered_image -= np.min(rendered_image)
-    #rendered_image /= np.max(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
     plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
 
@@ -522,9 +511,7 @@ def generate_density_grid(
             patch_start_y = patch_size_y * y
             patch_end_y = patch_start_y + patch_size_y
             y_coordinates = jnp.arange(patch_start_y, patch_end_y) / num_points
-            density_patch = jnp.expand_dims(
-                get_density_vmap(x_coordinates, y_coordinates), axis=-1
-            )
+            density_patch = get_density_vmap(x_coordinates, y_coordinates)
             density_grid[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = density_patch
 
     print('Density grid shape:', density_grid.shape)
@@ -532,11 +519,15 @@ def generate_density_grid(
 
 def turntable_render(
     num_frames:int, 
+    num_ray_samples:int,
+    patch_size_x:int,
+    patch_size_y:int,
     camera_distance:float, 
     ray_near:float, 
     ray_far:float, 
     state:TrainState, 
-    dataset:Dataset
+    dataset:Dataset,
+    file_name:str='turntable_render'
 ):
     xy_start_position = jnp.array([0.0, -1.0])
     xy_start_position_angle_2d = 0
@@ -576,15 +567,15 @@ def turntable_render(
         transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
 
         render_scene(
-            num_ray_samples=512, 
-            patch_size_x=32, 
-            patch_size_y=32, 
+            num_ray_samples=num_ray_samples, 
+            patch_size_x=patch_size_x, 
+            patch_size_y=patch_size_y, 
             ray_near=ray_near, 
             ray_far=ray_far, 
             dataset=dataset, 
             transform_matrix=transform_matrix, 
             state=state,
-            file_name=f'turntable_render_frame_{i}'
+            file_name=file_name + f'_frame_{i}'
         )
 
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
@@ -595,7 +586,7 @@ def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     ])
     return new
 
-def load_dataset(path:str, translation_scale:float):
+def load_dataset(path:str, downscale_factor:int, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
@@ -605,32 +596,39 @@ def load_dataset(path:str, translation_scale:float):
         transform_matrix = jnp.array(frame['transform_matrix'])
         transform_matrices.append(transform_matrix)
         image = Image.open(os.path.join(path, frame['file_path']))
+        image = image.resize(
+            (image.width // downscale_factor, image.height // downscale_factor),
+            resample=Image.NEAREST
+        )
         images.append(jnp.array(image))
 
     transform_matrices = jnp.array(transform_matrices)[:, :3, :]
     process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
+    images = jnp.array(images, dtype=jnp.float32) / 255.0
 
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
         vertical_fov=transforms['camera_angle_y'],
-        fl_x=transforms['fl_x'],
-        fl_y=transforms['fl_y'],
+        fl_x=1,
+        fl_y=1,
         k1=transforms['k1'],
         k2=transforms['k2'],
         p1=transforms['p1'],
         p2=transforms['p2'],
-        cx=transforms['cx'],
-        cy=transforms['cy'],
-        w=transforms['w'],
-        h=transforms['h'],
+        cx=images.shape[1]/2,
+        cy=images.shape[2]/2,
+        w=images.shape[1],
+        h=images.shape[2],
         aabb_scale=transforms['aabb_scale'],
-        transform_matrices=jnp.array(transform_matrices),
-        images=jnp.array(images, dtype=jnp.float32) / 255.0
+        transform_matrices=transform_matrices,
+        images=images
     )
+    dataset.fl_x = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
+    dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
     return dataset
 
-def load_lego_dataset(path:str, translation_scale:float):
+def load_lego_dataset(path:str, downscale_factor:int, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
@@ -641,35 +639,43 @@ def load_lego_dataset(path:str, translation_scale:float):
         transform_matrices.append(transform_matrix)
         current_image_path = path + frame['file_path'][1:] + '.png'
         image = Image.open(current_image_path)
+        image = image.resize(
+            (image.width // downscale_factor, image.height // downscale_factor),
+            resample=Image.NEAREST
+        )
         images.append(jnp.array(image))
 
     transform_matrices = jnp.array(transform_matrices)[:, :3, :]
     process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
+    images = jnp.array(images, dtype=jnp.float32) / 255.0
 
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
         vertical_fov=transforms['camera_angle_x'],
-        fl_x=1111.111,
-        fl_y=1111.111,
+        fl_x=1,
+        fl_y=1,
         k1=0,
         k2=0,
         p1=0,
         p2=0,
-        cx=800/2,
-        cy=800/2,
-        w=800,
-        h=800,
-        aabb_scale=1,
+        cx=images.shape[1]/2,
+        cy=images.shape[2]/2,
+        w=images.shape[1],
+        h=images.shape[2],
+        aabb_scale=0,
         transform_matrices=transform_matrices,
-        images=jnp.array(images, dtype=jnp.float32) / 255.0
+        images=images
     )
+    dataset.fl_x = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
+    dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
     return dataset
 
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    dataset = load_lego_dataset('data/lego', 0.33)
+    #dataset = load_lego_dataset('data/lego', 0.33)
+    dataset = load_lego_dataset('data/lego', 8, 0.33)
     #dataset = load_dataset('data/generation_0', 0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
@@ -688,36 +694,39 @@ if __name__ == '__main__':
 
     model = InstantNerf(
         number_of_grid_levels=16,
-        max_hash_table_entries=2**14,
+        max_hash_table_entries=2**20,
         hash_table_feature_dim=2,
         coarsest_resolution=16,
-        finest_resolution=1024,
+        finest_resolution=2**19,
         density_mlp_width=64,
         color_mlp_width=64,
         high_dynamic_range=False,
-        exponential_density_activation=True
+        exponential_density_activation=False
     )
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
     ray_near = 0.1
-    ray_far = 3.3
+    ray_far = 3.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=1024,
-        num_ray_samples=64,
+        batch_size=4096,
+        num_ray_samples=128,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=2000, 
+        training_steps=10000, 
         state=state, 
         dataset=dataset
     )
-    turntable_render(10, ray_near, ray_far, state, dataset)
-    generate_density_grid(128, 32, 32, state)
-    exit(0)
+    #turntable_render(
+    #    10, 128, 32, 32, 0.5, ray_near, ray_far, state, dataset, 'instant_turntable_render'
+    #)
+    #print('Finished turntable')
+    #generate_density_grid(128, 32, 32, state)
+    #print('Finished density')
     render_scene(
-        num_ray_samples=512, 
+        num_ray_samples=128, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -725,10 +734,10 @@ if __name__ == '__main__':
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[9], 
         state=state,
-        file_name='rendered_image_0'
+        file_name='instant_rendered_image_0'
     )
     render_scene(
-        num_ray_samples=512, 
+        num_ray_samples=128, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -736,10 +745,10 @@ if __name__ == '__main__':
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[14], 
         state=state,
-        file_name='rendered_image_1'
+        file_name='instant_rendered_image_1'
     )
     render_scene(
-        num_ray_samples=512, 
+        num_ray_samples=128, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -747,6 +756,6 @@ if __name__ == '__main__':
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[7], 
         state=state,
-        file_name='rendered_image_2'
+        file_name='instant_rendered_image_2'
     )
     

@@ -105,6 +105,7 @@ def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):
     num_valid_samples = 0
     valid_z_vals = np.zeros((num_ray_samples,), dtype=np.float32)
     valid_samples = np.zeros((num_ray_samples, 3), dtype=np.float32)
+    matching_directions = np.zeros((num_ray_samples, 3))
     for z in z_vals:
         current_sample = [
             ray_origin[0] + ray_direction[0] * z, 
@@ -117,20 +118,25 @@ def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):
         if x_check and y_check and z_check:
             valid_z_vals[num_valid_samples] = z
             valid_samples[num_valid_samples] = current_sample
+            matching_directions[num_valid_samples] = [
+                ray_direction[0], ray_direction[1], ray_direction[2]
+            ]
             num_valid_samples += 1
 
     valid_z_vals = valid_z_vals[:num_valid_samples]
     valid_samples = valid_samples[:num_valid_samples]
-    return valid_samples, valid_z_vals, num_valid_samples
+    matching_directions = matching_directions[:num_valid_samples]
+    return valid_samples, matching_directions, valid_z_vals, num_valid_samples
 
 @numba.njit
 def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_samples):
     batch_samples = np.zeros((batch_size * num_ray_samples, 3), dtype=np.float32)
+    batch_directions = np.zeros((batch_size * num_ray_samples, 3), dtype=np.float32)
     batch_z_vals = np.zeros((batch_size * num_ray_samples,))
     ray_start_indices = np.zeros((batch_size,), dtype=np.int32)
     num_samples = 0
     for i in range(batch_size):
-        new_samples, new_z_vals, num_new_samples = trace_ray(
+        new_samples, matching_directions, new_z_vals, num_new_samples = trace_ray(
             ray_origins[i],
             ray_directions[i],
             z_vals,
@@ -140,8 +146,14 @@ def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_sa
         updated_num_samples = num_samples + num_new_samples
         batch_z_vals[num_samples:updated_num_samples] = new_z_vals
         batch_samples[num_samples:updated_num_samples] = new_samples
+        batch_directions[num_samples:updated_num_samples] = matching_directions
         num_samples = updated_num_samples
-    return batch_samples, batch_z_vals, ray_start_indices
+    return batch_samples, batch_directions, batch_z_vals, ray_start_indices
+
+@numba.njit
+def batch_render(densities, colors, ray_start_indices, batch_size):
+    rendered_colors = np.zeros((batch_size, 3), dtype=np.float32)
+    return rendered_colors
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -321,6 +333,11 @@ def train_loop(
     state:TrainState, 
     dataset:Dataset
 ):
+    @jax.jit
+    def compute_sample(params, ray_sample, direction):
+        return state.apply_fn({'params': params}, (ray_sample, direction))
+    compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
     t_vals = jnp.linspace(0., 1., num_ray_samples)
     z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
@@ -349,73 +366,59 @@ def train_loop(
         cpu_ray_origins = jax.device_put(ray_origins, cpus[0])
         cpu_ray_directions = jax.device_put(ray_directions, cpus[0])
         cpu_z_vals = jax.device_put(z_vals, cpus[0])
-        batch_samples, batch_z_vals, ray_start_indices = batch_trace_rays(
+        batch_samples, batch_directions, batch_z_vals, ray_start_indices = batch_trace_rays(
             cpu_ray_origins, cpu_ray_directions, cpu_z_vals, batch_size, num_ray_samples
         )
         batch_samples = jnp.array(batch_samples)
+        batch_directions = jnp.array(batch_directions)
+        batch_directions_norms = jnp.linalg.norm(batch_directions, keepdims=True, axis=-1)
+        normalized_batch_directions = batch_directions / batch_directions_norms
         batch_z_vals = jnp.array(batch_z_vals)
         ray_start_indices = jnp.array(ray_start_indices)
 
-        print('Batch samples shape:', batch_samples.shape)
-        print('Batch z vals shape:', batch_z_vals.shape)
-        print('Ray start indices shape:', ray_start_indices.shape)
-        print(ray_start_indices[:20])
-        print(jnp.diff(ray_start_indices[:20]))
+        #print('Batch samples shape:', batch_samples.shape)
+        #print('Batch directions shape:', batch_directions.shape)
+        #print('Normalized batch directions shape:', normalized_batch_directions.shape)
+        #print('Batch z vals shape:', batch_z_vals.shape)
+        #print('Ray start indices shape:', ray_start_indices.shape)
+        #print(ray_start_indices[:20])
+        #print(jnp.diff(ray_start_indices[:20]))
 
-        #loss, state = train_step(
-        #    pixels, 
-        #    ray_origins, 
-        #    ray_directions, 
-        #    new_z_vals, 
-        #    random_bg_key, 
-        #    state, 
-        #    num_ray_samples
-        #)
-        #print('Loss:', loss)
+        @jax.custom_vjp
+        def differentiable_render(densities, colors):
+            cpu_densities = np.array(jax.device_put(densities, cpus[0]))
+            cpu_colors = np.array(jax.device_put(colors, cpus[0]))
+            cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
+            rendered_colors = jnp.array(
+                batch_render(cpu_densities, cpu_colors, cpu_ray_start_indices, batch_size)
+            )
+            return rendered_colors
+        
+        def differentiable_render_fwd(densities, colors):
+            return (
+                differentiable_render(densities, colors), 
+                (densities, colors) # Placeholder residuals.
+            )
+        
+        # Placeholder backward pass.
+        def differentiable_render_bwd(res, g):
+            densities, colors = res
+            return densities, colors
+        
+        differentiable_render.defvjp(differentiable_render_fwd, differentiable_render_bwd)
+
+        def loss_fn(params):
+            densities, colors = compute_batch(params, batch_samples, batch_directions)
+            target_colors = pixels[:, :3]
+            rendered_colors = differentiable_render(densities, colors)
+            loss = jnp.mean((rendered_colors - target_colors)**2)
+            return loss
+        
+        grad_fn = jax.value_and_grad(loss_fn)
+        loss, grads = grad_fn(state.params)
+        state = state.apply_gradients(grads=grads)
+        print('Loss:', loss)
     return state
-
-@partial(jax.jit, static_argnames=('num_ray_samples'))
-def train_step(
-    pixels,
-    origins,
-    directions,
-    z_vals,
-    rng,
-    state,
-    num_ray_samples
-):
-    normalized_directions = directions / jnp.linalg.norm(directions, keepdims=True, axis=-1)
-    repeated_origins = jnp.repeat(jnp.expand_dims(origins, axis=1), num_ray_samples, axis=1)
-    repeated_directions = jnp.repeat(jnp.expand_dims(origins, axis=1), num_ray_samples, axis=1)
-    expanded_z_vals = jnp.expand_dims(z_vals, axis=-1)
-    ray_samples = repeated_origins + repeated_directions * expanded_z_vals
-
-    def get_output(params, rays, normalized_directions):
-        return state.apply_fn({'params': params}, (rays, normalized_directions))
-    get_output_sample_vmap = jax.vmap(get_output, in_axes=(None, 0, None))
-    get_output_batch_vmap = jax.vmap(get_output_sample_vmap, in_axes=(None, 0, 0))
-    get_rendered_pixel_vmap = jax.vmap(render_pixel, in_axes=0)
-
-    def loss_fn(params):
-        densities, colors = get_output_batch_vmap(params, ray_samples, normalized_directions)
-        rendered_colors, rendered_alphas = get_rendered_pixel_vmap(
-            densities, colors, z_vals, directions
-        )
-        source_alphas = pixels[:, -1:]
-        source_colors = pixels[:, :3]
-        random_bg_colors = jax.random.uniform(rng, source_colors.shape)
-        #source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
-        source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
-        rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
-
-        #loss = jnp.mean((rendered_colors - source_colors)**2)
-        loss = jnp.mean(jnp.mean(optax.huber_loss(rendered_colors, source_colors), axis=-1))
-        return loss
-    
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grads = grad_fn(state.params)
-    state = state.apply_gradients(grads=grads)
-    return loss, state
 
 def render_scene(
     num_ray_samples:int,

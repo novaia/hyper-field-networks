@@ -47,7 +47,7 @@ def render_pixel(
     return rendered_color, accumulated_alpha
 
 def get_ray_samples(
-    uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y, ray_near, ray_far, num_ray_samples, rng
+    uv_x, uv_y, transform_matrix, rng, c_x, c_y, fl_x, fl_y, ray_near, ray_far, num_ray_samples
 ):
     direction = jnp.array([(uv_x - c_x) / fl_x, -(uv_y - c_y) / fl_y, -1.0])
     direction = transform_matrix[:3, :3] @ direction
@@ -188,7 +188,7 @@ def train_step(
     num_ray_samples:int,
     rng:PRNGKeyArray
 ):
-    ray_sample_key, pixel_sample_key, random_bg_key = jax.random.split(rng, num=3)
+    ray_sample_key, pixel_sample_key = jax.random.split(rng, num=2)
     source_pixels, indices = sample_pixels(
         num_samples=batch_size, 
         image_width=image_width, 
@@ -200,12 +200,13 @@ def train_step(
 
     image_indices, width_indices, height_indices = indices
     get_ray_samples_vmap = jax.vmap(
-        get_ray_samples, in_axes=(0, 0, 0, None, None, None, None, None, None, None, None)
+        get_ray_samples, in_axes=(0, 0, 0, 0, None, None, None, None, None, None, None)
     )
     rays_samples, directions, z_vals = get_ray_samples_vmap(
         width_indices, 
         height_indices, 
         transform_matrices[image_indices], 
+        jax.random.split(ray_sample_key, num=batch_size),
         principle_point_x, 
         principle_point_y, 
         focal_length_x, 
@@ -213,7 +214,6 @@ def train_step(
         ray_near, 
         ray_far, 
         num_ray_samples,
-        ray_sample_key
     )
 
     def get_output(params, rays, directions):
@@ -262,6 +262,7 @@ def render_scene(
             x, 
             y,
             transform_matrix, 
+            jax.random.PRNGKey(0),
             principle_point_x, 
             principle_point_y, 
             focal_length_x, 
@@ -269,7 +270,6 @@ def render_scene(
             ray_near, 
             ray_far, 
             num_ray_samples,
-            jax.random.PRNGKey(0)
         )
 
         def get_output(params, rays, directions):
@@ -372,7 +372,7 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 5e-4, 10**-7)
 
-    ray_near = 0.2
+    ray_near = 2.0
     ray_far = 6.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 

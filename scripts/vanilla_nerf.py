@@ -83,6 +83,38 @@ def get_ray_samples(
     deltas = jnp.concatenate([jnp.zeros((1, 1)), deltas], axis=0)
     return ray_samples, repeated_directions, deltas
 
+def sample_along_rays(key, origins, directions, num_samples, near, far, randomized, lindisp):
+    """Stratified sampling along the rays.
+
+    Args:
+    key: jnp.ndarray, random generator key.
+    origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
+    directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
+    num_samples: int.
+    near: float, near clip.
+    far: float, far clip.
+    randomized: bool, use randomized stratified sampling.
+    lindisp: bool, sampling linearly in disparity rather than depth.
+
+    Returns:
+    z_vals: jnp.ndarray, [batch_size, num_samples], sampled z values.
+    points: jnp.ndarray, [batch_size, num_samples, 3], sampled points.
+    """
+
+
+    t_vals = jnp.linspace(0., 1., num_samples)
+    z_vals = near * (1. - t_vals) + far * t_vals
+
+    if randomized:
+        mids = .5 * (z_vals[1:] + z_vals[:-1])
+        upper = jnp.concatenate([mids, z_vals[-1:]], -1)
+        lower = jnp.concatenate([z_vals[:1], mids], -1)
+        t_rand = jax.random.uniform(key, (num_samples,))
+        z_vals = lower + (upper - lower) * t_rand
+
+    coords = cast_rays(z_vals, origins, directions)
+    return z_vals, coords
+
 def fourth_order_sh_encoding(direction:jnp.ndarray):
     x = direction[0]
     y = direction[1]
@@ -338,8 +370,8 @@ def train_step(
         source_colors = source_pixels[:, :3]
         random_bg_colors = jax.random.uniform(random_bg_key, source_colors.shape)
         #source_colors = alpha_composite(source_colors, random_bg_colors, source_alphas)
-        source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
-        rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
+        #source_colors = source_colors * source_alphas + random_bg_colors * (1 - source_alphas)
+        #rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
 
         loss = jnp.mean((rendered_colors - source_colors)**2)
         #loss = jnp.mean(jnp.mean(optax.huber_loss(rendered_colors, source_colors), axis=-1))
@@ -410,7 +442,7 @@ def render_scene(
                 x_coordinates, y_coordinates, transform_matrix
             )
             #rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
-            rendered_patch = rendered_colors * rendered_alphas + background_colors * (1 - rendered_alphas)
+            rendered_patch = rendered_colors
             rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
 
     rendered_image = np.nan_to_num(rendered_image)
@@ -478,16 +510,16 @@ def turntable_render(
         )
 
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
-    new = jnp.array([
-        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
-        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
-        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
-    ])
     #new = jnp.array([
-    #    [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
     #    [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
     #    [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
+    #    [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
     #])
+    new = jnp.array([
+        [original[0, 0], original[0, 1], original[0, 2], original[0, 3] * scale],
+        [original[1, 0], original[1, 1], original[1, 2], original[1, 3] * scale],
+        [original[2, 0], original[2, 1], original[2, 2], original[2, 3] * scale],
+    ])
     return new
 
 def load_lego_dataset(path:str, translation_scale:float):
@@ -574,7 +606,7 @@ if __name__ == '__main__':
     model = TinyVanillaNerf(
         mlp_width=256,
         mlp_depth=8,
-        exponential_density_activation=True,
+        exponential_density_activation=False,
         positional_encoding_dim=6
     )
     rng = jax.random.PRNGKey(1)

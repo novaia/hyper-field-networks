@@ -192,6 +192,11 @@ def train_loop(
             rng=rng
         )
         print('Loss:', loss)
+        if step % 50000 == 0 and step > 0:
+            turntable_render(
+                30, 64, 32, 32, 4.0, ray_near, ray_far, state, dataset, 
+                f'step_{step}_vanilla_turntable_render'
+            ) 
     return state
 
 @partial(jax.jit, static_argnames=(
@@ -493,16 +498,16 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=4096,
+        batch_size=2048,
         num_ray_samples=128,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=100, 
+        training_steps=300000, 
         state=state, 
         dataset=dataset
     )
     turntable_render(
-        30, 64, 32, 32, 4.0, ray_near, ray_far, state, dataset, 'vanilla_turntable_render'
+        30, 128, 32, 32, 4.0, ray_near, ray_far, state, dataset, 'vanilla_turntable_render'
     )
     render_scene(
         num_ray_samples=128, 

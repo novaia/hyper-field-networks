@@ -151,8 +151,29 @@ def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_sa
     return batch_samples, batch_directions, batch_z_vals, ray_start_indices
 
 @numba.njit
-def batch_render(densities, colors, ray_start_indices, batch_size):
+def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
     rendered_colors = np.zeros((batch_size, 3), dtype=np.float32)
+    for i in range(batch_size):
+        start_index = ray_start_indices[i]
+        end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
+        slice_size = end_index - start_index
+        if start_index == end_index:
+            continue
+
+        current_densities = np.ravel(densities[start_index:end_index])
+        current_colors = colors[start_index:end_index]
+        current_z_vals = z_vals[start_index:end_index]
+
+        deltas = np.zeros((slice_size,), dtype=np.float32)
+        deltas[:-1] = current_z_vals[1:] - current_z_vals[:-1]
+        deltas[-1] = 1e10
+        alphas = 1.0 - np.exp(-current_densities * deltas)
+        accum_prod = np.zeros((slice_size,), dtype=np.float32)
+        accum_prod[0] = 1.0
+        accum_prod[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
+        weights = alphas * accum_prod
+        weights = np.expand_dims(weights, axis=-1)
+        rendered_colors[i] = np.sum(weights * current_colors, axis=0)
     return rendered_colors
 
 class MultiResolutionHashEncoding(nn.Module):
@@ -389,9 +410,10 @@ def train_loop(
             cpu_densities = np.array(jax.device_put(densities, cpus[0]))
             cpu_colors = np.array(jax.device_put(colors, cpus[0]))
             cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
-            rendered_colors = jnp.array(
-                batch_render(cpu_densities, cpu_colors, cpu_ray_start_indices, batch_size)
-            )
+            cpu_z_vals = np.array(jax.device_put(batch_z_vals, cpus[0]))
+            rendered_colors = jnp.array(batch_render(
+                cpu_densities, cpu_colors, cpu_z_vals, cpu_ray_start_indices, batch_size
+            ))
             return rendered_colors
         
         def differentiable_render_fwd(densities, colors):
@@ -408,7 +430,9 @@ def train_loop(
         differentiable_render.defvjp(differentiable_render_fwd, differentiable_render_bwd)
 
         def loss_fn(params):
-            densities, colors = compute_batch(params, batch_samples, batch_directions)
+            densities, colors = compute_batch(
+                params, batch_samples, normalized_batch_directions
+            )
             target_colors = pixels[:, :3]
             rendered_colors = differentiable_render(densities, colors)
             loss = jnp.mean((rendered_colors - target_colors)**2)

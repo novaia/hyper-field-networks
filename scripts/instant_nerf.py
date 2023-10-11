@@ -155,7 +155,7 @@ def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_sa
 @numba.njit
 def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
     rendered_colors = np.zeros((batch_size, 3), dtype=np.float32)
-    alphas = np.zeros((batch_size, 1), dtype=np.float32)
+    rendered_alphas = np.zeros((batch_size, 1), dtype=np.float32)
     for i in range(batch_size):
         start_index = ray_start_indices[i]
         end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
@@ -170,29 +170,95 @@ def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
         deltas = np.zeros((slice_size,), dtype=np.float32)
         deltas[:-1] = current_z_vals[1:] - current_z_vals[:-1]
         deltas[-1] = 1e10
-        current_alphas = 1.0 - np.exp(-current_densities * deltas)
+        alphas = 1.0 - np.exp(-current_densities * deltas)
         accum_prod = np.zeros((slice_size,), dtype=np.float32)
         accum_prod[0] = 1.0
-        accum_prod[1:] = np.cumprod(1.0 - current_alphas[:-1] + 1e-10)
-        weights = current_alphas * accum_prod
+        accum_prod[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
+        weights = alphas * accum_prod
         weights = np.expand_dims(weights, axis=-1)
         rendered_colors[i] = np.sum(weights * current_colors, axis=0)
-        alphas[i] = np.sum(weights, axis=0)
-    return rendered_colors, alphas
+        rendered_alphas[i] = np.sum(weights, axis=0)
+    return rendered_colors, rendered_alphas
 
 @numba.njit
 def batch_render_backward(
-    densities, 
-    colors, 
+    raw_densities, 
+    raw_colors, 
     z_vals, 
     ray_start_indices, 
-    batch_size, 
+    batch_size,
+    num_max_samples,
     rendered_colors, 
     rendered_alphas,
     rendered_color_grads,
-    rendered_alpha_grads
+    rendered_alpha_grads,
 ):
-    return None, None, None
+    # Output: 
+    # raw_density_grads [batch_size*num_ray_samples, 1]
+    # raw_color_grads [batch_size*num_ray_samples, 3], 
+    # z_val_grads [batch_size*num_ray_samples,]
+    # Only the valid ray samples should have grads, the rest should be zero.
+    raw_density_grads = np.zeros((num_max_samples, 1), dtype=np.float32)
+    raw_color_grads = np.zeros((num_max_samples, 3), dtype=np.float32)
+    z_val_grads = np.zeros((num_max_samples,), dtype=np.float32)
+
+    for i in range(batch_size):
+        start_index = ray_start_indices[i]
+        end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
+        slice_size = end_index - start_index
+        if start_index == end_index:
+            continue
+        
+        ray_raw_densities = np.ravel(raw_densities[start_index:end_index])
+        ray_raw_colors = raw_colors[start_index:end_index]
+        ray_z_vals = z_vals[start_index:end_index]
+        ray_rendered_color = rendered_colors[i]
+        ray_rendered_alpha = rendered_alphas[i]
+        ray_rendered_alpha_grad = rendered_alpha_grads[i]
+        
+        deltas = np.zeros((slice_size,), dtype=np.float32)
+        deltas[:-1] = ray_z_vals[1:] - ray_z_vals[:-1]
+        deltas[-1] = 1e10
+        alphas = 1.0 - np.exp(-ray_raw_densities * deltas)
+        transmittances = np.zeros((slice_size,), dtype=np.float32)
+        transmittances[0] = 1.0
+        transmittances[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
+        weights = alphas * transmittances
+        weights = np.expand_dims(weights, axis=-1)
+        weighted_raw_colors = weights * ray_raw_colors
+        # This is wrong. The z_val_grads are actually computed with depth info which
+        # we don't have.
+        # z_val_grads[start_index:end_index] = weights * rendered_alpha_grads[i]
+        # This is the correct way:
+        # z_val_grads[start_index:end_index] = weights * current_rendered_depth_grad
+
+        ray_raw_colors_red = np.ravel(ray_raw_colors[:, 0])
+        ray_raw_colors_green = np.ravel(ray_raw_colors[:, 1])
+        ray_raw_colors_blue = np.ravel(ray_raw_colors[:, 2])
+        weighted_raw_colors_red = np.ravel(weighted_raw_colors[:, 0])
+        weighted_raw_colors_green = np.ravel(weighted_raw_colors[:, 1])
+        weighted_raw_colors_blue = np.ravel(weighted_raw_colors[:, 2])
+        ray_sample_density_grads = deltas * (
+            rendered_color_grads[i][0] * (
+                transmittances * ray_raw_colors_red 
+                - (ray_rendered_color[0] - weighted_raw_colors_red)
+                - 1.0 * (1.0 - ray_rendered_alpha)
+            ) + rendered_color_grads[i][1] * (
+                transmittances * ray_raw_colors_green
+                - (ray_rendered_color[1] - weighted_raw_colors_green)
+                - 1.0 * (1.0 - ray_rendered_alpha)
+            ) + rendered_color_grads[i][2] * (
+                transmittances * ray_raw_colors_blue
+                - (ray_rendered_color[2] - weighted_raw_colors_blue)
+                - 1.0 * (1.0 - ray_rendered_alpha)
+            ) # No depth gradient because there is no depth supervision.
+        )
+        raw_density_grads[start_index:end_index] = np.expand_dims(
+            ray_sample_density_grads, axis=-1
+        )
+        raw_color_grads[start_index:end_index] = weights * rendered_color_grads[i]
+
+    return raw_density_grads, raw_color_grads, None
 
 @jax.custom_vjp
 def differentiable_render(densities, colors, z_vals, ray_start_indices, batch_size):
@@ -245,15 +311,16 @@ def differentiable_render_bwd(residuals, gradients):
 
     raw_density_grads, raw_color_grads, z_val_grads = batch_render_backward(
         cpu_raw_densities, cpu_raw_colors, cpu_z_vals, 
-        cpu_ray_start_indices, batch_size,
+        cpu_ray_start_indices, batch_size, int(cpu_raw_densities.shape[0]),
         cpu_rendered_colors, cpu_rendered_alphas,
         cpu_rendered_color_grads, cpu_rendered_alpha_grads
     )
-    #raw_density_grads = jnp.array(raw_density_grads)
-    #raw_color_grads = jnp.array(raw_color_grads)
+    raw_density_grads = jnp.array(raw_density_grads)
+    raw_color_grads = jnp.array(raw_color_grads)
+    # Currently not computing z_val_grads, so it's always None. 
     #z_val_grads = jnp.array(z_val_grads)
-    #return raw_density_grads, raw_color_grads, z_val_grads, None, None
-    return None, None, None, None, None
+    return raw_density_grads, raw_color_grads, None, None, None
+    #return None, None, None, None, None
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -506,7 +573,7 @@ def train_loop(
         print('Loss:', loss)
         print('Total samples:', num_valid_samples)
         print('Samples per ray:', num_valid_samples / batch_size)
-        exit(0)
+        #exit(0)
     return state
 
 def render_scene(
@@ -823,7 +890,7 @@ if __name__ == '__main__':
 
     state = train_loop(
         batch_size=4096,
-        num_ray_samples=128,
+        num_ray_samples=32,
         ray_near=ray_near,
         ray_far=ray_far,
         training_steps=10000, 

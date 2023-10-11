@@ -345,7 +345,8 @@ def turntable_render(
     ray_near:float, 
     ray_far:float, 
     state:TrainState, 
-    dataset:Dataset
+    dataset:Dataset,
+    file_name:str='turntable_render'
 ):
     xy_start_position = jnp.array([0.0, -1.0])
     xy_start_position_angle_2d = 0
@@ -393,7 +394,7 @@ def turntable_render(
             dataset=dataset, 
             transform_matrix=transform_matrix, 
             state=state,
-            file_name=f'turntable_render_frame_{i}'
+            file_name=file_name + f'_frame_{i}'
         )
 
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):    
@@ -404,7 +405,7 @@ def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     ])
     return new
 
-def load_lego_dataset(path:str, translation_scale:float):
+def load_lego_dataset(path:str, downscale_factor:int, translation_scale:float):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
@@ -415,7 +416,10 @@ def load_lego_dataset(path:str, translation_scale:float):
         transform_matrices.append(transform_matrix)
         current_image_path = path + frame['file_path'][1:] + '.png'
         image = Image.open(current_image_path)
-        image = image.resize((100, 100), resample=Image.NEAREST)
+        image = image.resize(
+            (image.width // downscale_factor, image.height // downscale_factor),
+            resample=Image.NEAREST
+        )
         images.append(jnp.array(image))
 
     transform_matrices = jnp.array(transform_matrices)[:, :3, :]
@@ -435,17 +439,13 @@ def load_lego_dataset(path:str, translation_scale:float):
         transform_matrices=transform_matrices,
         images=images
     )
-    focal_length = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
-    dataset.fl_x = focal_length
-    dataset.fl_y = focal_length
-    print('image test:', dataset.images[0, 0, 0])
+    dataset.fl_x = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
+    dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
     return dataset
-
 def load_tiny_dataset():
     data = jnp.load('data/tiny_nerf_data.npz')
     images = data['images']
     poses = data['poses']
-    print('poses:', poses.shape)
     focal = data['focal']
 
     dataset = Dataset(
@@ -465,7 +465,7 @@ def load_tiny_dataset():
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    dataset = load_tiny_dataset()
+    dataset = load_lego_dataset('data/lego', 2, 1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -493,17 +493,19 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=8000,
-        num_ray_samples=64,
+        batch_size=4096,
+        num_ray_samples=128,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=3000, 
+        training_steps=100, 
         state=state, 
         dataset=dataset
     )
-    turntable_render(30, 64, 32, 32, 4.0, ray_near, ray_far, state, dataset)
+    turntable_render(
+        30, 64, 32, 32, 4.0, ray_near, ray_far, state, dataset, 'vanilla_turntable_render'
+    )
     render_scene(
-        num_ray_samples=64, 
+        num_ray_samples=128, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -511,10 +513,10 @@ if __name__ == '__main__':
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[2], 
         state=state,
-        file_name='rendered_image_0'
+        file_name='vanilla_rendered_image_0'
     )
     render_scene(
-        num_ray_samples=64, 
+        num_ray_samples=128, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -522,10 +524,10 @@ if __name__ == '__main__':
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[4], 
         state=state,
-        file_name='rendered_image_1'
+        file_name='vanilla_rendered_image_1'
     )
     render_scene(
-        num_ray_samples=64, 
+        num_ray_samples=128, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -533,5 +535,5 @@ if __name__ == '__main__':
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[20], 
         state=state,
-        file_name='rendered_image_2'
+        file_name='vanilla_rendered_image_2'
     )

@@ -148,7 +148,7 @@ def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_sa
         batch_samples[num_samples:updated_num_samples] = new_samples
         batch_directions[num_samples:updated_num_samples] = matching_directions
         num_samples = updated_num_samples
-    return batch_samples, batch_directions, batch_z_vals, ray_start_indices
+    return batch_samples, batch_directions, batch_z_vals, ray_start_indices, num_samples
 
 @numba.njit
 def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
@@ -387,7 +387,7 @@ def train_loop(
         cpu_ray_origins = jax.device_put(ray_origins, cpus[0])
         cpu_ray_directions = jax.device_put(ray_directions, cpus[0])
         cpu_z_vals = jax.device_put(z_vals, cpus[0])
-        batch_samples, batch_directions, batch_z_vals, ray_start_indices = batch_trace_rays(
+        batch_samples, batch_directions, batch_z_vals, ray_start_indices, num_valid_samples = batch_trace_rays(
             cpu_ray_origins, cpu_ray_directions, cpu_z_vals, batch_size, num_ray_samples
         )
         batch_samples = jnp.array(batch_samples)
@@ -441,7 +441,9 @@ def train_loop(
         grad_fn = jax.value_and_grad(loss_fn)
         loss, grads = grad_fn(state.params)
         state = state.apply_gradients(grads=grads)
-        print('Loss:', loss)
+        #print('Loss:', loss)
+        #print('Total samples:', num_valid_samples)
+        #print('Samples per ray:', num_valid_samples / batch_size)
     return state
 
 def render_scene(

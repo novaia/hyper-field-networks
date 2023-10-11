@@ -17,6 +17,8 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numba
 
+cpus = jax.devices("cpu")
+
 @dataclass
 class Dataset:
     horizontal_fov: float
@@ -153,6 +155,7 @@ def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_sa
 @numba.njit
 def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
     rendered_colors = np.zeros((batch_size, 3), dtype=np.float32)
+    alphas = np.zeros((batch_size, 1), dtype=np.float32)
     for i in range(batch_size):
         start_index = ray_start_indices[i]
         end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
@@ -167,14 +170,90 @@ def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
         deltas = np.zeros((slice_size,), dtype=np.float32)
         deltas[:-1] = current_z_vals[1:] - current_z_vals[:-1]
         deltas[-1] = 1e10
-        alphas = 1.0 - np.exp(-current_densities * deltas)
+        current_alphas = 1.0 - np.exp(-current_densities * deltas)
         accum_prod = np.zeros((slice_size,), dtype=np.float32)
         accum_prod[0] = 1.0
-        accum_prod[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
-        weights = alphas * accum_prod
+        accum_prod[1:] = np.cumprod(1.0 - current_alphas[:-1] + 1e-10)
+        weights = current_alphas * accum_prod
         weights = np.expand_dims(weights, axis=-1)
         rendered_colors[i] = np.sum(weights * current_colors, axis=0)
-    return rendered_colors
+        alphas[i] = np.sum(weights, axis=0)
+    return rendered_colors, alphas
+
+@numba.njit
+def batch_render_backward(
+    densities, 
+    colors, 
+    z_vals, 
+    ray_start_indices, 
+    batch_size, 
+    rendered_colors, 
+    rendered_alphas,
+    rendered_color_grads,
+    rendered_alpha_grads
+):
+    return None, None, None
+
+@jax.custom_vjp
+def differentiable_render(densities, colors, z_vals, ray_start_indices, batch_size):
+    cpu_densities = np.array(jax.device_put(densities, cpus[0]))
+    cpu_colors = np.array(jax.device_put(colors, cpus[0]))
+    cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
+    cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
+
+    rendered_colors, rendered_alphas = batch_render(
+        cpu_densities, cpu_colors, cpu_z_vals, cpu_ray_start_indices, batch_size
+    )
+    rendered_colors = jnp.array(rendered_colors)
+    rendered_alphas = jnp.array(rendered_alphas)
+    return rendered_colors, rendered_alphas
+
+def differentiable_render_fwd(
+    raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
+):
+    # Feels a bit weird to have the forward pass wrap the primal function
+    # when the backward pass skips the primal function entirely.
+    # I wonder if I can write the primal function inline here since the backward
+    # pass doesn't need it.
+    primal_outputs = differentiable_render(
+        raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
+    )
+    rendered_colors, rendered_alphas = primal_outputs
+    residuals = (
+        rendered_colors, rendered_alphas,
+        raw_densities, raw_colors, z_vals,
+        ray_start_indices, batch_size
+    )
+    return primal_outputs, residuals
+
+def differentiable_render_bwd(residuals, gradients):
+    rendered_color_grads, rendered_alpha_grads = gradients
+    (
+        rendered_colors, rendered_alphas,
+        raw_densities, raw_colors, z_vals,
+        ray_start_indices, batch_size
+    ) = residuals
+
+    cpu_raw_densities = np.array(jax.device_put(raw_densities, cpus[0]))
+    cpu_raw_colors = np.array(jax.device_put(raw_colors, cpus[0]))
+    cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
+    cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
+    cpu_rendered_colors = np.array(jax.device_put(rendered_colors, cpus[0]))
+    cpu_rendered_alphas = np.array(jax.device_put(rendered_alphas, cpus[0]))
+    cpu_rendered_color_grads = np.array(jax.device_put(rendered_color_grads, cpus[0]))
+    cpu_rendered_alpha_grads = np.array(jax.device_put(rendered_alpha_grads, cpus[0]))
+
+    raw_density_grads, raw_color_grads, z_val_grads = batch_render_backward(
+        cpu_raw_densities, cpu_raw_colors, cpu_z_vals, 
+        cpu_ray_start_indices, batch_size,
+        cpu_rendered_colors, cpu_rendered_alphas,
+        cpu_rendered_color_grads, cpu_rendered_alpha_grads
+    )
+    #raw_density_grads = jnp.array(raw_density_grads)
+    #raw_color_grads = jnp.array(raw_color_grads)
+    #z_val_grads = jnp.array(z_val_grads)
+    #return raw_density_grads, raw_color_grads, z_val_grads, None, None
+    return None, None, None, None, None
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -358,11 +437,13 @@ def train_loop(
     def compute_sample(params, ray_sample, direction):
         return state.apply_fn({'params': params}, (ray_sample, direction))
     compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+    differentiable_render.defvjp(differentiable_render_fwd, differentiable_render_bwd)
 
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
     t_vals = jnp.linspace(0., 1., num_ray_samples)
     z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
     cpus = jax.devices("cpu")
+
     for step in range(training_steps):
         pixel_sample_key, random_bg_key = jax.random.split(jax.random.PRNGKey(step), num=2)
         pixels, indices = sample_pixels(
@@ -387,7 +468,10 @@ def train_loop(
         cpu_ray_origins = jax.device_put(ray_origins, cpus[0])
         cpu_ray_directions = jax.device_put(ray_directions, cpus[0])
         cpu_z_vals = jax.device_put(z_vals, cpus[0])
-        batch_samples, batch_directions, batch_z_vals, ray_start_indices, num_valid_samples = batch_trace_rays(
+        (
+            batch_samples, batch_directions, batch_z_vals, 
+            ray_start_indices, num_valid_samples
+        ) = batch_trace_rays(
             cpu_ray_origins, cpu_ray_directions, cpu_z_vals, batch_size, num_ray_samples
         )
         batch_samples = jnp.array(batch_samples)
@@ -405,45 +489,24 @@ def train_loop(
         #print(ray_start_indices[:20])
         #print(jnp.diff(ray_start_indices[:20]))
 
-        @jax.custom_vjp
-        def differentiable_render(densities, colors):
-            cpu_densities = np.array(jax.device_put(densities, cpus[0]))
-            cpu_colors = np.array(jax.device_put(colors, cpus[0]))
-            cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
-            cpu_z_vals = np.array(jax.device_put(batch_z_vals, cpus[0]))
-            rendered_colors = jnp.array(batch_render(
-                cpu_densities, cpu_colors, cpu_z_vals, cpu_ray_start_indices, batch_size
-            ))
-            return rendered_colors
-        
-        def differentiable_render_fwd(densities, colors):
-            return (
-                differentiable_render(densities, colors), 
-                (densities, colors) # Placeholder residuals.
-            )
-        
-        # Placeholder backward pass.
-        def differentiable_render_bwd(res, g):
-            densities, colors = res
-            return densities, colors
-        
-        differentiable_render.defvjp(differentiable_render_fwd, differentiable_render_bwd)
-
         def loss_fn(params):
             densities, colors = compute_batch(
                 params, batch_samples, normalized_batch_directions
             )
             target_colors = pixels[:, :3]
-            rendered_colors = differentiable_render(densities, colors)
+            rendered_colors, rendered_alphas = differentiable_render(
+                densities, colors, batch_z_vals, ray_start_indices, batch_size
+            )
             loss = jnp.mean((rendered_colors - target_colors)**2)
             return loss
         
         grad_fn = jax.value_and_grad(loss_fn)
         loss, grads = grad_fn(state.params)
         state = state.apply_gradients(grads=grads)
-        #print('Loss:', loss)
-        #print('Total samples:', num_valid_samples)
-        #print('Samples per ray:', num_valid_samples / batch_size)
+        print('Loss:', loss)
+        print('Total samples:', num_valid_samples)
+        print('Samples per ray:', num_valid_samples / batch_size)
+        exit(0)
     return state
 
 def render_scene(

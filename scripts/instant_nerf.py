@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numba
 
 cpus = jax.devices("cpu")
+gpus = jax.devices("gpu")
 
 @dataclass
 class Dataset:
@@ -162,19 +163,20 @@ def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
         slice_size = end_index - start_index
         if start_index == end_index:
             continue
-
+        
         current_densities = np.ravel(densities[start_index:end_index])
         current_colors = colors[start_index:end_index]
         current_z_vals = z_vals[start_index:end_index]
 
         deltas = np.zeros((slice_size,), dtype=np.float32)
         deltas[:-1] = current_z_vals[1:] - current_z_vals[:-1]
-        deltas[-1] = 1e10
+        #deltas[-1] = 1e10
+        deltas[-1] = 1e-10
         alphas = 1.0 - np.exp(-current_densities * deltas)
-        accum_prod = np.zeros((slice_size,), dtype=np.float32)
-        accum_prod[0] = 1.0
-        accum_prod[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
-        weights = alphas * accum_prod
+        transmittances = np.zeros((slice_size,), dtype=np.float32)
+        transmittances[0] = 1.0
+        transmittances[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
+        weights = alphas * transmittances
         weights = np.expand_dims(weights, axis=-1)
         rendered_colors[i] = np.sum(weights * current_colors, axis=0)
         rendered_alphas[i] = np.sum(weights, axis=0)
@@ -218,7 +220,8 @@ def batch_render_backward(
         
         deltas = np.zeros((slice_size,), dtype=np.float32)
         deltas[:-1] = ray_z_vals[1:] - ray_z_vals[:-1]
-        deltas[-1] = 1e10
+        #deltas[-1] = 1e10
+        deltas[-1] = 1e-10
         alphas = 1.0 - np.exp(-ray_raw_densities * deltas)
         transmittances = np.zeros((slice_size,), dtype=np.float32)
         transmittances[0] = 1.0
@@ -242,15 +245,15 @@ def batch_render_backward(
             rendered_color_grads[i][0] * (
                 transmittances * ray_raw_colors_red 
                 - (ray_rendered_color[0] - weighted_raw_colors_red)
-                - 1.0 * (1.0 - ray_rendered_alpha)
+                #- 0.0 * (1.0 - ray_rendered_alpha)
             ) + rendered_color_grads[i][1] * (
                 transmittances * ray_raw_colors_green
                 - (ray_rendered_color[1] - weighted_raw_colors_green)
-                - 1.0 * (1.0 - ray_rendered_alpha)
+                #- 0.0 * (1.0 - ray_rendered_alpha)
             ) + rendered_color_grads[i][2] * (
                 transmittances * ray_raw_colors_blue
                 - (ray_rendered_color[2] - weighted_raw_colors_blue)
-                - 1.0 * (1.0 - ray_rendered_alpha)
+                #- 0.0 * (1.0 - ray_rendered_alpha)
             ) # No depth gradient because there is no depth supervision.
         )
         raw_density_grads[start_index:end_index] = np.expand_dims(
@@ -258,7 +261,7 @@ def batch_render_backward(
         )
         raw_color_grads[start_index:end_index] = weights * rendered_color_grads[i]
 
-    return raw_density_grads, raw_color_grads, None
+    return raw_density_grads, raw_color_grads, z_val_grads
 
 @jax.custom_vjp
 def differentiable_render(densities, colors, z_vals, ray_start_indices, batch_size):
@@ -315,12 +318,12 @@ def differentiable_render_bwd(residuals, gradients):
         cpu_rendered_colors, cpu_rendered_alphas,
         cpu_rendered_color_grads, cpu_rendered_alpha_grads
     )
-    raw_density_grads = jnp.array(raw_density_grads)
-    raw_color_grads = jnp.array(raw_color_grads)
+    raw_density_grads = jax.device_put(jnp.array(raw_density_grads), gpus[0])
+    raw_color_grads = jax.device_put(jnp.array(raw_color_grads), gpus[0])
     # Currently not computing z_val_grads, so it's always None. 
-    #z_val_grads = jnp.array(z_val_grads)
-    return raw_density_grads, raw_color_grads, None, None, None
-    #return None, None, None, None, None
+    z_val_grads = None
+    #z_val_grads = jax.device_put(jnp.array(z_val_grads), gpus[0])
+    return raw_density_grads, raw_color_grads, z_val_grads, None, None
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -569,11 +572,15 @@ def train_loop(
         
         grad_fn = jax.value_and_grad(loss_fn)
         loss, grads = grad_fn(state.params)
+        # The gradients for all invalid samples are zero. 
+        # The presence of so many zeros introduces numerical instability which 
+        # causes there to be NaNs in the gradients.
+        # nan_to_num is a quick way to fix this by setting all the NaNs to zero.
+        grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
         state = state.apply_gradients(grads=grads)
         print('Loss:', loss)
         print('Total samples:', num_valid_samples)
         print('Samples per ray:', num_valid_samples / batch_size)
-        #exit(0)
     return state
 
 def render_scene(
@@ -587,40 +594,21 @@ def render_scene(
     state:TrainState,
     file_name:Optional[str]='rendered_image'
 ):    
-    get_ray_vmap = jax.vmap(
-        jax.vmap(get_ray, in_axes=(None, 0, None, None, None, None, None)), 
-        in_axes=(0, None, None, None, None, None, None)
-    )
-    cpus = jax.devices("cpu")
+    @jax.jit
+    def compute_sample(params, ray_sample, direction):
+        return state.apply_fn({'params': params}, (ray_sample, direction))
+    compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+    get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, None, None, None, None, None))
+
     t_vals = jnp.linspace(0., 1., num_ray_samples)
     z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
-    cpu_z_vals = jax.device_put(z_vals, cpus[0])
+    cpus = jax.devices("cpu")
+
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
     patch_area = patch_size_x * patch_size_y
-    rendered_image = np.ones((dataset.w, dataset.h, 3))
-    background_colors = jnp.ones((patch_size_x, patch_size_y, 3))
+    rendered_image = np.ones((dataset.w, dataset.h, 3), dtype=np.float32)
 
-    @jax.jit
-    def render_ray(origin, direction, z_vals):
-        repeated_origin = jnp.repeat(
-            jnp.expand_dims(origin, axis=0), z_vals.shape[0], axis=0
-        )
-        repeated_direction = jnp.repeat(
-            jnp.expand_dims(direction, axis=0), z_vals.shape[0], axis=0
-        )
-        expanded_z_vals = jnp.expand_dims(z_vals, axis=-1)
-        ray_samples = repeated_origin + repeated_direction * expanded_z_vals
-        normalized_direction = direction / jnp.linalg.norm(direction, axis=-1)
-
-        def get_output(ray_samples, normalized_directions):
-            return state.apply_fn({'params': state.params}, (ray_samples, normalized_directions))
-        get_output_sample_vmap = jax.vmap(get_output, in_axes=(0, None))
-        densities, colors = get_output_sample_vmap(ray_samples, normalized_direction)
-        rendered_pixel = render_pixel(densities, colors, z_vals, direction)
-        return rendered_pixel
-    render_ray_vmap = jax.vmap(jax.vmap(render_ray, in_axes=0), in_axes=0)
-    
     for x in range(num_patches_x):
         patch_start_x = patch_size_x * x
         patch_end_x = patch_start_x + patch_size_x
@@ -630,31 +618,49 @@ def render_scene(
             patch_end_y = patch_start_y + patch_size_y
             y_coordinates = jnp.arange(patch_start_y, patch_end_y)
             
+            x_grid_coordinates, y_grid_coordinates = jnp.meshgrid(x_coordinates, y_coordinates)
+            x_grid_coordinates = jnp.ravel(x_grid_coordinates)
+            y_grid_coordinates = jnp.ravel(y_grid_coordinates)
             ray_origins, ray_directions = get_ray_vmap(
-                x_coordinates, 
-                y_coordinates, 
+                x_grid_coordinates, 
+                y_grid_coordinates, 
                 transform_matrix,
-                dataset.cx,
-                dataset.cy,
-                dataset.fl_x,
+                dataset.cx, 
+                dataset.cy, 
+                dataset.fl_x, 
                 dataset.fl_y
             )
-            new_shape = (patch_area, 3)
-            cpu_ray_origins = jax.device_put(jnp.reshape(ray_origins, new_shape), cpus[0])
-            cpu_ray_directions = jax.device_put(jnp.reshape(ray_directions, new_shape), cpus[0])
-            new_z_vals = jnp.array(batch_trace_rays(
-                cpu_ray_origins, cpu_ray_directions, cpu_z_vals, patch_area, num_ray_samples
-            ))
-            new_z_vals = jnp.reshape(new_z_vals, (patch_size_x, patch_size_y, num_ray_samples))
-            rendered_colors, rendered_alphas = render_ray_vmap(
-                ray_origins, ray_directions, new_z_vals
+
+            cpu_ray_origins = np.array(jax.device_put(ray_origins, cpus[0]))
+            cpu_ray_directions = np.array(jax.device_put(ray_directions, cpus[0]))
+            cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
+            (
+                batch_samples, batch_directions, batch_z_vals, 
+                ray_start_indices, num_valid_samples
+            ) = batch_trace_rays(
+                cpu_ray_origins, cpu_ray_directions, 
+                cpu_z_vals, patch_area, num_ray_samples
             )
-            rendered_patch = alpha_composite(rendered_colors, background_colors, rendered_alphas)
-            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = rendered_patch
+            batch_samples = jnp.array(batch_samples)
+            batch_directions = jnp.array(batch_directions)
+            batch_z_vals = jnp.array(batch_z_vals)
+            raw_densities, raw_colors = compute_batch(
+                state.params, batch_samples, batch_directions
+            )
+            cpu_raw_densities = np.array(jax.device_put(raw_densities, cpus[0]))
+            cpu_raw_colors = np.array(jax.device_put(raw_colors, cpus[0]))
+            cpu_batch_z_vals = np.array(jax.device_put(batch_z_vals, cpus[0]))
+            rendered_colors, rendered_alphas = batch_render(
+                cpu_raw_densities, cpu_raw_colors, 
+                cpu_batch_z_vals, ray_start_indices, patch_area
+            )
+            patch_shape = (patch_end_x - patch_start_x, patch_end_y - patch_start_y, 3)
+            patch = np.reshape(rendered_colors, patch_shape, order='F')
+            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = patch
 
     rendered_image = np.nan_to_num(rendered_image)
     rendered_image = np.clip(rendered_image, 0, 1)
-    plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image.transpose((1, 0, 2)))
+    plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image)
 
 def generate_density_grid(
     num_points:int, 
@@ -890,10 +896,10 @@ if __name__ == '__main__':
 
     state = train_loop(
         batch_size=4096,
-        num_ray_samples=32,
+        num_ray_samples=64,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=10000, 
+        training_steps=400, 
         state=state, 
         dataset=dataset
     )
@@ -904,7 +910,7 @@ if __name__ == '__main__':
     #generate_density_grid(128, 32, 32, state)
     #print('Finished density')
     render_scene(
-        num_ray_samples=128, 
+        num_ray_samples=64, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -915,7 +921,7 @@ if __name__ == '__main__':
         file_name='instant_rendered_image_0'
     )
     render_scene(
-        num_ray_samples=128, 
+        num_ray_samples=64, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -926,7 +932,7 @@ if __name__ == '__main__':
         file_name='instant_rendered_image_1'
     )
     render_scene(
-        num_ray_samples=128, 
+        num_ray_samples=64, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 

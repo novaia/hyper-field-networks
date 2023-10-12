@@ -157,6 +157,7 @@ def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_sa
 def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
     rendered_colors = np.zeros((batch_size, 3), dtype=np.float32)
     rendered_alphas = np.zeros((batch_size, 1), dtype=np.float32)
+    rendered_depths = np.zeros((batch_size, 1), dtype=np.float32)
     for i in range(batch_size):
         start_index = ray_start_indices[i]
         end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
@@ -177,10 +178,11 @@ def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
         transmittances[0] = 1.0
         transmittances[1:] = np.cumprod(1.0 - alphas[:-1] + 1e-10)
         weights = alphas * transmittances
-        weights = np.expand_dims(weights, axis=-1)
-        rendered_colors[i] = np.sum(weights * current_colors, axis=0)
-        rendered_alphas[i] = np.sum(weights, axis=0)
-    return rendered_colors, rendered_alphas
+        expanded_weights = np.expand_dims(weights, axis=-1)
+        rendered_colors[i] = np.sum(expanded_weights * current_colors, axis=0)
+        rendered_alphas[i] = np.sum(expanded_weights, axis=0)
+        rendered_depths[i] = np.sum(weights * current_z_vals, axis=0)
+    return rendered_colors, rendered_alphas, rendered_depths
 
 @numba.njit
 def batch_render_backward(
@@ -270,7 +272,7 @@ def differentiable_render(densities, colors, z_vals, ray_start_indices, batch_si
     cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
     cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
 
-    rendered_colors, rendered_alphas = batch_render(
+    rendered_colors, rendered_alphas, _ = batch_render(
         cpu_densities, cpu_colors, cpu_z_vals, cpu_ray_start_indices, batch_size
     )
     rendered_colors = jnp.array(rendered_colors)
@@ -438,12 +440,12 @@ class InstantNerf(nn.Module):
 
         x = nn.Dense(self.density_mlp_width)(x)
         x = nn.activation.relu(x)
-        x = nn.Dense(16+1)(x)
+        x = nn.Dense(16)(x)
         if self.exponential_density_activation:
             density = jnp.exp(x[0:1])
         else:
             density = nn.activation.relu(x[0:1])
-        density_feature = x[1:]
+        density_feature = x
 
         encoded_direction = fourth_order_sh_encoding(direction)
         x = jnp.concatenate([density_feature, jnp.ravel(encoded_direction)], axis=0)
@@ -617,7 +619,8 @@ def render_scene(
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
     patch_area = patch_size_x * patch_size_y
-    rendered_image = np.ones((dataset.w, dataset.h, 3), dtype=np.float32)
+    image = np.ones((dataset.w, dataset.h, 3), dtype=np.float32)
+    depth_map = np.ones((dataset.w, dataset.h, 1), dtype=np.float32)
 
     for x in range(num_patches_x):
         patch_start_x = patch_size_x * x
@@ -660,17 +663,26 @@ def render_scene(
             cpu_raw_densities = np.array(jax.device_put(raw_densities, cpus[0]))
             cpu_raw_colors = np.array(jax.device_put(raw_colors, cpus[0]))
             cpu_batch_z_vals = np.array(jax.device_put(batch_z_vals, cpus[0]))
-            rendered_colors, rendered_alphas = batch_render(
+            rendered_colors, rendered_alphas, rendered_depths = batch_render(
                 cpu_raw_densities, cpu_raw_colors, 
                 cpu_batch_z_vals, ray_start_indices, patch_area
             )
-            patch_shape = (patch_end_x - patch_start_x, patch_end_y - patch_start_y, 3)
-            patch = np.reshape(rendered_colors, patch_shape, order='F')
-            rendered_image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = patch
 
-    rendered_image = np.nan_to_num(rendered_image)
-    rendered_image = np.clip(rendered_image, 0, 1)
-    plt.imsave(os.path.join('data/', file_name + '.png'), rendered_image)
+            image_patch_shape = (patch_end_x - patch_start_x, patch_end_y - patch_start_y, 3)
+            image_patch = np.reshape(rendered_colors, image_patch_shape, order='F')
+            image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = image_patch
+
+            depth_patch_shape = (patch_end_x - patch_start_x, patch_end_y - patch_start_y, 1)
+            depth_patch = np.reshape(rendered_depths, depth_patch_shape, order='F')
+            depth_map[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = depth_patch
+
+    image = np.nan_to_num(image)
+    image = np.clip(image, 0, 1)
+    plt.imsave(os.path.join('data/', file_name + '.png'), image)
+    depth_map = np.nan_to_num(depth_map)
+    depth_map = np.clip(depth_map, 0, 1)
+    depth_map = np.squeeze(depth_map, axis=-1)
+    plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
 
 def generate_density_grid(
     num_points:int, 
@@ -917,7 +929,7 @@ if __name__ == '__main__':
     )
 
     ray_near = 0.2
-    ray_far = 2.2
+    ray_far = 3.0
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
@@ -925,7 +937,7 @@ if __name__ == '__main__':
         num_ray_samples=32,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=1000, 
+        training_steps=400, 
         state=state, 
         dataset=dataset
     )

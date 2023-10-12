@@ -39,3 +39,13 @@
     series={SIGGRAPH '23}
 }
 ```
+
+```bibtex
+@software{Zhang_jaxngp_2023,
+    author={Zhang, Gaoyang and Chen, Yingxi},
+    month=may,
+    title={{jaxngp}},
+    url={https://github.com/blurgyy/jaxngp},
+    year={2023}
+}
+```

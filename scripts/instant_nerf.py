@@ -748,6 +748,7 @@ def turntable_render(
             [0],
         ])
         transform_matrix = jnp.concatenate([rotation_matrix, translation_matrix], axis=-1)
+        #transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
         transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
 
         render_scene(
@@ -767,6 +768,14 @@ def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
         [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale + 0.5],
         [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale + 0.5],
         [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale + 0.5],
+    ])
+    return new
+
+def process_3x4_transform_matrix_alt(original:jnp.ndarray, scale:float):
+    new = jnp.array([
+        [original[0, 0], original[0, 1], original[0, 2], original[0, 3] * scale + 0.5],
+        [original[1, 0], original[1, 1], original[1, 2], original[1, 3] * scale + 0.5],
+        [original[2, 0], original[2, 1], original[2, 2], original[2, 3] * scale + 0.5],
     ])
     return new
 
@@ -859,8 +868,9 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     #dataset = load_lego_dataset('data/lego', 0.33)
-    dataset = load_lego_dataset('data/lego', 8, 0.33)
-    #dataset = load_dataset('data/generation_0', 0.1)
+    #dataset = load_lego_dataset('data/lego', 8, 0.33)
+    #dataset = load_lego_dataset('data/lego', 2, 0.33)
+    dataset = load_dataset('data/generation_0', 2, 0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -890,27 +900,34 @@ if __name__ == '__main__':
     rng = jax.random.PRNGKey(1)
     state = create_train_state(model, rng, 1e-2, 10**-15)
 
-    ray_near = 0.1
-    ray_far = 3.0
+    ray_near = 0.2
+    ray_far = 2.2
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=4096,
-        num_ray_samples=64,
+        batch_size=10000,
+        num_ray_samples=32,
         ray_near=ray_near,
         ray_far=ray_far,
-        training_steps=400, 
+        training_steps=1000, 
         state=state, 
         dataset=dataset
     )
-    #turntable_render(
-    #    10, 128, 32, 32, 0.5, ray_near, ray_far, state, dataset, 'instant_turntable_render'
-    #)
-    #print('Finished turntable')
-    #generate_density_grid(128, 32, 32, state)
-    #print('Finished density')
-    render_scene(
+    turntable_render(
+        num_frames=10, 
         num_ray_samples=64, 
+        patch_size_x=32, 
+        patch_size_y=32, 
+        camera_distance=1.0, 
+        ray_near=ray_near, 
+        ray_far=ray_far, 
+        state=state, 
+        dataset=dataset, 
+        file_name='instant_turntable_render'
+    )
+    #generate_density_grid(128, 32, 32, state)
+    render_scene(
+        num_ray_samples=32, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -921,7 +938,7 @@ if __name__ == '__main__':
         file_name='instant_rendered_image_0'
     )
     render_scene(
-        num_ray_samples=64, 
+        num_ray_samples=32, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 
@@ -932,7 +949,7 @@ if __name__ == '__main__':
         file_name='instant_rendered_image_1'
     )
     render_scene(
-        num_ray_samples=64, 
+        num_ray_samples=32, 
         patch_size_x=32, 
         patch_size_y=32, 
         ray_near=ray_near, 

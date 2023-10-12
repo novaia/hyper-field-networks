@@ -464,12 +464,16 @@ def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, e
     x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
-    tx = optax.adam(learning_rate, eps=epsilon)
-    ts = TrainState.create(
-        apply_fn=model.apply,
-        params=params,
-        tx=tx
-    )
+    adam = optax.adam(learning_rate, eps=epsilon, eps_root=epsilon)
+    # To prevent divergence after long training periods, the paper applies a weak 
+    # L2 regularization to the network weights, but not the hash table entries.
+    weight_decay_mask = dict({
+        key:True if key != 'MultiResolutionHashEncoding_0' else False
+        for key in params.keys()
+    })
+    weight_decay = optax.add_decayed_weights(weight_decay=10**-6, mask=weight_decay_mask)
+    tx = optax.chain(adam, weight_decay)
+    ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
 
 def sample_pixels(
@@ -868,9 +872,9 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
     #dataset = load_lego_dataset('data/lego', 0.33)
-    #dataset = load_lego_dataset('data/lego', 8, 0.33)
+    dataset = load_lego_dataset('data/lego', 8, 0.33)
     #dataset = load_lego_dataset('data/lego', 2, 0.33)
-    dataset = load_dataset('data/generation_0', 2, 0.1)
+    #dataset = load_dataset('data/generation_0', 2, 0.1)
     print(dataset.horizontal_fov)
     print(dataset.vertical_fov)
     print(dataset.fl_x)
@@ -898,14 +902,14 @@ if __name__ == '__main__':
         exponential_density_activation=False
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 1e-2, 10**-15)
+    state = create_train_state(model, rng, 1e-2, 1e-15)
 
     ray_near = 0.2
     ray_far = 2.2
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     state = train_loop(
-        batch_size=10000,
+        batch_size=4096,
         num_ray_samples=32,
         ray_near=ray_near,
         ray_far=ray_far,
@@ -925,7 +929,7 @@ if __name__ == '__main__':
         dataset=dataset, 
         file_name='instant_turntable_render'
     )
-    #generate_density_grid(128, 32, 32, state)
+    generate_density_grid(32, 32, 32, state)
     render_scene(
         num_ray_samples=32, 
         patch_size_x=32, 

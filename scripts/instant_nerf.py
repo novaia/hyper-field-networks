@@ -460,7 +460,13 @@ class InstantNerf(nn.Module):
 
         return density, color
 
-def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, epsilon:float):
+def create_train_state(
+    model:nn.Module, 
+    rng:PRNGKeyArray, 
+    learning_rate:float, 
+    epsilon:float, 
+    weight_decay_coefficient:float
+):
     x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
@@ -471,7 +477,7 @@ def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float, e
         key:True if key != 'MultiResolutionHashEncoding_0' else False
         for key in params.keys()
     })
-    weight_decay = optax.add_decayed_weights(weight_decay=10**-6, mask=weight_decay_mask)
+    weight_decay = optax.add_decayed_weights(weight_decay_coefficient, mask=weight_decay_mask)
     tx = optax.chain(adam, weight_decay)
     ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
@@ -902,7 +908,13 @@ if __name__ == '__main__':
         exponential_density_activation=False
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 1e-2, 1e-15)
+    state = create_train_state(
+        model=model, 
+        rng=rng, 
+        learning_rate=1e-2, 
+        epsilon=1e-15, 
+        weight_decay_coefficient=1e-6
+    )
 
     ray_near = 0.2
     ray_far = 2.2

@@ -192,7 +192,6 @@ def batch_render_backward(
     raw_densities, 
     raw_colors, 
     z_vals, 
-    background_colors,
     ray_start_indices, 
     batch_size,
     num_max_samples,
@@ -222,8 +221,6 @@ def batch_render_backward(
         ray_z_vals = z_vals[start_index:end_index]
         ray_rendered_color = rendered_colors[i]
         ray_rendered_alpha = rendered_alphas[i]
-        ray_rendered_alpha_grad = rendered_alpha_grads[i]
-        ray_background_color = background_colors[i]
 
         deltas = np.zeros((slice_size,), dtype=np.float32)
         deltas[:-1] = ray_z_vals[1:] - ray_z_vals[:-1]
@@ -236,7 +233,7 @@ def batch_render_backward(
         weights = alphas * transmittances
         weights = np.expand_dims(weights, axis=-1)
         weighted_raw_colors = weights * ray_raw_colors
-        
+
         # This is wrong. The z_val_grads are actually computed with depth info which
         # we don't have.
         # z_val_grads[start_index:end_index] = weights * rendered_alpha_grads[i]
@@ -253,6 +250,7 @@ def batch_render_backward(
             deltas * (1 - ray_rendered_alpha), axis=-1
         )
         dl_dray_rendered_color = np.expand_dims(rendered_color_grads[i], axis=0)
+        dl_dray_rendered_alpha = np.expand_dims(rendered_alpha_grads[i], axis=0)
         # dl/dsigma = dl/dc * dc/dsigma + dl/dalpha * dalpha/dsigma
         dl_dray_raw_densities = (
             # dl/dc * dc/dsigma
@@ -260,7 +258,7 @@ def batch_render_backward(
             + dl_dray_rendered_color[0, 1] * dray_rendered_color_dray_raw_densities[:, 1:2]
             + dl_dray_rendered_color[0, 2] * dray_rendered_color_dray_raw_densities[:, 2:3]
             # dl/dalpha * dalpha/dsigma
-            + rendered_alpha_grads[i] * drendered_alpha_draw_densities
+            + dl_dray_rendered_alpha * drendered_alpha_draw_densities
         )
         raw_density_grads[start_index:end_index] = dl_dray_raw_densities
         raw_color_grads[start_index:end_index] = weights * rendered_color_grads[i]
@@ -269,7 +267,7 @@ def batch_render_backward(
 
 @jax.custom_vjp
 def differentiable_render(
-    densities, colors, z_vals, background_colors, ray_start_indices, batch_size
+    densities, colors, z_vals, ray_start_indices, batch_size
 ):
     cpu_densities = np.array(jax.device_put(densities, cpus[0]))
     cpu_colors = np.array(jax.device_put(colors, cpus[0]))
@@ -284,20 +282,20 @@ def differentiable_render(
     return rendered_colors, rendered_alphas
 
 def differentiable_render_fwd(
-    raw_densities, raw_colors, z_vals, background_colors, ray_start_indices, batch_size
+    raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
 ):
     # Feels a bit weird to have the forward pass wrap the primal function
     # when the backward pass skips the primal function entirely.
     # I wonder if I can write the primal function inline here since the backward
     # pass doesn't need it.
     primal_outputs = differentiable_render(
-        raw_densities, raw_colors, z_vals, background_colors, ray_start_indices, batch_size
+        raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
     )
     rendered_colors, rendered_alphas = primal_outputs
     residuals = (
         rendered_colors, rendered_alphas,
         raw_densities, raw_colors, z_vals,
-        background_colors, ray_start_indices, batch_size
+        ray_start_indices, batch_size
     )
     return primal_outputs, residuals
 
@@ -306,14 +304,13 @@ def differentiable_render_bwd(residuals, gradients):
     (
         rendered_colors, rendered_alphas,
         raw_densities, raw_colors, z_vals,
-        background_colors, ray_start_indices, batch_size
+        ray_start_indices, batch_size
     ) = residuals
 
     cpu_raw_densities = np.array(jax.device_put(raw_densities, cpus[0]))
     cpu_raw_colors = np.array(jax.device_put(raw_colors, cpus[0]))
     cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
     cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
-    cpu_background_colors = np.array(jax.device_put(background_colors, cpus[0]))
     cpu_rendered_colors = np.array(jax.device_put(rendered_colors, cpus[0]))
     cpu_rendered_alphas = np.array(jax.device_put(rendered_alphas, cpus[0]))
     cpu_rendered_color_grads = np.array(jax.device_put(rendered_color_grads, cpus[0]))
@@ -321,8 +318,7 @@ def differentiable_render_bwd(residuals, gradients):
 
     raw_density_grads, raw_color_grads, z_val_grads = batch_render_backward(
         cpu_raw_densities, cpu_raw_colors, cpu_z_vals, 
-        cpu_background_colors, cpu_ray_start_indices, 
-        batch_size, int(cpu_raw_densities.shape[0]),
+        cpu_ray_start_indices, batch_size, int(cpu_raw_densities.shape[0]),
         cpu_rendered_colors, cpu_rendered_alphas,
         cpu_rendered_color_grads, cpu_rendered_alpha_grads
     )
@@ -331,7 +327,7 @@ def differentiable_render_bwd(residuals, gradients):
     # Currently not computing z_val_grads, so it's always None. 
     z_val_grads = None
     #z_val_grads = jax.device_put(jnp.array(z_val_grads), gpus[0])
-    return raw_density_grads, raw_color_grads, z_val_grads, None, None, None
+    return raw_density_grads, raw_color_grads, z_val_grads, None, None
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -583,15 +579,16 @@ def train_loop(
             )
             target_colors = pixels[:, :3]
             target_alphas = pixels[:, 3:]
-            random_bg_colors = jax.random.uniform(random_bg_key, target_colors.shape)
+            #random_bg_colors = jax.random.uniform(random_bg_key, target_colors.shape)
+            random_bg_colors  = jnp.ones(target_colors.shape)
             rendered_colors, rendered_alphas = differentiable_render(
                 densities, colors, batch_z_vals, 
-                random_bg_colors, ray_start_indices, batch_size
+                ray_start_indices, batch_size
             )
-            target_colors = straight_alpha_composite(
+            target_colors = alpha_composite(
                 target_colors, random_bg_colors, target_alphas
             )
-            rendered_colors = straight_alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
+            rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
             loss = jnp.mean((rendered_colors - target_colors)**2)
             return loss
         
@@ -680,6 +677,9 @@ def render_scene(
             rendered_colors, rendered_alphas, rendered_depths = batch_render(
                 cpu_raw_densities, cpu_raw_colors, 
                 cpu_batch_z_vals, ray_start_indices, patch_area
+            )
+            rendered_colors = alpha_composite(
+                rendered_colors, jnp.ones(rendered_colors.shape), rendered_alphas
             )
 
             image_patch_shape = (patch_end_x - patch_start_x, patch_end_y - patch_start_y, 3)

@@ -236,36 +236,33 @@ def batch_render_backward(
         weights = alphas * transmittances
         weights = np.expand_dims(weights, axis=-1)
         weighted_raw_colors = weights * ray_raw_colors
+        
         # This is wrong. The z_val_grads are actually computed with depth info which
         # we don't have.
         # z_val_grads[start_index:end_index] = weights * rendered_alpha_grads[i]
         # This is the correct way:
         # z_val_grads[start_index:end_index] = weights * current_rendered_depth_grad
 
-        ray_raw_colors_red = np.ravel(ray_raw_colors[:, 0])
-        ray_raw_colors_green = np.ravel(ray_raw_colors[:, 1])
-        ray_raw_colors_blue = np.ravel(ray_raw_colors[:, 2])
-        weighted_raw_colors_red = np.ravel(weighted_raw_colors[:, 0])
-        weighted_raw_colors_green = np.ravel(weighted_raw_colors[:, 1])
-        weighted_raw_colors_blue = np.ravel(weighted_raw_colors[:, 2])
-        ray_sample_density_grads = deltas * (
-            rendered_color_grads[i][0] * (
-                transmittances * ray_raw_colors_red 
-                - (ray_rendered_color[0] - weighted_raw_colors_red)
-                - ray_background_color[0] * (1.0 - ray_rendered_alpha)
-            ) + rendered_color_grads[i][1] * (
-                transmittances * ray_raw_colors_green
-                - (ray_rendered_color[1] - weighted_raw_colors_green)
-                - ray_background_color[1] * (1.0 - ray_rendered_alpha)
-            ) + rendered_color_grads[i][2] * (
-                transmittances * ray_raw_colors_blue
-                - (ray_rendered_color[2] - weighted_raw_colors_blue)
-                - ray_background_color[2] * (1.0 - ray_rendered_alpha)
-            ) # No depth gradient because there is no depth supervision.
+        dray_rendered_color_dray_raw_densities = (
+            np.expand_dims(deltas, axis=-1) * (
+                ray_raw_colors * np.expand_dims(transmittances, axis=-1) 
+                - (np.expand_dims(ray_rendered_color, axis=0) - weighted_raw_colors)
+            )
         )
-        raw_density_grads[start_index:end_index] = np.expand_dims(
-            ray_sample_density_grads, axis=-1
+        drendered_alpha_draw_densities = np.expand_dims(
+            deltas * (1 - ray_rendered_alpha), axis=-1
         )
+        dl_dray_rendered_color = np.expand_dims(rendered_color_grads[i], axis=0)
+        # dl/dsigma = dl/dc * dc/dsigma + dl/dalpha * dalpha/dsigma
+        dl_dray_raw_densities = (
+            # dl/dc * dc/dsigma
+            dl_dray_rendered_color[0, 0] * dray_rendered_color_dray_raw_densities[:, 0:1]
+            + dl_dray_rendered_color[0, 1] * dray_rendered_color_dray_raw_densities[:, 1:2]
+            + dl_dray_rendered_color[0, 2] * dray_rendered_color_dray_raw_densities[:, 2:3]
+            # dl/dalpha * dalpha/dsigma
+            + rendered_alpha_grads[i] * drendered_alpha_draw_densities
+        )
+        raw_density_grads[start_index:end_index] = dl_dray_raw_densities
         raw_color_grads[start_index:end_index] = weights * rendered_color_grads[i]
 
     return raw_density_grads, raw_color_grads, z_val_grads
@@ -591,11 +588,10 @@ def train_loop(
                 densities, colors, batch_z_vals, 
                 random_bg_colors, ray_start_indices, batch_size
             )
-            #random_bg_colors = jnp.ones(target_colors.shape)
             target_colors = straight_alpha_composite(
                 target_colors, random_bg_colors, target_alphas
             )
-            rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
+            rendered_colors = straight_alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
             loss = jnp.mean((rendered_colors - target_colors)**2)
             return loss
         
@@ -924,7 +920,7 @@ if __name__ == '__main__':
     ray_far = 3.0
     batch_size = 10000
     num_ray_samples = 32
-    training_steps = 80
+    training_steps = 1000
     num_turntable_render_frames = 10
     turntable_render_camera_distance = 2.0
     render_patch_size_x = 32
@@ -934,7 +930,7 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     #dataset = load_lego_dataset('data/lego', 0.33)
-    dataset = load_lego_dataset('data/lego', 2, 0.33)
+    dataset = load_lego_dataset('data/lego', 1, 0.33)
     #dataset = load_lego_dataset('data/lego', 2, 0.33)
     #dataset = load_dataset('data/generation_0', 2, 0.1)
     print(dataset.horizontal_fov)
@@ -945,7 +941,6 @@ if __name__ == '__main__':
     print(dataset.cy)
     print(dataset.w)
     print(dataset.h)
-    print(dataset.aabb_scale)
     print('Images shape:', dataset.images.shape)
 
     model = InstantNerf(

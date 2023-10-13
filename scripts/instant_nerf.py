@@ -71,6 +71,9 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
 
     return components
 
+def straight_alpha_composite(foreground, background, alpha):
+    return foreground * alpha + background * (1 - alpha)
+
 def alpha_composite(foreground, background, alpha):
     return foreground + background * (1 - alpha)
 
@@ -189,6 +192,7 @@ def batch_render_backward(
     raw_densities, 
     raw_colors, 
     z_vals, 
+    background_colors,
     ray_start_indices, 
     batch_size,
     num_max_samples,
@@ -219,7 +223,8 @@ def batch_render_backward(
         ray_rendered_color = rendered_colors[i]
         ray_rendered_alpha = rendered_alphas[i]
         ray_rendered_alpha_grad = rendered_alpha_grads[i]
-        
+        ray_background_color = background_colors[i]
+
         deltas = np.zeros((slice_size,), dtype=np.float32)
         deltas[:-1] = ray_z_vals[1:] - ray_z_vals[:-1]
         #deltas[-1] = 1e10
@@ -247,15 +252,15 @@ def batch_render_backward(
             rendered_color_grads[i][0] * (
                 transmittances * ray_raw_colors_red 
                 - (ray_rendered_color[0] - weighted_raw_colors_red)
-                #- 0.0 * (1.0 - ray_rendered_alpha)
+                - ray_background_color[0] * (1.0 - ray_rendered_alpha)
             ) + rendered_color_grads[i][1] * (
                 transmittances * ray_raw_colors_green
                 - (ray_rendered_color[1] - weighted_raw_colors_green)
-                #- 0.0 * (1.0 - ray_rendered_alpha)
+                - ray_background_color[1] * (1.0 - ray_rendered_alpha)
             ) + rendered_color_grads[i][2] * (
                 transmittances * ray_raw_colors_blue
                 - (ray_rendered_color[2] - weighted_raw_colors_blue)
-                #- 0.0 * (1.0 - ray_rendered_alpha)
+                - ray_background_color[2] * (1.0 - ray_rendered_alpha)
             ) # No depth gradient because there is no depth supervision.
         )
         raw_density_grads[start_index:end_index] = np.expand_dims(
@@ -266,7 +271,9 @@ def batch_render_backward(
     return raw_density_grads, raw_color_grads, z_val_grads
 
 @jax.custom_vjp
-def differentiable_render(densities, colors, z_vals, ray_start_indices, batch_size):
+def differentiable_render(
+    densities, colors, z_vals, background_colors, ray_start_indices, batch_size
+):
     cpu_densities = np.array(jax.device_put(densities, cpus[0]))
     cpu_colors = np.array(jax.device_put(colors, cpus[0]))
     cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
@@ -280,20 +287,20 @@ def differentiable_render(densities, colors, z_vals, ray_start_indices, batch_si
     return rendered_colors, rendered_alphas
 
 def differentiable_render_fwd(
-    raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
+    raw_densities, raw_colors, z_vals, background_colors, ray_start_indices, batch_size
 ):
     # Feels a bit weird to have the forward pass wrap the primal function
     # when the backward pass skips the primal function entirely.
     # I wonder if I can write the primal function inline here since the backward
     # pass doesn't need it.
     primal_outputs = differentiable_render(
-        raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
+        raw_densities, raw_colors, z_vals, background_colors, ray_start_indices, batch_size
     )
     rendered_colors, rendered_alphas = primal_outputs
     residuals = (
         rendered_colors, rendered_alphas,
         raw_densities, raw_colors, z_vals,
-        ray_start_indices, batch_size
+        background_colors, ray_start_indices, batch_size
     )
     return primal_outputs, residuals
 
@@ -302,13 +309,14 @@ def differentiable_render_bwd(residuals, gradients):
     (
         rendered_colors, rendered_alphas,
         raw_densities, raw_colors, z_vals,
-        ray_start_indices, batch_size
+        background_colors, ray_start_indices, batch_size
     ) = residuals
 
     cpu_raw_densities = np.array(jax.device_put(raw_densities, cpus[0]))
     cpu_raw_colors = np.array(jax.device_put(raw_colors, cpus[0]))
     cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
     cpu_ray_start_indices = np.array(jax.device_put(ray_start_indices, cpus[0]))
+    cpu_background_colors = np.array(jax.device_put(background_colors, cpus[0]))
     cpu_rendered_colors = np.array(jax.device_put(rendered_colors, cpus[0]))
     cpu_rendered_alphas = np.array(jax.device_put(rendered_alphas, cpus[0]))
     cpu_rendered_color_grads = np.array(jax.device_put(rendered_color_grads, cpus[0]))
@@ -316,7 +324,8 @@ def differentiable_render_bwd(residuals, gradients):
 
     raw_density_grads, raw_color_grads, z_val_grads = batch_render_backward(
         cpu_raw_densities, cpu_raw_colors, cpu_z_vals, 
-        cpu_ray_start_indices, batch_size, int(cpu_raw_densities.shape[0]),
+        cpu_background_colors, cpu_ray_start_indices, 
+        batch_size, int(cpu_raw_densities.shape[0]),
         cpu_rendered_colors, cpu_rendered_alphas,
         cpu_rendered_color_grads, cpu_rendered_alpha_grads
     )
@@ -325,7 +334,7 @@ def differentiable_render_bwd(residuals, gradients):
     # Currently not computing z_val_grads, so it's always None. 
     z_val_grads = None
     #z_val_grads = jax.device_put(jnp.array(z_val_grads), gpus[0])
-    return raw_density_grads, raw_color_grads, z_val_grads, None, None
+    return raw_density_grads, raw_color_grads, z_val_grads, None, None, None
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -576,9 +585,17 @@ def train_loop(
                 params, batch_samples, normalized_batch_directions
             )
             target_colors = pixels[:, :3]
+            target_alphas = pixels[:, 3:]
+            random_bg_colors = jax.random.uniform(random_bg_key, target_colors.shape)
             rendered_colors, rendered_alphas = differentiable_render(
-                densities, colors, batch_z_vals, ray_start_indices, batch_size
+                densities, colors, batch_z_vals, 
+                random_bg_colors, ray_start_indices, batch_size
             )
+            #random_bg_colors = jnp.ones(target_colors.shape)
+            target_colors = straight_alpha_composite(
+                target_colors, random_bg_colors, target_alphas
+            )
+            rendered_colors = alpha_composite(rendered_colors, random_bg_colors, rendered_alphas)
             loss = jnp.mean((rendered_colors - target_colors)**2)
             return loss
         
@@ -590,6 +607,7 @@ def train_loop(
         # nan_to_num is a quick way to fix this by setting all the NaNs to zero.
         grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
         state = state.apply_gradients(grads=grads)
+        print('Current step:', step)
         print('Loss:', loss)
         print('Total samples:', num_valid_samples)
         print('Samples per ray:', num_valid_samples / batch_size)
@@ -906,11 +924,12 @@ if __name__ == '__main__':
     ray_far = 3.0
     batch_size = 10000
     num_ray_samples = 32
-    training_steps = 400
+    training_steps = 80
     num_turntable_render_frames = 10
     turntable_render_camera_distance = 2.0
     render_patch_size_x = 32
     render_patch_size_y = 32
+    num_density_grid_points = 32
 
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
@@ -963,7 +982,9 @@ if __name__ == '__main__':
         dataset=dataset, 
         file_name='instant_turntable_render'
     )
-    generate_density_grid(32, 32, 32, state)
+    generate_density_grid(
+        num_density_grid_points, render_patch_size_x, render_patch_size_y, state
+    )
     render_scene(
         num_ray_samples=num_ray_samples, 
         patch_size_x=render_patch_size_x, 

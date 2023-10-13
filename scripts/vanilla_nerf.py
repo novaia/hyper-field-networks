@@ -115,7 +115,7 @@ class VanillaNerf(nn.Module):
             density = jnp.exp(x[0:1])
         else:
             density = nn.activation.relu(x[0:1])
-        density_feature = x[1:]
+        density_feature = x
 
         encoded_direction = frequency_encoding(
             jnp.expand_dims(direction, axis=-1),

@@ -942,21 +942,20 @@ if __name__ == '__main__':
     weight_decay_coefficient = 1e-6
     ray_near = 0.2
     ray_far = 3.0
-    batch_size = 10000
+    batch_size = 30000
     train_target_samples_per_ray = 32
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
     training_steps = 2000
-    num_turntable_render_frames = 10
-    turntable_render_camera_distance = 1.0
+    num_turntable_render_frames = 60*3
+    turntable_render_camera_distance = 1.4
     render_patch_size_x = 32
     render_patch_size_y = 32
     num_density_grid_points = 32
 
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
-    #dataset = load_lego_dataset('data/lego', 0.33)
-    dataset = load_lego_dataset('data/lego', 4, 0.33)
+    dataset = load_lego_dataset('data/lego', 1, 0.33)
     #dataset = load_lego_dataset('data/lego', 2, 0.33)
     #dataset = load_dataset('data/generation_0', 2, 0.1)
     print('Horizontal FOV:', dataset.horizontal_fov)

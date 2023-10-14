@@ -33,7 +33,8 @@ def train_loop(image, image_width, image_height, batch_size, steps, state):
     for step in range(steps):
         rng = jax.random.PRNGKey(step)
         loss, state = train_step(image, image_width, image_height, batch_size, state, rng)
-        print('Loss:', loss)
+        #print('Loss:', loss)
+    print('Final loss:', loss)
     return state
 
 @partial(jax.jit, static_argnames=('batch_size', 'image_width', 'image_height'))
@@ -49,11 +50,9 @@ def train_step(image, image_width, image_height, batch_size, state, rng):
         width_indices / image_width, height_indices / image_height
     ], axis=-1)
     target_colors = image[width_indices, height_indices, :3]
-    print(target_colors.shape)
 
     def loss_fn(params):
         predicted_colors = state.apply_fn({'params': params}, coordinates)
-        print(predicted_colors.shape)
         loss = jnp.mean(jnp.square(predicted_colors - target_colors))
         return loss
     
@@ -70,7 +69,7 @@ def create_train_state(model, learning_rate, rng):
     ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
 
-def draw_image(state, image_width, image_height):
+def draw_image(state, image_width, image_height, file_path):
     x = jnp.stack(jnp.meshgrid(
         jnp.linspace(0, 1, image_width),
         jnp.linspace(0, 1, image_height)
@@ -80,7 +79,7 @@ def draw_image(state, image_width, image_height):
     image = jnp.reshape(image, (image_width, image_height, 3))
     image = jnp.clip(image, 0, 1)
     image = jnp.transpose(image, (1, 0, 2))
-    plt.imsave('data/approximation_field/result.png', image)
+    plt.imsave(file_path, image)
 
 def main():
     image_path = 'data/approximation_field/approximation_test.png'
@@ -90,4 +89,6 @@ def main():
     model = ImageField(mlp_depth=3, mlp_width=256, encoding_dim=10)
     state = create_train_state(model, 1e-3, jax.random.PRNGKey(0))
     state = train_loop(image, image.shape[0], image.shape[1], 32, 1000, state)
-    draw_image(state, image.shape[0], image.shape[1])
+    draw_image(
+        state, image.shape[0], image.shape[1], 'data/approximation_field/approximation.png'
+    )

@@ -101,18 +101,24 @@ def render_pixel(
 def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
     direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
     direction = transform_matrix[:3, :3] @ direction
+    direction = direction / jnp.linalg.norm(direction)
     origin = transform_matrix[:3, -1]
     return origin, direction
 
 @numba.njit
-def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):    
-    box_min = 0
-    box_max = 1
+def trace_ray(ray_origin, ray_direction, z_step, num_samples_allowed):    
+    box_min = 0.0
+    box_max = 1.0
     num_valid_samples = 0
-    valid_z_vals = np.zeros((num_ray_samples,), dtype=np.float32)
-    valid_samples = np.zeros((num_ray_samples, 3), dtype=np.float32)
-    matching_directions = np.zeros((num_ray_samples, 3))
-    for z in z_vals:
+    z = 0.0
+    ray_far = 3.0
+    has_entered_box = False
+    
+    valid_z_vals = np.zeros((num_samples_allowed,), dtype=np.float32)
+    valid_samples = np.zeros((num_samples_allowed, 3), dtype=np.float32)
+    matching_directions = np.zeros((num_samples_allowed, 3))
+
+    while z < ray_far and num_valid_samples < num_samples_allowed:
         current_sample = [
             ray_origin[0] + ray_direction[0] * z, 
             ray_origin[1] + ray_direction[1] * z, 
@@ -122,12 +128,16 @@ def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):
         y_check = current_sample[1] >= box_min and current_sample[1] <= box_max
         z_check = current_sample[2] >= box_min and current_sample[2] <= box_max
         if x_check and y_check and z_check:
+            has_entered_box = True
             valid_z_vals[num_valid_samples] = z
             valid_samples[num_valid_samples] = current_sample
             matching_directions[num_valid_samples] = [
                 ray_direction[0], ray_direction[1], ray_direction[2]
             ]
             num_valid_samples += 1
+        elif has_entered_box:
+            break
+        z += z_step
 
     valid_z_vals = valid_z_vals[:num_valid_samples]
     valid_samples = valid_samples[:num_valid_samples]
@@ -135,39 +145,84 @@ def trace_ray(ray_origin, ray_direction, z_vals, num_ray_samples):
     return valid_samples, matching_directions, valid_z_vals, num_valid_samples
 
 @numba.njit
-def batch_trace_rays(ray_origins, ray_directions, z_vals, batch_size, num_ray_samples):
-    batch_samples = np.zeros((batch_size * num_ray_samples, 3), dtype=np.float32)
-    batch_directions = np.zeros((batch_size * num_ray_samples, 3), dtype=np.float32)
-    batch_z_vals = np.zeros((batch_size * num_ray_samples,))
+def batch_trace_rays(ray_origins, ray_directions, batch_size):
+    batch_samples = np.zeros((batch_size, 3), dtype=np.float32)
+    batch_directions = np.zeros((batch_size, 3), dtype=np.float32)
+    batch_z_vals = np.zeros((batch_size,))
     ray_start_indices = np.zeros((batch_size,), dtype=np.int32)
+
+    ray_index = 0
     num_samples = 0
-    for i in range(batch_size):
+    num_new_samples_allowed = batch_size
+    z_step = np.sqrt(3) / 128
+    while num_new_samples_allowed > 0:
         new_samples, matching_directions, new_z_vals, num_new_samples = trace_ray(
-            ray_origins[i],
-            ray_directions[i],
-            z_vals,
-            num_ray_samples
+            ray_origins[ray_index],
+            ray_directions[ray_index],
+            z_step,
+            num_new_samples_allowed
         )
-        ray_start_indices[i] = num_samples
+        ray_start_indices[ray_index] = num_samples
         updated_num_samples = num_samples + num_new_samples
         batch_z_vals[num_samples:updated_num_samples] = new_z_vals
         batch_samples[num_samples:updated_num_samples] = new_samples
         batch_directions[num_samples:updated_num_samples] = matching_directions
         num_samples = updated_num_samples
-    return batch_samples, batch_directions, batch_z_vals, ray_start_indices, num_samples
+
+        ray_index += 1
+        num_new_samples_allowed -= num_new_samples
+
+    return (
+        batch_samples, batch_directions, batch_z_vals, 
+        ray_start_indices[:ray_index], num_samples, ray_index
+    )
+
+# Batch ray tracing but with batch size bounded by max_samples_per_ray and num_rays.
+@numba.njit
+def batch_trace_rays_bounded(
+    ray_origins, ray_directions, max_samples_per_ray, num_rays
+):
+    batch_size = max_samples_per_ray * num_rays
+    batch_samples = np.zeros((batch_size, 3), dtype=np.float32)
+    batch_directions = np.zeros((batch_size, 3), dtype=np.float32)
+    batch_z_vals = np.zeros((batch_size,))
+    ray_start_indices = np.zeros((batch_size,), dtype=np.int32)
+
+    ray_index = 0
+    num_samples = 0
+    z_step = np.sqrt(3) / 128
+    while ray_index < num_rays:
+        new_samples, matching_directions, new_z_vals, num_new_samples = trace_ray(
+            ray_origins[ray_index],
+            ray_directions[ray_index],
+            z_step,
+            max_samples_per_ray
+        )
+        ray_start_indices[ray_index] = num_samples
+        updated_num_samples = num_samples + num_new_samples
+        batch_z_vals[num_samples:updated_num_samples] = new_z_vals
+        batch_samples[num_samples:updated_num_samples] = new_samples
+        batch_directions[num_samples:updated_num_samples] = matching_directions
+        num_samples = updated_num_samples
+        ray_index += 1
+
+    return (
+        batch_samples, batch_directions, batch_z_vals, 
+        ray_start_indices[:ray_index], num_samples, ray_index
+    )
 
 @numba.njit
-def batch_render(densities, colors, z_vals, ray_start_indices, batch_size):
-    rendered_colors = np.zeros((batch_size, 3), dtype=np.float32)
-    rendered_alphas = np.zeros((batch_size, 1), dtype=np.float32)
-    rendered_depths = np.zeros((batch_size, 1), dtype=np.float32)
-    for i in range(batch_size):
+def batch_render(densities, colors, z_vals, ray_start_indices, num_rays):
+    rendered_colors = np.zeros((num_rays, 3), dtype=np.float32)
+    rendered_alphas = np.zeros((num_rays, 1), dtype=np.float32)
+    rendered_depths = np.zeros((num_rays, 1), dtype=np.float32)
+    for i in range(num_rays):
         start_index = ray_start_indices[i]
-        end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
+        end_index = ray_start_indices[i+1] if i < num_rays - 1 else ray_start_indices[-1]
         slice_size = end_index - start_index
         if start_index == end_index:
             continue
-        
+    
         current_densities = np.ravel(densities[start_index:end_index])
         current_colors = colors[start_index:end_index]
         current_z_vals = z_vals[start_index:end_index]
@@ -193,25 +248,25 @@ def batch_render_backward(
     raw_colors, 
     z_vals, 
     ray_start_indices, 
+    num_rays,
     batch_size,
-    num_max_samples,
     rendered_colors, 
     rendered_alphas,
     rendered_color_grads,
     rendered_alpha_grads,
 ):
     # Output: 
-    # raw_density_grads [batch_size*num_ray_samples, 1]
-    # raw_color_grads [batch_size*num_ray_samples, 3], 
-    # z_val_grads [batch_size*num_ray_samples,]
+    # raw_density_grads [batch_size, 1]
+    # raw_color_grads [batch_size, 3], 
+    # z_val_grads [batch_size,]
     # Only the valid ray samples should have grads, the rest should be zero.
-    raw_density_grads = np.zeros((num_max_samples, 1), dtype=np.float32)
-    raw_color_grads = np.zeros((num_max_samples, 3), dtype=np.float32)
-    z_val_grads = np.zeros((num_max_samples,), dtype=np.float32)
+    raw_density_grads = np.zeros((batch_size, 1), dtype=np.float32)
+    raw_color_grads = np.zeros((batch_size, 3), dtype=np.float32)
+    z_val_grads = np.zeros((batch_size,), dtype=np.float32)
 
-    for i in range(batch_size):
+    for i in range(num_rays):
         start_index = ray_start_indices[i]
-        end_index = ray_start_indices[i+1] if i < batch_size - 1 else ray_start_indices[-1]
+        end_index = ray_start_indices[i+1] if i < num_rays - 1 else ray_start_indices[-1]
         slice_size = end_index - start_index
         if start_index == end_index:
             continue
@@ -267,7 +322,7 @@ def batch_render_backward(
 
 @jax.custom_vjp
 def differentiable_render(
-    densities, colors, z_vals, ray_start_indices, batch_size
+    densities, colors, z_vals, ray_start_indices, num_rays
 ):
     cpu_densities = np.array(jax.device_put(densities, cpus[0]))
     cpu_colors = np.array(jax.device_put(colors, cpus[0]))
@@ -275,27 +330,27 @@ def differentiable_render(
     cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
 
     rendered_colors, rendered_alphas, _ = batch_render(
-        cpu_densities, cpu_colors, cpu_z_vals, cpu_ray_start_indices, batch_size
+        cpu_densities, cpu_colors, cpu_z_vals, cpu_ray_start_indices, num_rays
     )
     rendered_colors = jnp.array(rendered_colors)
     rendered_alphas = jnp.array(rendered_alphas)
     return rendered_colors, rendered_alphas
 
 def differentiable_render_fwd(
-    raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
+    raw_densities, raw_colors, z_vals, ray_start_indices, num_rays
 ):
     # Feels a bit weird to have the forward pass wrap the primal function
     # when the backward pass skips the primal function entirely.
     # I wonder if I can write the primal function inline here since the backward
     # pass doesn't need it.
     primal_outputs = differentiable_render(
-        raw_densities, raw_colors, z_vals, ray_start_indices, batch_size
+        raw_densities, raw_colors, z_vals, ray_start_indices, num_rays
     )
     rendered_colors, rendered_alphas = primal_outputs
     residuals = (
         rendered_colors, rendered_alphas,
         raw_densities, raw_colors, z_vals,
-        ray_start_indices, batch_size
+        ray_start_indices, num_rays
     )
     return primal_outputs, residuals
 
@@ -304,7 +359,7 @@ def differentiable_render_bwd(residuals, gradients):
     (
         rendered_colors, rendered_alphas,
         raw_densities, raw_colors, z_vals,
-        ray_start_indices, batch_size
+        ray_start_indices, num_rays
     ) = residuals
 
     cpu_raw_densities = np.array(jax.device_put(raw_densities, cpus[0]))
@@ -318,7 +373,7 @@ def differentiable_render_bwd(residuals, gradients):
 
     raw_density_grads, raw_color_grads, z_val_grads = batch_render_backward(
         cpu_raw_densities, cpu_raw_colors, cpu_z_vals, 
-        cpu_ray_start_indices, batch_size, int(cpu_raw_densities.shape[0]),
+        cpu_ray_start_indices, num_rays, int(cpu_raw_densities.shape[0]),
         cpu_rendered_colors, cpu_rendered_alphas,
         cpu_rendered_color_grads, cpu_rendered_alpha_grads
     )
@@ -440,9 +495,9 @@ class InstantNerf(nn.Module):
         )(position)
         x = encoded_position
 
-        x = nn.Dense(self.density_mlp_width)(x)
+        x = nn.Dense(self.density_mlp_width, kernel_init=nn.initializers.normal())(x)
         x = nn.activation.relu(x)
-        x = nn.Dense(16)(x)
+        x = nn.Dense(16, kernel_init=nn.initializers.normal())(x)
         if self.exponential_density_activation:
             density = jnp.exp(x[0:1])
         else:
@@ -451,9 +506,9 @@ class InstantNerf(nn.Module):
 
         encoded_direction = fourth_order_sh_encoding(direction)
         x = jnp.concatenate([density_feature, jnp.ravel(encoded_direction)], axis=0)
-        x = nn.Dense(self.color_mlp_width)(x)
+        x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
         x = nn.activation.relu(x)
-        x = nn.Dense(self.color_mlp_width)(x)
+        x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
         x = nn.activation.relu(x)
         x = nn.Dense(3)(x)
 
@@ -492,7 +547,6 @@ def sample_pixels(
     image_width:int, 
     image_height:int, 
     num_images:int, 
-    images:jnp.ndarray,
 ):
     width_rng, height_rng, image_rng = jax.random.split(rng, num=3) 
     width_indices = jax.random.randint(
@@ -504,15 +558,12 @@ def sample_pixels(
     image_indices = jax.random.randint(
         image_rng, shape=(num_samples,), minval=0, maxval=num_images
     )
-    pixel_samples = images[image_indices, width_indices, height_indices]
     indices = (image_indices, width_indices, height_indices)
-    return pixel_samples, indices 
+    return indices 
 
 def train_loop(
     batch_size:int, 
-    num_ray_samples:int,
-    ray_near:float,
-    ray_far:float, 
+    max_num_rays:int,
     training_steps:int, 
     state:TrainState, 
     dataset:Dataset
@@ -524,40 +575,25 @@ def train_loop(
     differentiable_render.defvjp(differentiable_render_fwd, differentiable_render_bwd)
 
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
-    t_vals = jnp.linspace(0., 1., num_ray_samples)
-    z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
     cpus = jax.devices("cpu")
 
     for step in range(training_steps):
         pixel_sample_key, random_bg_key = jax.random.split(jax.random.PRNGKey(step), num=2)
-        pixels, indices = sample_pixels(
-            pixel_sample_key,
-            batch_size,
-            dataset.w,
-            dataset.h,
-            dataset.images.shape[0],
-            dataset.images
+        image_indices, width_indices, height_indices = sample_pixels(
+            pixel_sample_key, max_num_rays, dataset.w, dataset.h, dataset.images.shape[0],
         )
-        image_indices, width_indices, height_indices = indices
         ray_origins, ray_directions = get_ray_vmap(
-            width_indices, 
-            height_indices, 
-            dataset.transform_matrices[image_indices], 
-            dataset.cx, 
-            dataset.cy, 
-            dataset.fl_x, 
-            dataset.fl_y
+            width_indices, height_indices, dataset.transform_matrices[image_indices], 
+            dataset.cx, dataset.cy, dataset.fl_x, dataset.fl_y
         )
         
         cpu_ray_origins = jax.device_put(ray_origins, cpus[0])
         cpu_ray_directions = jax.device_put(ray_directions, cpus[0])
-        cpu_z_vals = jax.device_put(z_vals, cpus[0])
-        (
-            batch_samples, batch_directions, batch_z_vals, 
-            ray_start_indices, num_valid_samples
-        ) = batch_trace_rays(
-            cpu_ray_origins, cpu_ray_directions, cpu_z_vals, batch_size, num_ray_samples
-        )
+        
+        (batch_samples, batch_directions, batch_z_vals,
+        ray_start_indices, num_valid_samples, num_valid_rays) = \
+            batch_trace_rays(cpu_ray_origins, cpu_ray_directions, batch_size)
+
         batch_samples = jnp.array(batch_samples)
         batch_directions = jnp.array(batch_directions)
         batch_directions_norms = jnp.linalg.norm(batch_directions, keepdims=True, axis=-1)
@@ -565,25 +601,20 @@ def train_loop(
         batch_z_vals = jnp.array(batch_z_vals)
         ray_start_indices = jnp.array(ray_start_indices)
 
-        #print('Batch samples shape:', batch_samples.shape)
-        #print('Batch directions shape:', batch_directions.shape)
-        #print('Normalized batch directions shape:', normalized_batch_directions.shape)
-        #print('Batch z vals shape:', batch_z_vals.shape)
-        #print('Ray start indices shape:', ray_start_indices.shape)
-        #print(ray_start_indices[:20])
-        #print(jnp.diff(ray_start_indices[:20]))
+        target_pixels = dataset.images[image_indices, height_indices, width_indices]
+        target_pixels = target_pixels[:num_valid_rays]
 
         def loss_fn(params):
             densities, colors = compute_batch(
                 params, batch_samples, normalized_batch_directions
             )
-            target_colors = pixels[:, :3]
-            target_alphas = pixels[:, 3:]
+            target_colors = target_pixels[:, :3]
+            target_alphas = target_pixels[:, 3:]
             #random_bg_colors = jax.random.uniform(random_bg_key, target_colors.shape)
-            random_bg_colors  = jnp.ones(target_colors.shape)
+            random_bg_colors = jnp.ones(target_colors.shape)
             rendered_colors, rendered_alphas = differentiable_render(
                 densities, colors, batch_z_vals, 
-                ray_start_indices, batch_size
+                ray_start_indices, num_valid_rays
             )
             target_colors = alpha_composite(
                 target_colors, random_bg_colors, target_alphas
@@ -602,16 +633,15 @@ def train_loop(
         state = state.apply_gradients(grads=grads)
         print('Current step:', step)
         print('Loss:', loss)
-        print('Total samples:', num_valid_samples)
-        print('Samples per ray:', num_valid_samples / batch_size)
+        print('Num samples:', num_valid_samples)
+        print('Num rays:', num_valid_rays)
+        print('Num samples per ray:', num_valid_samples / num_valid_rays)
     return state
 
 def render_scene(
-    num_ray_samples:int,
+    max_samples_per_ray:int,
     patch_size_x:int,
     patch_size_y:int,
-    ray_near:float,
-    ray_far:float,
     dataset:Dataset, 
     transform_matrix:jnp.ndarray, 
     state:TrainState,
@@ -622,9 +652,6 @@ def render_scene(
         return state.apply_fn({'params': params}, (ray_sample, direction))
     compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, None, None, None, None, None))
-
-    t_vals = jnp.linspace(0., 1., num_ray_samples)
-    z_vals = ray_near * (1. - t_vals) + ray_far * t_vals
     cpus = jax.devices("cpu")
 
     num_patches_x = dataset.w // patch_size_x
@@ -657,14 +684,12 @@ def render_scene(
 
             cpu_ray_origins = np.array(jax.device_put(ray_origins, cpus[0]))
             cpu_ray_directions = np.array(jax.device_put(ray_directions, cpus[0]))
-            cpu_z_vals = np.array(jax.device_put(z_vals, cpus[0]))
-            (
-                batch_samples, batch_directions, batch_z_vals, 
-                ray_start_indices, num_valid_samples
-            ) = batch_trace_rays(
-                cpu_ray_origins, cpu_ray_directions, 
-                cpu_z_vals, patch_area, num_ray_samples
-            )
+            (batch_samples, batch_directions, batch_z_vals, 
+            ray_start_indices, num_valid_samples, num_valid_rays) = \
+                batch_trace_rays_bounded(
+                    cpu_ray_origins, cpu_ray_directions, max_samples_per_ray, patch_area
+                )
+            
             batch_samples = jnp.array(batch_samples)
             batch_directions = jnp.array(batch_directions)
             batch_z_vals = jnp.array(batch_z_vals)
@@ -676,7 +701,7 @@ def render_scene(
             cpu_batch_z_vals = np.array(jax.device_put(batch_z_vals, cpus[0]))
             rendered_colors, rendered_alphas, rendered_depths = batch_render(
                 cpu_raw_densities, cpu_raw_colors, 
-                cpu_batch_z_vals, ray_start_indices, patch_area
+                cpu_batch_z_vals, ray_start_indices, num_valid_rays
             )
             rendered_colors = alpha_composite(
                 rendered_colors, jnp.ones(rendered_colors.shape), rendered_alphas
@@ -739,7 +764,7 @@ def generate_density_grid(
 
 def turntable_render(
     num_frames:int, 
-    num_ray_samples:int,
+    max_samples_per_ray:int,
     patch_size_x:int,
     patch_size_y:int,
     camera_distance:float, 
@@ -784,15 +809,12 @@ def turntable_render(
             [0],
         ])
         transform_matrix = jnp.concatenate([rotation_matrix, translation_matrix], axis=-1)
-        #transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
         transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
 
         render_scene(
-            num_ray_samples=num_ray_samples, 
+            max_samples_per_ray=max_samples_per_ray, 
             patch_size_x=patch_size_x, 
             patch_size_y=patch_size_y, 
-            ray_near=ray_near, 
-            ray_far=ray_far, 
             dataset=dataset, 
             transform_matrix=transform_matrix, 
             state=state,
@@ -918,8 +940,10 @@ if __name__ == '__main__':
     weight_decay_coefficient = 1e-6
     ray_near = 0.2
     ray_far = 3.0
-    batch_size = 10000
-    num_ray_samples = 32
+    batch_size = 4096
+    train_target_samples_per_ray = 32
+    train_max_rays = batch_size // train_target_samples_per_ray
+    render_max_samples_per_ray = 128
     training_steps = 1000
     num_turntable_render_frames = 10
     turntable_render_camera_distance = 2.0
@@ -930,17 +954,17 @@ if __name__ == '__main__':
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
     #dataset = load_lego_dataset('data/lego', 0.33)
-    dataset = load_lego_dataset('data/lego', 1, 0.33)
+    dataset = load_lego_dataset('data/lego', 4, 0.33)
     #dataset = load_lego_dataset('data/lego', 2, 0.33)
     #dataset = load_dataset('data/generation_0', 2, 0.1)
-    print(dataset.horizontal_fov)
-    print(dataset.vertical_fov)
-    print(dataset.fl_x)
-    print(dataset.fl_y)
-    print(dataset.cx)
-    print(dataset.cy)
-    print(dataset.w)
-    print(dataset.h)
+    print('Horizontal FOV:', dataset.horizontal_fov)
+    print('Vertical FOV:', dataset.vertical_fov)
+    print('Focal length x:', dataset.fl_x)
+    print('Focal length y:', dataset.fl_y)
+    print('Principal point x:', dataset.cx)
+    print('Principal point y:', dataset.cy)
+    print('Image width:', dataset.w)
+    print('Image height:', dataset.h)
     print('Images shape:', dataset.images.shape)
 
     model = InstantNerf(
@@ -961,13 +985,13 @@ if __name__ == '__main__':
     )
     del rng
     state = train_loop(
-        batch_size=batch_size, num_ray_samples=num_ray_samples, ray_near=ray_near, 
-        ray_far=ray_far, training_steps=training_steps, state=state, dataset=dataset
+        batch_size=batch_size, max_num_rays=train_max_rays, 
+        training_steps=training_steps, state=state, dataset=dataset
     )
 
     turntable_render(
-        num_frames=num_turntable_render_frames, 
-        num_ray_samples=num_ray_samples, 
+        num_frames=num_turntable_render_frames,
+        max_samples_per_ray=render_max_samples_per_ray,
         patch_size_x=render_patch_size_x, 
         patch_size_y=render_patch_size_y, 
         camera_distance=turntable_render_camera_distance, 
@@ -981,33 +1005,27 @@ if __name__ == '__main__':
         num_density_grid_points, render_patch_size_x, render_patch_size_y, state
     )
     render_scene(
-        num_ray_samples=num_ray_samples, 
+        max_samples_per_ray=render_max_samples_per_ray,
         patch_size_x=render_patch_size_x, 
         patch_size_y=render_patch_size_y, 
-        ray_near=ray_near, 
-        ray_far=ray_far, 
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[9], 
         state=state,
         file_name='instant_rendered_image_0'
     )
     render_scene(
-        num_ray_samples=num_ray_samples, 
+        max_samples_per_ray=render_max_samples_per_ray,
         patch_size_x=render_patch_size_x, 
         patch_size_y=render_patch_size_y, 
-        ray_near=ray_near, 
-        ray_far=ray_far, 
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[14], 
         state=state,
         file_name='instant_rendered_image_1'
     )
     render_scene(
-        num_ray_samples=num_ray_samples, 
+        max_samples_per_ray=render_max_samples_per_ray,
         patch_size_x=render_patch_size_x, 
         patch_size_y=render_patch_size_y, 
-        ray_near=ray_near, 
-        ray_far=ray_far, 
         dataset=dataset, 
         transform_matrix=dataset.transform_matrices[7], 
         state=state,

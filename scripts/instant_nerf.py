@@ -717,9 +717,11 @@ def render_scene(
 
     image = np.nan_to_num(image)
     image = np.clip(image, 0, 1)
+    image = np.transpose(image, (1, 0, 2))
     plt.imsave(os.path.join('data/', file_name + '.png'), image)
     depth_map = np.nan_to_num(depth_map)
     depth_map = np.clip(depth_map, 0, 1)
+    depth_map = np.transpose(depth_map, (1, 0, 2))
     depth_map = np.squeeze(depth_map, axis=-1)
     plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
 
@@ -940,13 +942,13 @@ if __name__ == '__main__':
     weight_decay_coefficient = 1e-6
     ray_near = 0.2
     ray_far = 3.0
-    batch_size = 4096
+    batch_size = 10000
     train_target_samples_per_ray = 32
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
-    training_steps = 1000
+    training_steps = 2000
     num_turntable_render_frames = 10
-    turntable_render_camera_distance = 2.0
+    turntable_render_camera_distance = 1.0
     render_patch_size_x = 32
     render_patch_size_y = 32
     num_density_grid_points = 32

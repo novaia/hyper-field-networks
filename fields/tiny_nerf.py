@@ -466,7 +466,7 @@ if __name__ == '__main__':
         positional_encoding_dim=6
     )
     rng = jax.random.PRNGKey(1)
-    state = create_train_state(model, rng, 5e-4)
+    state = create_train_state(model, rng, 5e-5)
 
     ray_near = 2.0
     ray_far = 6.0

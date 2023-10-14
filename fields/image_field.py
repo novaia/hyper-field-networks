@@ -10,12 +10,7 @@ import optax
 from PIL import Image
 from functools import partial
 import matplotlib.pyplot as plt
-
-def positional_encoding(x, min_deg, max_deg):
-    scales = jnp.array([2**i for i in range(min_deg, max_deg)])
-    xb = x * scales
-    four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
-    return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
+from fields import frequency_encoding
 
 class ImageField(nn.Module):
     mlp_depth:int
@@ -24,7 +19,7 @@ class ImageField(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        x = jax.vmap(positional_encoding, in_axes=(0, None, None))(
+        x = jax.vmap(frequency_encoding, in_axes=(0, None, None))(
             jnp.expand_dims(x, axis=-1), 0, self.encoding_dim
         )
         for _ in range(self.mlp_depth):
@@ -87,7 +82,7 @@ def draw_image(state, image_width, image_height):
     image = jnp.transpose(image, (1, 0, 2))
     plt.imsave('data/approximation_field/result.png', image)
 
-if __name__ == '__main__':
+def main():
     image_path = 'data/approximation_field/approximation_test.png'
     image = Image.open(image_path)
     image = jnp.array(image) / 255.0

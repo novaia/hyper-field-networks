@@ -16,27 +16,10 @@ from dataclasses import dataclass
 from functools import partial
 import matplotlib.pyplot as plt
 import numba
+from fields import Dataset, alpha_composite, straight_alpha_composite
 
 cpus = jax.devices("cpu")
 gpus = jax.devices("gpu")
-
-@dataclass
-class Dataset:
-    horizontal_fov: float
-    vertical_fov: float
-    fl_x: float # Focal length x.
-    fl_y: float # Focal length y.
-    k1: float # First radial distortion parameter.
-    k2: float # Second radial distortion parameter.
-    p1: float # Third radial distortion parameter.
-    p2: float # Fourth radial distortion parameter.
-    cx: float # Principal point x.
-    cy: float # Principal point y.
-    w: int # Image width.
-    h: int # Image height.
-    aabb_scale: int # Scale of scene bounding box.
-    transform_matrices: Optional[jnp.ndarray] = None
-    images: Optional[jnp.ndarray] = None
 
 # Calculates the fourth order spherical harmonic encoding for the given direction.
 # The order is always 4, so num_components is always 16 (order^2).
@@ -70,12 +53,6 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
     ])
 
     return components
-
-def straight_alpha_composite(foreground, background, alpha):
-    return foreground * alpha + background * (1 - alpha)
-
-def alpha_composite(foreground, background, alpha):
-    return foreground + background * (1 - alpha)
 
 def render_pixel(
     densities:jnp.ndarray, colors:jnp.ndarray, z_vals:jnp.ndarray, directions:jnp.ndarray
@@ -924,7 +901,7 @@ def load_lego_dataset(path:str, downscale_factor:int, translation_scale:float):
     dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
     return dataset
 
-if __name__ == '__main__':
+def main():
     print('GPU:', jax.devices('gpu'))
 
     num_hash_table_levels = 16

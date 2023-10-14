@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from dataclasses import dataclass
 from jax.random import PRNGKeyArray
 import optax
 import json
@@ -10,23 +9,10 @@ import os
 import numpy as np
 from PIL import Image
 from typing import Optional
-from dataclasses import dataclass
 from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
-
-@dataclass
-class Dataset:
-    horizontal_fov: float
-    vertical_fov: float
-    fl_x: float # Focal length x.
-    fl_y: float # Focal length y.
-    cx: float # Principal point x.
-    cy: float # Principal point y.
-    w: int # Image width.
-    h: int # Image height.
-    transform_matrices: Optional[jnp.ndarray] = None
-    images: Optional[jnp.ndarray] = None
+from fields import Dataset, frequency_encoding
 
 def render_pixel(
     densities:jnp.ndarray, colors:jnp.ndarray, z_vals:jnp.ndarray, directions:jnp.ndarray
@@ -80,12 +66,6 @@ def get_ray_samples(
     ray_samples = origin + repeated_directions * expanded_zvals
     return ray_samples, direction, z_vals
 
-def positional_encoding(x, min_deg, max_deg):
-    scales = jnp.array([2**i for i in range(min_deg, max_deg)])
-    xb = x * scales
-    four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
-    return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
-
 class TinyVanillaNerf(nn.Module):
     mlp_width: int
     mlp_depth: int
@@ -95,7 +75,7 @@ class TinyVanillaNerf(nn.Module):
     @nn.compact
     def __call__(self, x):
         position, _ = x
-        encoded_position = positional_encoding(
+        encoded_position = frequency_encoding(
             jnp.expand_dims(position, axis=-1), 
             0, 
             self.positional_encoding_dim
@@ -120,11 +100,7 @@ def create_train_state(model:nn.Module, rng:PRNGKeyArray, learning_rate:float):
     variables = model.init(rng, x)
     params = variables['params']
     tx = optax.adam(learning_rate)
-    ts = TrainState.create(
-        apply_fn=model.apply,
-        params=params,
-        tx=tx
-    )
+    ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
 
 def sample_pixels(
@@ -445,7 +421,7 @@ def load_tiny_dataset():
     )
     return dataset
 
-if __name__ == '__main__':
+def main():
     print('GPU:', jax.devices('gpu'))
 
     dataset = load_tiny_dataset()

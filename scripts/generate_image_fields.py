@@ -61,16 +61,17 @@ if __name__ == '__main__':
     parser.add_argument('--encoding_dim', type=int, default=10)
     parser.add_argument('--image_directory', type=str, default='data/anime_faces')
     parser.add_argument('--save_directory', type=str, default='data/approximation_field')
-    parser.add_argument('--preview_packed_shape', type=bool, default=False)
+    parser.add_argument('--preview_only', type=bool, default=False)
     args = parser.parse_args()
 
-    if args.preview_packed_shape:
-        model = image_field.ImageField(
-            mlp_depth=args.mlp_depth, mlp_width=args.mlp_width, encoding_dim=10
-        )
-        state = image_field.create_train_state(model, 1e-3, jax.random.PRNGKey(0))
-        packed_weights, weight_map = pack_weights(state, args.mlp_width)
-        print('Packed weights shape:', packed_weights.shape)
+    model = image_field.ImageField(
+        mlp_depth=args.mlp_depth, mlp_width=args.mlp_width, encoding_dim=args.encoding_dim
+    )
+    state = image_field.create_train_state(model, 1e-3, jax.random.PRNGKey(0))
+    packed_weights, weight_map = pack_weights(state, args.mlp_width)
+    print('Packed weights shape:', packed_weights.shape)
+    print('Flattened weights shape:', jnp.ravel(packed_weights).shape)
+    if args.preview_only:
         exit(0)
 
     image_paths = os.listdir(args.image_directory)
@@ -78,7 +79,7 @@ if __name__ == '__main__':
         image = Image.open(os.path.join(args.image_directory, image_paths[i]))
         image = jnp.array(image) / 255.0
         model = image_field.ImageField(
-            mlp_depth=args.mlp_depth, mlp_width=args.mlp_width, encoding_dim=10
+            mlp_depth=args.mlp_depth, mlp_width=args.mlp_width, encoding_dim=args.encoding_dim
         )
         state = image_field.create_train_state(model, 1e-3, jax.random.PRNGKey(0))
         state = image_field.train_loop(

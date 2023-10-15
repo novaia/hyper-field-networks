@@ -30,33 +30,35 @@ class TransformerDDIM(nn.Module):
     attention_dim: int
     attention_heads: int
     token_dim: int
+    embedded_token_dim: int
     embedding_max_frequency: float
     context_length: int
 
     @nn.compact
     def __call__(self, x):
         x, noise_variances = x
-        positions = jnp.arange(self.context_length)
-        embedded_position = nn.Embed(
-            num_embeddings=self.context_length, features=self.token_dim
-        )(positions)
-        x = x + embedded_position
         embeded_noise_variances = sinusoidal_embedding(
             noise_variances, self.embedding_max_frequency, self.token_dim
         )
         x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
+        x = nn.Dense(features=self.embedded_token_dim)(x)
+        positions = jnp.arange(self.context_length+1)
+        embedded_position = nn.Embed(
+            num_embeddings=self.context_length+1, features=self.embedded_token_dim
+        )(positions)
+        x = x + embedded_position
         for _ in range(self.num_blocks):
             residual = x
             x = nn.SelfAttention(
                 num_heads=self.attention_heads, 
                 qkv_features=self.attention_dim,
-                out_features=self.token_dim
+                out_features=self.embedded_token_dim
             )(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
             x = nn.Dense(features=self.feed_forward_dim)(x)
             x = nn.activation.relu(x)
-            x = nn.Dense(features=self.token_dim)(x)
+            x = nn.Dense(features=self.embedded_token_dim)(x)
             x = nn.activation.relu(x)
             x = nn.LayerNorm()(x + residual)
         x = nn.Dense(features=self.token_dim)(x)
@@ -188,16 +190,17 @@ def load_dataset(path:str):
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    epochs = 1000
+    epochs = 100
     batch_size = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     embedding_max_frequency = 1000.0
     num_blocks = 4
-    feed_forward_dim = 128
-    attention_dim = 128
-    attention_heads = 4
-    learning_rate = 1e-5
+    feed_forward_dim = 256
+    attention_dim = 256
+    embedded_token_dim = 256
+    attention_heads = 8
+    learning_rate = 5e-5
 
     dataset = load_dataset('data/approximation_field_small')
     token_dim = dataset.shape[-1]
@@ -212,6 +215,7 @@ if __name__ == '__main__':
         attention_dim=attention_dim,
         attention_heads=attention_heads,
         token_dim=token_dim,
+        embedded_token_dim=embedded_token_dim,
         embedding_max_frequency=embedding_max_frequency,
         context_length=context_length
     )

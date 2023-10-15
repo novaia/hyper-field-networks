@@ -81,7 +81,6 @@ class DenseDDIM(nn.Module):
             self.embedding_max_frequency, 
             self.embedding_dims
         )
-        print('e shape', e.shape)
         e = jax.image.resize(e, shape=(x.shape), method='nearest')
         x = nn.LayerNorm()(x + e)
 
@@ -224,7 +223,7 @@ if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
     #jax.config.update("jax_enable_x64", True)
 
-    epochs = 100
+    epochs = 1000
     batch_size = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95

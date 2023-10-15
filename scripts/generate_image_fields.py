@@ -9,7 +9,7 @@ import json
 from fields import image_field
 
 if __name__ == '__main__':
-    num_generations = 10
+    num_generations = 2000
     train_steps = 1000
     batch_size = 32
     mlp_width = 64

@@ -71,6 +71,8 @@ if __name__ == '__main__':
     packed_weights, weight_map = pack_weights(state, args.mlp_width)
     print('Packed weights shape:', packed_weights.shape)
     print('Flattened weights shape:', jnp.ravel(packed_weights).shape)
+    with open(os.path.join(args.save_directory, f'weight_map.json'), 'w') as f:
+        json.dump(weight_map, f, indent=4)
     if args.preview_only:
         exit(0)
 
@@ -90,7 +92,7 @@ if __name__ == '__main__':
             os.path.join(args.save_directory, f'{i}_image.png')
         )
 
-        packed_weights, weight_map = pack_weights(state, args.mlp_width)
+        packed_weights, _ = pack_weights(state, args.mlp_width)
         packed_weights_image = packed_weights - jnp.min(packed_weights)
         packed_weights_image = packed_weights_image / jnp.max(packed_weights_image)
         plt.imsave(
@@ -98,7 +100,4 @@ if __name__ == '__main__':
             packed_weights_image, cmap='magma'
         )
         jnp.save(os.path.join(args.save_directory, f'{i}_weights.npy'), packed_weights)
-
-    with open(os.path.join(args.save_directory, f'weight_map.json'), 'w') as f:
-        json.dump(weight_map, f, indent=4)
     

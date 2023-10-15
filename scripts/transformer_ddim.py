@@ -31,12 +31,20 @@ class TransformerDDIM(nn.Module):
     attention_heads: int
     token_dim: int
     embedding_max_frequency: float
+    context_length: int
 
     @nn.compact
     def __call__(self, x):
         x, noise_variances = x
-        e = sinusoidal_embedding(noise_variances, self.embedding_max_frequency, self.token_dim)
-        x = jnp.concatenate([x, e], axis=-2)
+        positions = jnp.arange(self.context_length)
+        embedded_position = nn.Embed(
+            num_embeddings=self.context_length, features=self.token_dim
+        )(positions)
+        x = x + embedded_position
+        embeded_noise_variances = sinusoidal_embedding(
+            noise_variances, self.embedding_max_frequency, self.token_dim
+        )
+        x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
         for _ in range(self.num_blocks):
             residual = x
             x = nn.SelfAttention(
@@ -52,7 +60,7 @@ class TransformerDDIM(nn.Module):
             x = nn.activation.relu(x)
             x = nn.LayerNorm()(x + residual)
         x = nn.Dense(features=self.token_dim)(x)
-        x = x[:, :-1, :] # Remove embedded diffusion time token.
+        x = x[:, :-1, :] # Remove embedded noise variances token.
         return x
     
 def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
@@ -65,8 +73,8 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
-def create_train_state(model, rng, learning_rate, token_dim):
-    x = (jnp.ones([1, 3, token_dim]), jnp.ones([1, 1, 1]))
+def create_train_state(model, rng, learning_rate, context_length, token_dim):
+    x = (jnp.ones([1, context_length, token_dim]), jnp.ones([1, 1, 1]))
     variables = model.init(rng, x)
     params = variables['params']
     tx = optax.adam(learning_rate)
@@ -180,7 +188,7 @@ def load_dataset(path:str):
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    epochs = 100
+    epochs = 1000
     batch_size = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
@@ -189,7 +197,7 @@ if __name__ == '__main__':
     feed_forward_dim = 128
     attention_dim = 128
     attention_heads = 4
-    learning_rate = 5e-5
+    learning_rate = 1e-5
 
     dataset = load_dataset('data/approximation_field_small')
     token_dim = dataset.shape[-1]
@@ -204,10 +212,11 @@ if __name__ == '__main__':
         attention_dim=attention_dim,
         attention_heads=attention_heads,
         token_dim=token_dim,
-        embedding_max_frequency=embedding_max_frequency
+        embedding_max_frequency=embedding_max_frequency,
+        context_length=context_length
     )
     rng = jax.random.PRNGKey(0)
-    state = create_train_state(model, rng, learning_rate, token_dim)
+    state = create_train_state(model, rng, learning_rate, context_length, token_dim)
     del rng
     state = train_loop(dataset, epochs, batch_size, min_signal_rate, max_signal_rate, state)
     generated_weights = reverse_diffusion(

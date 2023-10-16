@@ -816,7 +816,7 @@ def process_3x4_transform_matrix_alt(original:jnp.ndarray, scale:float):
     ])
     return new
 
-def load_dataset(path:str, downscale_factor:int, translation_scale:float):
+def load_dataset(path:str, downscale_factor:int):
     with open(os.path.join(path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
@@ -833,13 +833,15 @@ def load_dataset(path:str, downscale_factor:int, translation_scale:float):
         images.append(jnp.array(image))
 
     transform_matrices = jnp.array(transform_matrices)[:, :3, :]
+    mean_translation = jnp.mean(jnp.linalg.norm(transform_matrices[:, :, -1], axis=-1))
+    translation_scale = 1 / mean_translation
     process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
     images = jnp.array(images, dtype=jnp.float32) / 255.0
 
     dataset = Dataset(
         horizontal_fov=transforms['camera_angle_x'],
-        vertical_fov=transforms['camera_angle_y'],
+        vertical_fov=transforms['camera_angle_x'],
         fl_x=1,
         fl_y=1,
         k1=transforms['k1'],
@@ -923,8 +925,8 @@ def main():
     train_target_samples_per_ray = 32
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
-    training_steps = 2000
-    num_turntable_render_frames = 60*3
+    training_steps = 200
+    num_turntable_render_frames = 10#60*3
     turntable_render_camera_distance = 1.4
     render_patch_size_x = 32
     render_patch_size_y = 32
@@ -932,9 +934,9 @@ def main():
 
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
-    dataset = load_lego_dataset('data/lego', 1, 0.33)
+    #dataset = load_lego_dataset('data/lego', 1, 0.33)
     #dataset = load_lego_dataset('data/lego', 2, 0.33)
-    #dataset = load_dataset('data/generation_0', 2, 0.1)
+    dataset = load_dataset('data/generation_0', 8)
     print('Horizontal FOV:', dataset.horizontal_fov)
     print('Vertical FOV:', dataset.vertical_fov)
     print('Focal length x:', dataset.fl_x)

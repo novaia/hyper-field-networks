@@ -236,7 +236,9 @@ def sample_sphere(origin, radius):
     z = origin[2] + radius * math.sin(phi)
     return (x, y, z)
 
-def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_renders):
+def random_render_on_sphere(
+    camera, scene, sphere_radius, sphere_origin, num_renders, save_directory
+):
     extrinsic_camera_data = []
     select_only_camera(camera)
     for i in range(num_renders):
@@ -246,7 +248,7 @@ def random_render_on_sphere(camera, scene, sphere_radius, sphere_origin, num_ren
         camera.rotation_mode = 'QUATERNION'
         camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
         render_name = f'render_{i}.png'
-        scene.render.filepath = os.path.join('data/renders', render_name)
+        scene.render.filepath = os.path.join(save_directory, render_name)
         bpy.ops.render.render(write_still = True)
         extrinsic_camera_data.append(
             build_extrinsics_element(render_name, listify_matrix(camera.matrix_world))

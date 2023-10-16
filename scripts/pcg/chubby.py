@@ -9,6 +9,7 @@ import sys
 print(os.getcwd())
 sys.path.append(os.getcwd())
 import synthetic_data_helper as sdh
+import argparse
 
 def extrude(offset, ops_mesh):
     ops_mesh.extrude_vertices_move(
@@ -244,6 +245,12 @@ def get_randomized_vertex_radii():
     )
 
 if __name__ == '__main__':
+    arguments = sys.argv[sys.argv.index("--")+1:]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--save_directory', type=str, default='data/renders')
+    parser.add_argument('--num_renders', type=int, default=200)
+    args = parser.parse_args(arguments)
+
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
     bpy.ops.object.camera_add()
@@ -289,16 +296,18 @@ if __name__ == '__main__':
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
     bpy.context.scene.render.film_transparent = True
+    bpy.context.scene.cycles.samples = 100
 
     # Render.
     camera = bpy.context.scene.objects['Camera']
     extrinsic_camera_data = sdh.random_render_on_sphere(
-        camera, bpy.context.scene, sphere_radius+10, (0, 0, 0), 200
+        camera, bpy.context.scene, sphere_radius+10, 
+        (0, 0, 0), args.num_renders, args.save_directory
     )
     intrinsic_camera_data = sdh.get_intrinsic_camera_data(
         bpy.context.scene, camera, bounding_box
     )
     transform_data = sdh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
-    sdh.save_transform_data(transform_data, 'data/renders')
+    sdh.save_transform_data(transform_data, args.save_directory)
             
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')

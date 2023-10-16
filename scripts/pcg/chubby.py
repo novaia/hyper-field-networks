@@ -1,5 +1,6 @@
 import bpy
 import bmesh
+import mathutils
 import random
 import math
 import json
@@ -266,6 +267,7 @@ if __name__ == '__main__':
     # Get bounding sphere.
     bounding_box = d_obj.bound_box
     sphere_radius, sphere_origin = sdh.get_bounding_sphere(bounding_box)
+    d_obj.location = -mathutils.Vector(sphere_origin)
     #bpy.ops.mesh.primitive_uv_sphere_add(radius=sphere_radius, location=sphere_origin)
 
     # Enable GPU rendering.
@@ -291,7 +293,7 @@ if __name__ == '__main__':
     # Render.
     camera = bpy.context.scene.objects['Camera']
     extrinsic_camera_data = sdh.random_render_on_sphere(
-        camera, bpy.context.scene, sphere_radius+10, sphere_origin, 200
+        camera, bpy.context.scene, sphere_radius+10, (0, 0, 0), 200
     )
     intrinsic_camera_data = sdh.get_intrinsic_camera_data(
         bpy.context.scene, camera, bounding_box

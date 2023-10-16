@@ -75,11 +75,15 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
-def create_train_state(model, rng, learning_rate, context_length, token_dim):
+def create_train_state(model, rng, learning_rate, context_length, token_dim, steps_per_epoch):
     x = (jnp.ones([1, context_length, token_dim]), jnp.ones([1, 1, 1]))
     variables = model.init(rng, x)
     params = variables['params']
-    tx = optax.adam(learning_rate)
+    learning_rate_schedule = optax.exponential_decay(
+        learning_rate, transition_begin=80*steps_per_epoch, 
+        transition_steps=100*steps_per_epoch, decay_rate=0.8
+    )
+    tx = optax.adam(learning_rate_schedule)
     ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
 
@@ -190,21 +194,22 @@ def load_dataset(path:str):
 if __name__ == '__main__':
     print('GPU:', jax.devices('gpu'))
 
-    epochs = 100
+    epochs = 1000
     batch_size = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     embedding_max_frequency = 1000.0
     num_blocks = 4
-    feed_forward_dim = 256
-    attention_dim = 256
-    embedded_token_dim = 256
+    feed_forward_dim = 512
+    attention_dim = 512
+    embedded_token_dim = 512
     attention_heads = 8
     learning_rate = 5e-5
 
     dataset = load_dataset('data/approximation_field_small')
     token_dim = dataset.shape[-1]
     context_length = dataset.shape[-2]
+    steps_per_epoch = dataset.shape[0] // batch_size
     print('Dataset shape:', dataset.shape)
     print('Dataset min:', jnp.min(dataset))
     print('Dataset max:', jnp.max(dataset))
@@ -220,7 +225,9 @@ if __name__ == '__main__':
         context_length=context_length
     )
     rng = jax.random.PRNGKey(0)
-    state = create_train_state(model, rng, learning_rate, context_length, token_dim)
+    state = create_train_state(
+        model, rng, learning_rate, context_length, token_dim, steps_per_epoch
+    )
     del rng
     state = train_loop(dataset, epochs, batch_size, min_signal_rate, max_signal_rate, state)
     generated_weights = reverse_diffusion(

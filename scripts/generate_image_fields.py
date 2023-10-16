@@ -78,6 +78,7 @@ if __name__ == '__main__':
 
     image_paths = os.listdir(args.image_directory)
     for i in range(args.num_generations):
+        print(f'Generation {i}...')
         image = Image.open(os.path.join(args.image_directory, image_paths[i]))
         image = jnp.array(image) / 255.0
         model = image_field.ImageField(

@@ -926,7 +926,7 @@ def main():
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
     training_steps = 200
-    num_turntable_render_frames = 10#60*3
+    num_turntable_render_frames = 60*3
     turntable_render_camera_distance = 1.4
     render_patch_size_x = 32
     render_patch_size_y = 32
@@ -936,7 +936,7 @@ def main():
 
     #dataset = load_lego_dataset('data/lego', 1, 0.33)
     #dataset = load_lego_dataset('data/lego', 2, 0.33)
-    dataset = load_dataset('data/generation_0', 8)
+    dataset = load_dataset('data/generation_0', 1)
     print('Horizontal FOV:', dataset.horizontal_fov)
     print('Vertical FOV:', dataset.vertical_fov)
     print('Focal length x:', dataset.fl_x)

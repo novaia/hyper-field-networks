@@ -808,24 +808,25 @@ def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     ])
     return new
 
-def process_3x4_transform_matrix_alt(original:jnp.ndarray, scale:float):
-    new = jnp.array([
-        [original[0, 0], original[0, 1], original[0, 2], original[0, 3] * scale + 0.5],
-        [original[1, 0], original[1, 1], original[1, 2], original[1, 3] * scale + 0.5],
-        [original[2, 0], original[2, 1], original[2, 2], original[2, 3] * scale + 0.5],
-    ])
-    return new
-
-def load_dataset(path:str, downscale_factor:int):
-    with open(os.path.join(path, 'transforms.json'), 'r') as f:
+def load_dataset(dataset_path:str, downscale_factor:int):
+    with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
+
+    frame_data = transforms['frames']
+    first_file_path = frame_data[0]['file_path']
+    # Process file paths if they're in the original nerf format.
+    if not first_file_path.endswith('.png') and first_file_path.startswith('.'):
+        process_file_path = lambda path: path[2:] + '.png'
+    else:
+        process_file_path = lambda path: path
 
     images = []
     transform_matrices = []
     for frame in transforms['frames']:
         transform_matrix = jnp.array(frame['transform_matrix'])
         transform_matrices.append(transform_matrix)
-        image = Image.open(os.path.join(path, frame['file_path']))
+        file_path = process_file_path(frame['file_path'])
+        image = Image.open(os.path.join(dataset_path, file_path))
         image = image.resize(
             (image.width // downscale_factor, image.height // downscale_factor),
             resample=Image.NEAREST
@@ -844,15 +845,11 @@ def load_dataset(path:str, downscale_factor:int):
         vertical_fov=transforms['camera_angle_x'],
         fl_x=1,
         fl_y=1,
-        k1=transforms['k1'],
-        k2=transforms['k2'],
-        p1=transforms['p1'],
-        p2=transforms['p2'],
         cx=images.shape[1]/2,
         cy=images.shape[2]/2,
         w=images.shape[1],
         h=images.shape[2],
-        aabb_scale=transforms['aabb_scale'],
+        aabb_scale=1,
         transform_matrices=transform_matrices,
         images=images
     )
@@ -860,50 +857,7 @@ def load_dataset(path:str, downscale_factor:int):
     dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
     return dataset
 
-def load_lego_dataset(path:str, downscale_factor:int, translation_scale:float):
-    with open(os.path.join(path, 'transforms.json'), 'r') as f:
-        transforms = json.load(f)
-
-    images = []
-    transform_matrices = []
-    for frame in transforms['frames']:
-        transform_matrix = jnp.array(frame['transform_matrix'])
-        transform_matrices.append(transform_matrix)
-        current_image_path = path + frame['file_path'][1:] + '.png'
-        image = Image.open(current_image_path)
-        image = image.resize(
-            (image.width // downscale_factor, image.height // downscale_factor),
-            resample=Image.NEAREST
-        )
-        images.append(jnp.array(image))
-
-    transform_matrices = jnp.array(transform_matrices)[:, :3, :]
-    process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
-    transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
-    images = jnp.array(images, dtype=jnp.float32) / 255.0
-
-    dataset = Dataset(
-        horizontal_fov=transforms['camera_angle_x'],
-        vertical_fov=transforms['camera_angle_x'],
-        fl_x=1,
-        fl_y=1,
-        k1=0,
-        k2=0,
-        p1=0,
-        p2=0,
-        cx=images.shape[1]/2,
-        cy=images.shape[2]/2,
-        w=images.shape[1],
-        h=images.shape[2],
-        aabb_scale=0,
-        transform_matrices=transform_matrices,
-        images=images
-    )
-    dataset.fl_x = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
-    dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
-    return dataset
-
-def main():
+def main(dataset_path:str, downscale_factor:int):
     print('GPU:', jax.devices('gpu'))
 
     num_hash_table_levels = 16
@@ -926,7 +880,7 @@ def main():
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
     training_steps = 200
-    num_turntable_render_frames = 60*3
+    num_turntable_render_frames = 3
     turntable_render_camera_distance = 1.4
     render_patch_size_x = 32
     render_patch_size_y = 32
@@ -934,9 +888,7 @@ def main():
 
     assert ray_near < ray_far, 'Ray near must be less than ray far.'
 
-    #dataset = load_lego_dataset('data/lego', 1, 0.33)
-    #dataset = load_lego_dataset('data/lego', 2, 0.33)
-    dataset = load_dataset('data/generation_0', 1)
+    dataset = load_dataset(dataset_path, downscale_factor)
     print('Horizontal FOV:', dataset.horizontal_fov)
     print('Vertical FOV:', dataset.vertical_fov)
     print('Focal length x:', dataset.fl_x)

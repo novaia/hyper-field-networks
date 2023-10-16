@@ -3,5 +3,5 @@ flax==0.7.2
 keras==2.13.1
 tensorflow==2.13.0
 pillow==10.0.1
-matplotlib
-numba
+matplotlib==3.7.3
+numba==0.58.0

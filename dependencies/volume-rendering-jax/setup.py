@@ -43,6 +43,7 @@ class CMakeBuildExt(build_ext):
         os.makedirs(install_dir, exist_ok=True)
         cmake_args = [
             "-DCMAKE_INSTALL_PREFIX={}".format(install_dir),
+            "-DCMAKE_CUDA_STANDARD=17",
             "-DPython_EXECUTABLE={}".format(sys.executable),
             "-DPython_LIBRARIES={}".format(cmake_python_library),
             "-DPython_INCLUDE_DIRS={}".format(cmake_python_include_dir),
@@ -50,7 +51,7 @@ class CMakeBuildExt(build_ext):
                 "Debug" if self.debug else "Release"
             ),
             "-DCMAKE_PREFIX_PATH={}".format(pybind11.get_cmake_dir()),
-            "-G Ninja",
+            "-G Unix Makefiles",
         ]
         os.makedirs(self.build_temp, exist_ok=True)
         subprocess.check_call(

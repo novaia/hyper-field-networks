@@ -8,7 +8,8 @@ RUN apt install -y \
     libxi6 \
     libxrender1 \
     xz-utils \
-    libxkbcommon-x11-0
+    libxkbcommon-x11-0 \
+    libfmt-dev
 
 ARG blender_package_name="blender-3.6.3-linux-x64"
 ARG blender_package_url="https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"

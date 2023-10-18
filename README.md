@@ -1,5 +1,29 @@
 # proc-gen
 
+## Docker Environment
+
+Building image:
+```
+docker-compose build
+```
+
+Starting container/environment:
+```
+docker-compose up -d
+```
+
+Opening a shell in container:
+```
+docker-compose exec pcg bash
+```
+
+Instead of opening a shell, you can also go to http://localhost:7070/ to access a Jupyter Lab instance running inside the container.
+
+Stopping container/environment:
+```
+docker-compose down
+```
+
 ## Citations
 ```bibtex
 @article{mueller2022instant,

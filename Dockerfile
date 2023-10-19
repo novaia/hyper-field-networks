@@ -1,25 +1,20 @@
 FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 
 # Install Blender dependencies.
+# If this fails, try rebuilding with no cache.
 RUN apt update -y
-RUN apt install -y libfreetype6=2.10.1-2ubuntu0.3
-RUN apt install -y libglu1-mesa=9.0.1-1build1
-RUN apt install -y libxi6=2:1.7.10-0ubuntu1
-RUN apt install -y libxrender1=1:0.9.10-1
-RUN apt install -y xz-utils=5.2.4-1ubuntu1.1
-RUN apt install -y xvfb=2:1.20.13-1ubuntu1~20.04.8
-#RUN apt install -y \
-#    libfreetype6=2.10.1-2ubuntu0.3 \
-#    libglu1-mesa=9.0.1-1build1 \
-#    libxi6=2:1.7.10-0ubuntu1 \
-#    libxrender1=1:0.9.10-1 \
-#    xz-utils=5.2.4-1ubuntu1.1 \
-#    xvfb=2:1.20.13-1ubuntu1~20.04.8
-#    #libxkbcommon-x11-0=0.10.0-1
+RUN apt install -y \
+    libfreetype6=2.10.1-2ubuntu0.3 \
+    libglu1-mesa=9.0.1-1build1 \
+    libxi6=2:1.7.10-0ubuntu1 \
+    libxrender1=1:0.9.10-1 \
+    xz-utils=5.2.4-1ubuntu1.1 \
+    xvfb=2:1.20.13-1ubuntu1~20.04.8 \
+    libxkbcommon-x11-0=0.10.0-1
 
-# Install volume-render-jax dependencies.
+# Install volume-rendering-jax dependencies.
 RUN apt install -y libfmt-dev=6.1.2+ds-2
-# Upgrade to GCC 11 for volume-render-jax. compilation.
+# Upgrade to gcc-11 for volume-rendering-jax compilation.
 RUN DEBIAN_FRONTEND=noninteractive apt install software-properties-common=0.99.9.12 -y
 RUN DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:ubuntu-toolchain-r/test
 RUN apt update -y
@@ -35,10 +30,9 @@ RUN python3 -m pip install --upgrade pip
 COPY requirements.txt requirements.txt
 RUN python3 -m pip install -r requirements.txt
 
-# Install volume-rendering-jax.
+# Compile/install volume-rendering-jax.
 COPY ./dependencies/ /project/dependencies/
 RUN python3 -m pip install /project/dependencies/volume-rendering-jax
-#RUN rm /project/dependencies/volume-rendering-jax
 
 # Install Blender.
 ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"

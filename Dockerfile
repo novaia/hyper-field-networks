@@ -1,28 +1,43 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+# Check if Blender is cached.
+FROM alpine as cache_checker
+ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
+COPY ./data/blender_versions/$BLENDER_PACKAGE_NAME* ./
+RUN if [ -f $BLENDER_PACKAGE_NAME* ]; then \
+        echo "BLENDER_CACHE_EXISTS=1" > /tmp/blender_cache_exists; \
+    else \
+        echo "BLENDER_CACHE_EXISTS=0" > /tmp/blender_cache_exists; \
+    fi
+
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04 as final
+
+# Install Blender.
+ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
+ARG BLENDER_PACKAGE_URL= \
+    "https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
+ARG BLENDER_PATH="/usr/local/blender"
+COPY --from=cache_checker /tmp/blender_cache_exists /tmp/blender_cache_exists
+COPY ./data/blender_versions/$BLENDER_PACKAGE_NAME* ../tmp/
+RUN if [ "$(cat /tmp/blender_cache_exists)" = "BLENDER_CACHE_EXISTS=1" ]; then \
+        echo "Copying $BLENDER_PACKAGE_NAME from cache"; \
+    else \
+        echo "Downloading $BLENDER_PACKAGE_NAME from the internet"; \
+        wget $BLENDER_PACKAGE_URL /tmp/; \
+        cp $BLENDER_PACKAGE_NAME* /project/data/blender_versions/; \
+    fi
+RUN tar -xJf /tmp/${BLENDER_PACKAGE_NAME}.tar.xz -C /tmp/ \
+    && rm -f /tmp/${BLENDER_PACKAGE_NAME}.tar.xz \
+    && mv /tmp/${BLENDER_PACKAGE_NAME} ${BLENDER_PATH}
+ENV PATH="$PATH:$BLENDER_PATH"
 
 # Install Blender dependencies.
 RUN apt update -y
 RUN apt install -y \
-    curl \
     libfreetype6 \
     libglu1-mesa \
     libxi6 \
     libxrender1 \
     xz-utils \
     libxkbcommon-x11-0
-
-ARG blender_package_name="blender-3.6.3-linux-x64"
-ARG blender_package_url="https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
-ARG blender_path="/usr/local/blender"
-
-WORKDIR tmp
-RUN curl -OL $blender_package_url
-WORKDIR ..
-RUN tar -xJf /tmp/${blender_package_name}.tar.xz -C /tmp \
-    && rm -f /tmp/${blender_package_name}.tar.xz \
-    && mv /tmp/${blender_package_name} ${blender_path}
-
-ENV PATH="$PATH:$blender_path"
 
 # Install volume-render-jax dependencies.
 RUN apt install -y libfmt-dev

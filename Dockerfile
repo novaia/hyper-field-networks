@@ -31,7 +31,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt install software-properties-common -y
 RUN DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:ubuntu-toolchain-r/test
 RUN apt update -y
 RUN apt install -y gcc-11
-
+# Set gcc-11 as the default gcc version
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
 
 RUN apt install python3 -y 
 RUN apt install python3-pip -y 

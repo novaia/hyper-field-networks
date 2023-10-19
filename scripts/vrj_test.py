@@ -1,4 +1,11 @@
 # This is a test of the volume-rendering-jax extension.
+
+# IMPORTANT NOTE: jaxngp doesn't shift translations by 0.5 at load time.
+# Instead, it samples in [-bound, bound] and applies the following transformation
+# before hash encoding: pos = (pos + bound) / (2 * bound) 
+# Currently I'm shifting translations by 0.5 and also sampling in [-bound, bound],
+# so I need to change one of these things in order to get the correct results.
+
 import sys
 import os
 sys.path.append(os.getcwd())

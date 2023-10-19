@@ -10,6 +10,7 @@ from fields import ngp_nerf, Dataset
 from volrendjax import integrate_rays, integrate_rays_inference, march_rays, march_rays_inference
 from volrendjax import morton3d_invert, packbits
 from dataclasses import dataclass
+import dataclasses
 from typing import Callable, List, Literal, Tuple, Type, Union
 from flax import struct
 import numpy as np
@@ -131,22 +132,31 @@ def update_occupancy_grid_density(
         maxval=half_cell_width,
     )
 
+    '''
     new_densities = map(
-        lambda coords_part: jax.jit(state.apply_fn)(
-            {"params": state.params},
-            coords_part,
-            None,
-            None,
+        lambda coords_part: jax.jit(jax.vmap(state.apply_fn, in_axes=(None, 0)))(
+            {"params": jax.lax.stop_gradient(state.params)},
+            (coords_part, coords_part) # Use coords_part as dummy direction.
         )[0].ravel(),
         jnp.array_split(jax.lax.stop_gradient(coordinates), max(1, n_grids // (max_inference))),
     )
-    new_densities = jnp.concatenate(list(new_densities))
+    '''
+    def compute_density(coord):
+        # Use coord as dummy direction.
+        drgbs = state.apply_fn({'params': jax.lax.stop_gradient(state.params)}, (coord, coord))
+        density = jnp.ravel(drgbs[0])
+        return density
+    compute_densities = jax.jit(jax.vmap(compute_density, in_axes=0))
+    num_splits = max(1, n_grids//max_inference)
+    split_coordinates = jnp.array_split(jax.lax.stop_gradient(coordinates), num_splits)
+    new_densities = map(compute_densities, split_coordinates)
+    new_densities = jnp.ravel(jnp.concatenate(list(new_densities)))
 
     cas_density_grid = cas_density_grid.at[cas_updated_indices].set(
         jnp.maximum(cas_density_grid[cas_updated_indices], new_densities)
     )
-    new_occupancy_grid = occupancy_grid.replace(
-        density=occupancy_grid.density.at[cas_slice].set(cas_density_grid),
+    new_occupancy_grid = dataclasses.replace(
+        occupancy_grid, density=occupancy_grid.density.at[cas_slice].set(cas_density_grid)
     )
     return new_occupancy_grid
 
@@ -155,7 +165,7 @@ def density_threshold_from_min_step_size(diagonal_n_steps, scene_bound) -> float
     # (../dependencies/volume-rendering-jax/LICENSE)
     return .01 * diagonal_n_steps / (2 * min(scene_bound, 1) * 3**.5)
 
-@jax.jit
+#@jax.jit
 def threshold_occupancy_grid(occupancy_grid: OccupancyGrid, diagonal_n_steps, scene_bound):
     # This function is subject to the volume-rendering-jax license 
     # (../dependencies/volume-rendering-jax/LICENSE)
@@ -167,11 +177,12 @@ def threshold_occupancy_grid(occupancy_grid: OccupancyGrid, diagonal_n_steps, sc
         density_threshold=density_threshold,
         density_grid=occupancy_grid.density,
     )
-    new_occupancy_grid = occupancy_grid.replace(
+    new_occupancy_grid = dataclasses.replace(
+        occupancy_grid,
         occ_mask=occupied_mask,
         occupancy=occupancy_bitfield,
     )
-    return occupancy_grid
+    return new_occupancy_grid
 
 @jax.jit
 def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
@@ -257,6 +268,7 @@ def train_loop(
     stepsize_portion:float,
     grid_resolution:int,
     grid_cascades:int,
+    occupancy_grid_update_interval:int,
     occupancy_grid:OccupancyGrid,
 ):
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
@@ -283,9 +295,27 @@ def train_loop(
             occupancy_grid_occupancy=occupancy_grid.occupancy,
             state=state
         )
-        print('Loss', loss)
+        print('Step', step, 'Loss', loss)
+        
+        if step % occupancy_grid_update_interval == 0 and step > 0:
+            print('Updating occupancy grid')
+            update_all = (step < 20)
+            if update_all: print('Updating all cells')
+            occupancy_grid = update_occupancy_grid_density(
+                KEY=jax.random.PRNGKey(step),
+                cas=0,
+                update_all=update_all,
+                max_inference=batch_size,
+                occupancy_grid=occupancy_grid,
+                density_grid_res=grid_resolution,
+                scene_bound=scene_bound,
+                state=state
+            )
+            occupancy_grid = threshold_occupancy_grid(
+                occupancy_grid, diagonal_n_steps, scene_bound
+            )
         #break
-    return state
+    return state, occupancy_grid
 
 @partial(jax.jit, static_argnames=('total_samples'))
 def render_rays_train(
@@ -523,6 +553,7 @@ if __name__ == '__main__':
     stepsize_portion = 1.0 / 256.0
     grid_resolution = 128
     grid_cascades = 1
+    occupancy_grid_update_interval = 16
 
     dataset = ngp_nerf.load_dataset('data/lego', 1)
     print('Horizontal FOV:', dataset.horizontal_fov)
@@ -555,16 +586,17 @@ if __name__ == '__main__':
         epsilon=epsilon, weight_decay_coefficient=weight_decay_coefficient
     )
     del rng
-    state = train_loop(
+    state, occupancy_grid = train_loop(
         batch_size=batch_size, 
         max_num_rays=train_max_rays, 
         training_steps=training_steps, 
         state=state, 
         dataset=dataset,
-        occupancy_grid=occupancy_grid,
         scene_bound=scene_bound,
         diagonal_n_steps=diagonal_n_steps,
         stepsize_portion=stepsize_portion,
         grid_resolution=grid_resolution,
-        grid_cascades=grid_cascades
+        grid_cascades=grid_cascades,
+        occupancy_grid_update_interval=occupancy_grid_update_interval,
+        occupancy_grid=occupancy_grid,
     )

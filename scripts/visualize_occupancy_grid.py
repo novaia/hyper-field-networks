@@ -1,6 +1,6 @@
 from simple_3dviz.behaviours.misc import LightToCamera
 from simple_3dviz.behaviours.io import SaveFrames
-from simple_3dviz import Spherecloud
+from simple_3dviz import Spherecloud, Lines
 from simple_3dviz.utils import render
 import numpy as np
 import argparse
@@ -29,12 +29,40 @@ point_cloud = Spherecloud(
     sizes=0.01
 )
 
+bounding_cube_vertices = np.array([
+    [-1, -1, -1], 
+    [-1, -1, 1], 
+    [-1, 1, -1], 
+    [-1, 1, 1], 
+    [ 1, -1, -1], 
+    [ 1, -1, 1], 
+    [ 1, 1, -1], 
+    [ 1, 1, 1] 
+])
+bounding_cube_indices = np.array([
+    [0, 1], 
+    [0, 2], 
+    [0, 4], 
+    [7, 6], 
+    [7, 5], 
+    [7, 3], 
+    [2, 3], 
+    [2, 6], 
+    [4, 5], 
+    [4, 6], 
+    [1, 3], 
+    [1, 5] 
+])
+bounding_cube_lines = bounding_cube_vertices[np.ravel(bounding_cube_indices)]
+bounding_cube = Lines(bounding_cube_lines, colors=(0.8, 0, 0), width=0.01)
+renderables = [point_cloud, bounding_cube]
+
 if args.gui:
     from simple_3dviz.window import show
-    show(point_cloud, size=(800, 800), behaviours=[LightToCamera()])
+    show(renderables, size=(800, 800), behaviours=[LightToCamera()])
 else:
     image = render(
-        point_cloud,
+        renderables,
         behaviours=[
             LightToCamera(), 
             SaveFrames("data/occupancy_render/frame_{:03d}.png", every_n=1)

@@ -24,6 +24,11 @@ Stopping container/environment:
 docker-compose down
 ```
 
+To open VS Code inside the container, first make sure you have the Dev Containers extension installed and have the container running.
+Next, open the root of the repository in VS Code and select ``Dev Containers: Attach to Running Container`` from the command palette,
+then select the container you want to attach to. See [attach to a running container](https://code.visualstudio.com/docs/remote/attach-container) 
+for more details.
+
 ## Citations
 ```bibtex
 @article{mueller2022instant,

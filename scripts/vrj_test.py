@@ -609,7 +609,7 @@ if __name__ == '__main__':
     train_target_samples_per_ray = 32
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
-    training_steps = 200
+    training_steps = 50
     num_turntable_render_frames = 3
     turntable_render_camera_distance = 1.4
     render_patch_size_x = 32
@@ -671,3 +671,4 @@ if __name__ == '__main__':
         occupancy_grid_update_interval=occupancy_grid_update_interval,
         occupancy_grid=occupancy_grid,
     )
+    jnp.save('data/occupancy_grid_bitfield.npy', occupancy_grid.occupancy)

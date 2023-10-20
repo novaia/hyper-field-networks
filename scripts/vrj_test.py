@@ -23,6 +23,8 @@ from flax import struct
 import numpy as np
 from functools import partial
 import optax
+import json
+from PIL import Image
 
 @dataclass
 class OccupancyGrid:
@@ -495,6 +497,7 @@ class NGPNerfWithDepth(nn.Module):
     @nn.compact
     def __call__(self, x):
         position, direction = x
+        position = (position + 1.0) / 2.0 # Temp... see top of file.
         encoded_position = ngp_nerf.MultiResolutionHashEncoding(
             table_size=self.max_hash_table_entries,
             num_levels=self.number_of_grid_levels,
@@ -528,6 +531,64 @@ class NGPNerfWithDepth(nn.Module):
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
 
+def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
+    # No translation, see comment at top of file.
+    new = jnp.array([
+        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
+        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
+        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
+    ])
+    return new
+
+def load_dataset(dataset_path:str, downscale_factor:int):
+    with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
+        transforms = json.load(f)
+
+    frame_data = transforms['frames']
+    first_file_path = frame_data[0]['file_path']
+    # Process file paths if they're in the original nerf format.
+    if not first_file_path.endswith('.png') and first_file_path.startswith('.'):
+        process_file_path = lambda path: path[2:] + '.png'
+    else:
+        process_file_path = lambda path: path
+
+    images = []
+    transform_matrices = []
+    for frame in transforms['frames']:
+        transform_matrix = jnp.array(frame['transform_matrix'])
+        transform_matrices.append(transform_matrix)
+        file_path = process_file_path(frame['file_path'])
+        image = Image.open(os.path.join(dataset_path, file_path))
+        image = image.resize(
+            (image.width // downscale_factor, image.height // downscale_factor),
+            resample=Image.NEAREST
+        )
+        images.append(jnp.array(image))
+
+    transform_matrices = jnp.array(transform_matrices)[:, :3, :]
+    mean_translation = jnp.mean(jnp.linalg.norm(transform_matrices[:, :, -1], axis=-1))
+    translation_scale = 1 / mean_translation
+    process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
+    transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
+    images = jnp.array(images, dtype=jnp.float32) / 255.0
+
+    dataset = Dataset(
+        horizontal_fov=transforms['camera_angle_x'],
+        vertical_fov=transforms['camera_angle_x'],
+        fl_x=1,
+        fl_y=1,
+        cx=images.shape[1]/2,
+        cy=images.shape[2]/2,
+        w=images.shape[1],
+        h=images.shape[2],
+        aabb_scale=1,
+        transform_matrices=transform_matrices,
+        images=images
+    )
+    dataset.fl_x = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
+    dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
+    return dataset
+
 if __name__ == '__main__':
     num_hash_table_levels = 16
     max_hash_table_entries = 2**20
@@ -555,14 +616,17 @@ if __name__ == '__main__':
     render_patch_size_y = 32
     num_density_grid_points = 32
 
-    scene_bound = 0.5
+    #scene_bound = 0.5
+    scene_bound = 1.0
     diagonal_n_steps = 1024
     stepsize_portion = 1.0 / 256.0
     grid_resolution = 128
     grid_cascades = 1
     occupancy_grid_update_interval = 16
 
-    dataset = ngp_nerf.load_dataset('data/lego', 1)
+    # Prepocessing is slightly different than ngp_nerf implementation.
+    # See note at top of file.
+    dataset = load_dataset('data/lego', 1)
     print('Horizontal FOV:', dataset.horizontal_fov)
     print('Vertical FOV:', dataset.vertical_fov)
     print('Focal length x:', dataset.fl_x)

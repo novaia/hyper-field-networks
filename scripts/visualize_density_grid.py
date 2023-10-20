@@ -65,7 +65,7 @@ def create_bounding_cube_lines(bound):
     return bounding_cube_lines
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--density_threshold', type=float, default=0.1)
+parser.add_argument('--density_threshold', type=float, default=2)
 parser.add_argument('--points', type=bool, default=False)
 parser.add_argument('--gui', type=bool, default=False)
 args = parser.parse_args()
@@ -91,6 +91,6 @@ else:
             SaveFrames("data/density_grid_render_{:03d}.png", every_n=1)
         ],
         n_frames=1,
-        camera_position=(-1, -1, -1),
+        camera_position=(1, 1, 1),
         light=(-60., -160., 120)
     )

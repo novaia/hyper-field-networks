@@ -1,6 +1,10 @@
 services:
   pcg:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - rm:true
     ports:
       - 7070:8888
     volumes:

@@ -35,17 +35,16 @@ COPY ./dependencies/ /project/dependencies/
 RUN python3 -m pip install /project/dependencies/volume-rendering-jax
 
 # Install Blender.
+RUN apt install wget -y
 ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
-ARG BLENDER_PACKAGE_URL= \
-    "https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
+ARG BLENDER_PACKAGE_URL="https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
 ARG BLENDER_PATH="/usr/local/blender"
-COPY ./data/blender_versions/$BLENDER_PACKAGE_NAME* /tmp/
+COPY ./data/blender_versions/ /tmp/
 RUN if [ -f /tmp/$BLENDER_PACKAGE_NAME* ]; then \
         echo "Copying $BLENDER_PACKAGE_NAME from cache"; \
     else \
         echo "Downloading $BLENDER_PACKAGE_NAME from the internet"; \
-        wget $BLENDER_PACKAGE_URL -O /tmp/$BLENDER_PACKAGE_NAME.tar.xz; \
-        cp /tmp/$BLENDER_PACKAGE_NAME.tar.xz /project/data/blender_versions/; \
+        wget $BLENDER_PACKAGE_URL -O /tmp/${BLENDER_PACKAGE_NAME}.tar.xz; \
     fi
 RUN tar -xJf /tmp/${BLENDER_PACKAGE_NAME}.tar.xz -C /tmp/ \
     && rm -f /tmp/${BLENDER_PACKAGE_NAME}.tar.xz \

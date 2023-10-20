@@ -676,5 +676,5 @@ if __name__ == '__main__':
     occupancy_grid_coordinates = morton3d_invert(
         jnp.arange(occupancy_grid.density.shape[0], dtype=jnp.uint32)
     )
-    occupancy_grid_coordinates / (grid_resolution - 1) * 2 - 1
+    occupancy_grid_coordinates = occupancy_grid_coordinates / (grid_resolution - 1) * 2 - 1
     jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)

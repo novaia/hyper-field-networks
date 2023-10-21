@@ -35,12 +35,22 @@ def create_occupancy_grid(grid_resolution: int=128) -> OccupancyGrid:
     mask = jnp.zeros(shape=(num_entries,), dtype=jnp.bool_)
     return OccupancyGrid(grid_resolution, num_entries, densities, mask, bitfield)
 
+@jax.jit
+def compute_densities(state, positions):
+    def compute(position):
+        drgb = state.apply_fn(
+            {'params': jax.lax.stop_gradient(state.params)}, 
+            (position, position) # Use position as dummy direction.
+        )
+        return jnp.ravel(drgb[0])
+    densities = jnp.ravel(jax.vmap(compute, in_axes=0)(positions))
+    return densities
+
 def update_occupancy_grid_density(
     KEY, batch_size:int, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
     num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
 ):
     decayed_densities = densities * .95
-
     all_indices = jnp.arange(num_grid_entries)
     if warmup:
         updated_indices = all_indices
@@ -54,7 +64,7 @@ def update_occupancy_grid_density(
             shape=(quarter_num_grid_entries,), 
             replace=True, # Allow duplicate choices. 
         )
-        # Uniformly samples M/2 occupied grid cells.
+        # Uniformly sample M/2 occupied grid cells.
         uniform_occupied_index_samples = jax.random.choice(
             key=second_half_key, 
             a=all_indices, 
@@ -67,6 +77,7 @@ def update_occupancy_grid_density(
             uniform_index_samples, uniform_occupied_index_samples
         ])
 
+    num_updated_entries = updated_indices.shape[0]
     updated_indices = updated_indices.astype(jnp.uint32)
     coordinates = morton3d_invert(updated_indices).astype(jnp.float32)
     # Transform coordinates to [-1, 1].
@@ -83,8 +94,33 @@ def update_occupancy_grid_density(
         minval=-half_cell_width,
         maxval=half_cell_width,
     )
-    print('coordinates shape', coordinates.shape)
-    ...
+    
+    num_batches = jnp.ceil(num_updated_entries / batch_size)
+    padding_dim = int((batch_size * num_batches) - num_updated_entries)
+    padding = jnp.zeros(shape=(padding_dim, 3), dtype=jnp.float32)
+    padded_coordinates = jnp.concatenate([coordinates, padding], axis=0)
+    # [num_updated_entries,]
+    updated_densities = compute_densities(state, padded_coordinates)[:num_updated_entries]
+    updated_densities = jnp.maximum(decayed_densities[updated_indices], updated_densities)
+    # [num_grid_entries,]
+    updated_densities = decayed_densities.at[updated_indices].set(updated_densities)
+    return updated_densities
+
+@jax.jit
+def threshold_occupancy_grid(diagonal_n_steps:int, scene_bound:float, densities:jax.Array):
+    def density_threshold_from_min_step_size(diagonal_n_steps, scene_bound) -> float:
+        return .01 * diagonal_n_steps / (2 * jnp.minimum(scene_bound, 1) * 3**.5)
+    
+    density_threshold = jnp.minimum(
+        density_threshold_from_min_step_size(diagonal_n_steps, scene_bound),
+        jnp.mean(densities)
+    )
+
+    occupancy_mask, occupancy_bitfield = packbits(
+        density_threshold=density_threshold,
+        density_grid=densities
+    )
+    return occupancy_mask, occupancy_bitfield
 
 def create_train_state(
     model:nn.Module, 

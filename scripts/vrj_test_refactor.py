@@ -28,6 +28,8 @@ def main():
     weight_decay_coefficient = 1e-6
     batch_size = 30000
     scene_bound = 1.0
+    grid_resolution = 128
+    diagonal_n_steps = 1024
 
     model = ngp_nerf_cuda.NGPNerf(
         number_of_grid_levels=num_hash_table_levels,
@@ -50,7 +52,7 @@ def main():
         epsilon=epsilon,
         weight_decay_coefficient=weight_decay_coefficient
     )
-    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(grid_resolution=128)
+    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(grid_resolution=grid_resolution)
     occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
         KEY=jax.random.PRNGKey(0),
         batch_size=batch_size,
@@ -60,8 +62,18 @@ def main():
         num_grid_entries=occupancy_grid.num_entries,
         scene_bound=0.5,
         state=state,
-        warmup=True,
+        warmup=False,
     )
+
+    print('mask shape before', occupancy_grid.mask.shape)
+    print('bitfield shape before', occupancy_grid.bitfield.shape)
+    occupancy_grid.mask, occupancy_grid.bitfield = ngp_nerf_cuda.threshold_occupancy_grid(
+        diagonal_n_steps=diagonal_n_steps,
+        scene_bound=scene_bound,
+        densities=occupancy_grid.densities
+    )
+    print('mask shape after', occupancy_grid.mask.shape)
+    print('bitfield shape after', occupancy_grid.bitfield.shape)
 
 if __name__ == '__main__':
     main()

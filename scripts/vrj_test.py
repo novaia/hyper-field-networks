@@ -18,7 +18,7 @@ from volrendjax import integrate_rays, integrate_rays_inference, march_rays, mar
 from volrendjax import morton3d_invert, packbits
 from dataclasses import dataclass
 import dataclasses
-from typing import Callable, List, Literal, Tuple, Type, Union
+from typing import Callable, List, Literal, Tuple, Type, Union, Optional
 from flax import struct
 import numpy as np
 from functools import partial
@@ -266,6 +266,7 @@ def train_loop(
     grid_resolution:int,
     grid_cascades:int,
     occupancy_grid_update_interval:int,
+    occupancy_grid_warmup_steps:int,
     occupancy_grid:OccupancyGrid,
 ):
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
@@ -296,7 +297,7 @@ def train_loop(
         
         if step % occupancy_grid_update_interval == 0 and step > 0:
             print('Updating occupancy grid')
-            update_all = (step < 20)
+            update_all = (step < occupancy_grid_warmup_steps)
             if update_all: print('Updating all cells')
             occupancy_grid.density = update_occupancy_grid_density(
                 KEY=jax.random.PRNGKey(step),
@@ -317,7 +318,6 @@ def train_loop(
                 scene_bound=scene_bound,
                 density=occupancy_grid.density
             )
-        #break
     return state, occupancy_grid
 
 @partial(jax.jit, static_argnames=(
@@ -384,7 +384,6 @@ def train_step(
         occupancy_bitfield=occupancy_bitfield
     )
     num_valid_rays = jnp.sum(ray_is_valid)
-    #print('Num valid rays:', num_valid_rays)
 
     @jax.jit
     def compute_sample(params, ray_sample, direction):
@@ -393,9 +392,7 @@ def train_step(
 
     def loss_fn(params):
         drgbs = compute_batch(params, xyzs, dirs)
-        #print('drgbs shape', drgbs.shape)
         background_colors = jnp.ones((max_num_rays, 3))
-        #print('background colors shape', background_colors.shape)
         effective_samples, final_rgbds, final_opacities = integrate_rays(
             near_distance=0.1,
             rays_sample_startidx=rays_sample_startidx,
@@ -473,6 +470,50 @@ class NGPNerfWithDepth(nn.Module):
             color = nn.activation.sigmoid(x)
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
+
+def generate_density_grid(
+    num_points:int, 
+    patch_size_x:int, 
+    patch_size_y:int,
+    min_coordinate:float,
+    max_coordinate:float,
+    state:TrainState,
+    file_name:Optional[str]='density_grid'
+):
+    @jax.jit
+    def get_density(x, y):
+        def get_output(rays, directions):
+            return state.apply_fn({'params': state.params}, (rays, directions))
+        get_output_sample_vmap = jax.vmap(get_output, in_axes=(0, None))
+
+        rays = jnp.repeat(jnp.array([[x, y]]), num_points, axis=0)
+        rays_z = jnp.expand_dims(jnp.linspace(
+            min_coordinate, max_coordinate, num_points
+        ), axis=-1)
+        rays = jnp.concatenate([rays, rays_z], axis=-1)
+        direction = jnp.array([0, 0, 1])
+        drgbs = get_output_sample_vmap(rays, direction)
+        return drgbs[:, :1]
+    
+    num_patches_x = num_points // patch_size_x
+    num_patches_y = num_points // patch_size_y
+    coordinates = jnp.linspace(min_coordinate, max_coordinate, num_points)
+    density_grid = np.zeros((num_points, num_points, num_points, 1))
+    get_density_vmap = jax.vmap(jax.vmap(get_density, in_axes=(None, 0)), in_axes=(0, None))
+
+    for x in range(num_patches_x):
+        patch_start_x = patch_size_x * x
+        patch_end_x = patch_start_x + patch_size_x
+        x_coordinates = coordinates[patch_start_x:patch_end_x]
+        for y in range(num_patches_y):
+            patch_start_y = patch_size_y * y
+            patch_end_y = patch_start_y + patch_size_y
+            y_coordinates = coordinates[patch_start_y:patch_end_y]
+            density_patch = get_density_vmap(x_coordinates, y_coordinates)
+            density_grid[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = density_patch
+
+    print('Density grid shape:', density_grid.shape)
+    np.save(f'data/{file_name}.npy', density_grid)
 
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     # No translation, see comment at top of file.
@@ -552,7 +593,7 @@ def main():
     train_target_samples_per_ray = 32
     train_max_rays = batch_size // train_target_samples_per_ray
     render_max_samples_per_ray = 128
-    training_steps = 50
+    training_steps = 500
     num_turntable_render_frames = 3
     turntable_render_camera_distance = 1.4
     render_patch_size_x = 32
@@ -566,6 +607,7 @@ def main():
     grid_resolution = 128
     grid_cascades = 1
     occupancy_grid_update_interval = 16
+    occupancy_grid_warmup_steps = 256
 
     # Prepocessing is slightly different than ngp_nerf implementation.
     # See note at top of file.
@@ -613,7 +655,17 @@ def main():
         grid_resolution=grid_resolution,
         grid_cascades=grid_cascades,
         occupancy_grid_update_interval=occupancy_grid_update_interval,
+        occupancy_grid_warmup_steps=occupancy_grid_warmup_steps,
         occupancy_grid=occupancy_grid,
+    )
+    generate_density_grid(
+        num_points=num_density_grid_points,
+        patch_size_x=render_patch_size_x,
+        patch_size_y=render_patch_size_y,
+        min_coordinate=-scene_bound,
+        max_coordinate=scene_bound,
+        state=state,
+        file_name='vrj_test_density_grid'
     )
     jnp.save('data/occupancy_grid_bitfield.npy', occupancy_grid.occupancy)
     jnp.save('data/occupancy_grid_density.npy', occupancy_grid.density)

@@ -19,6 +19,7 @@ def create_point_cloud(densities, density_threshold):
     flattened_densities = np.ravel(densities)
     thresholded_indices = np.where(flattened_densities > density_threshold)
     thresholded_coordinates = coordinates[thresholded_indices]
+    assert thresholded_coordinates.shape[0] > 0, 'There were no densities above the threshold.'
 
     point_cloud = Spherecloud(
         centers=thresholded_coordinates-0.5,
@@ -65,12 +66,14 @@ def create_bounding_cube_lines(bound):
     return bounding_cube_lines
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--path', type=str, default='data/density_grid.npy')
 parser.add_argument('--density_threshold', type=float, default=2)
 parser.add_argument('--points', type=bool, default=False)
 parser.add_argument('--gui', type=bool, default=False)
 args = parser.parse_args()
 
-densities = np.load('data/density_grid.npy')
+densities = np.load(args.path)
+print('Density grid shape', densities.shape)
 
 renderables = [create_bounding_cube_lines(0.5)]
 if args.points:

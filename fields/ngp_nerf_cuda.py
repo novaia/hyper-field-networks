@@ -35,6 +35,57 @@ def create_occupancy_grid(grid_resolution: int=128) -> OccupancyGrid:
     mask = jnp.zeros(shape=(num_entries,), dtype=jnp.bool_)
     return OccupancyGrid(grid_resolution, num_entries, densities, mask, bitfield)
 
+def update_occupancy_grid_density(
+    KEY, batch_size:int, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
+    num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
+):
+    decayed_densities = densities * .95
+
+    all_indices = jnp.arange(num_grid_entries)
+    if warmup:
+        updated_indices = all_indices
+    else:
+        quarter_num_grid_entries = num_grid_entries // 4 # Corresponds to M/2 in the paper.
+        KEY, first_half_key, second_half_key = jax.random.split(KEY, 3)
+        # Uniformly sample M/2 grid cells.
+        uniform_index_samples = jax.random.choice(
+            key=first_half_key, 
+            a=all_indices, 
+            shape=(quarter_num_grid_entries,), 
+            replace=True, # Allow duplicate choices. 
+        )
+        # Uniformly samples M/2 occupied grid cells.
+        uniform_occupied_index_samples = jax.random.choice(
+            key=second_half_key, 
+            a=all_indices, 
+            shape=(quarter_num_grid_entries,), 
+            replace=True, # Allow duplicate choices. 
+            p=occupancy_mask.astype(jnp.float32) # Only sample from occupied cells.
+        )
+        # Total of M samples, where M is num_grid_entries / 2.
+        updated_indices = jnp.concatenate([
+            uniform_index_samples, uniform_occupied_index_samples
+        ])
+
+    updated_indices = updated_indices.astype(jnp.uint32)
+    coordinates = morton3d_invert(updated_indices).astype(jnp.float32)
+    # Transform coordinates to [-1, 1].
+    coordinates = coordinates / (grid_resolution - 1) * 2 - 1
+    half_cell_width = scene_bound / grid_resolution
+    # Transform coordinates to [-scene_bound + half_cell_width, scene_bound - half_cell_width].
+    coordinates = coordinates * (scene_bound - half_cell_width)
+    # Get random points inside grid cells.
+    KEY, key = jax.random.split(KEY, 2)
+    coordinates = coordinates + jax.random.uniform(
+        key,
+        coordinates.shape,
+        coordinates.dtype,
+        minval=-half_cell_width,
+        maxval=half_cell_width,
+    )
+    print('coordinates shape', coordinates.shape)
+    ...
+
 def create_train_state(
     model:nn.Module, 
     rng,
@@ -115,3 +166,52 @@ def load_dataset(dataset_path:str, downscale_factor:int):
     dataset.fl_x = float(dataset.cx / jnp.tan(dataset.horizontal_fov / 2))
     dataset.fl_y = float(dataset.cy / jnp.tan(dataset.vertical_fov / 2))
     return dataset
+
+class NGPNerf(nn.Module):
+    number_of_grid_levels: int # Corresponds to L in the paper.
+    max_hash_table_entries: int # Corresponds to T in the paper.
+    hash_table_feature_dim: int # Corresponds to F in the paper.
+    coarsest_resolution: int # Corresponds to N_min in the paper.
+    finest_resolution: int # Corresponds to N_max in the paper.
+    density_mlp_width: int
+    color_mlp_width: int
+    high_dynamic_range: bool
+    exponential_density_activation: bool
+    scene_bound: float
+
+    @nn.compact
+    def __call__(self, x):
+        position, direction = x
+        position = (position + self.scene_bound) / (2.0 * self.scene_bound)
+        encoded_position = ngp_nerf.MultiResolutionHashEncoding(
+            table_size=self.max_hash_table_entries,
+            num_levels=self.number_of_grid_levels,
+            min_resolution=self.coarsest_resolution,
+            max_resolution=self.finest_resolution,
+            feature_dim=self.hash_table_feature_dim
+        )(position)
+        x = encoded_position
+
+        x = nn.Dense(self.density_mlp_width, kernel_init=nn.initializers.normal())(x)
+        x = nn.activation.relu(x)
+        x = nn.Dense(16, kernel_init=nn.initializers.normal())(x)
+        if self.exponential_density_activation:
+            density = jnp.exp(x[0:1])
+        else:
+            density = nn.activation.relu(x[0:1])
+        density_feature = x
+
+        encoded_direction = ngp_nerf.fourth_order_sh_encoding(direction)
+        x = jnp.concatenate([density_feature, jnp.ravel(encoded_direction)], axis=0)
+        x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
+        x = nn.activation.relu(x)
+        x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
+        x = nn.activation.relu(x)
+        x = nn.Dense(3)(x)
+
+        if self.high_dynamic_range:
+            color = jnp.exp(x)
+        else:
+            color = nn.activation.sigmoid(x)
+        drgbs = jnp.concatenate([density, color], axis=-1)
+        return drgbs

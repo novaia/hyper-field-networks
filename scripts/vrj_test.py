@@ -320,13 +320,18 @@ def train_loop(
         #break
     return state, occupancy_grid
 
-#@partial(jax.jit, static_argnames=(
-#    'image_width',
-#    'image_height',
-#    'num_images',
-#    'total_ray_samples',
-#    'max_num_rays',
-#))
+@partial(jax.jit, static_argnames=(
+    'image_width',
+    'image_height',
+    'num_images',
+    'total_ray_samples',
+    'max_num_rays',
+    'grid_cascades',
+    'grid_resolution',
+    'scene_bound',
+    'diagonal_n_steps',
+    'stepsize_portion'
+))
 def train_step(
     image_width:int,
     image_height:int,

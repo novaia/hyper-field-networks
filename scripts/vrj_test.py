@@ -25,6 +25,7 @@ from functools import partial
 import optax
 import json
 from PIL import Image
+import matplotlib.pyplot as plt
 
 @dataclass
 class OccupancyGrid:
@@ -269,7 +270,6 @@ def train_loop(
     occupancy_grid_warmup_steps:int,
     occupancy_grid:OccupancyGrid,
 ):
-    get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
     num_images = dataset.images.shape[0]
     for step in range(training_steps):
         loss, state = train_step(
@@ -294,7 +294,7 @@ def train_loop(
             state=state
         )
         print('Step', step, 'Loss', loss)
-        
+
         if step % occupancy_grid_update_interval == 0 and step > 0:
             print('Updating occupancy grid')
             update_all = (step < occupancy_grid_warmup_steps)
@@ -471,6 +471,141 @@ class NGPNerfWithDepth(nn.Module):
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
 
+@partial(jax.jit, static_argnames=(
+    'principal_point_x',
+    'principal_point_y',
+    'focal_length_x',
+    'focal_length_y',
+    'scene_bound',
+    'diagonal_n_steps',
+    'grid_cascades',
+    'grid_resolution',
+    'stepsize_portion',
+    'total_ray_samples',
+    'max_num_rays'
+))
+def render_rays_inference(
+    width_indices:jax.Array, height_indices:jax.Array, transform_matrix:jax.Array, 
+    principal_point_x:int, principal_point_y:int, focal_length_x:float, focal_length_y:float,
+    scene_bound:float, diagonal_n_steps:int, grid_cascades:int, grid_resolution:int, 
+    stepsize_portion:float, total_ray_samples:int, occupancy_bitfield:jax.Array, 
+    state:TrainState, max_num_rays:int
+):
+    get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, None, None, None, None, None))
+    ray_origins, ray_directions = get_ray_vmap(
+        width_indices, height_indices, transform_matrix, 
+        principal_point_x, principal_point_y, focal_length_x, focal_length_y
+    )
+    t_starts, t_ends = make_near_far_from_bound(
+        bound=scene_bound, o=ray_origins, d=ray_directions
+    )
+    noises = jnp.zeros((ray_origins.shape[0],))
+
+    (measured_batch_size_before_compaction, ray_is_valid, rays_n_samples,
+    rays_sample_startidx, ray_idcs, xyzs, dirs, dss, z_vals) = march_rays(
+        total_samples=total_ray_samples, 
+        diagonal_n_steps=diagonal_n_steps,
+        K=grid_cascades,
+        G=grid_resolution,
+        bound=scene_bound,
+        stepsize_portion=stepsize_portion,
+        rays_o=ray_origins,
+        rays_d=ray_directions,
+        t_starts=jnp.ravel(t_starts),
+        t_ends=jnp.ravel(t_ends),
+        noises=noises,
+        occupancy_bitfield=occupancy_bitfield
+    )
+
+    def compute_sample(params, ray_sample, direction):
+        return state.apply_fn({'params': params}, (ray_sample, direction))
+    compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+    drgbs = compute_batch(state.params, xyzs, dirs)
+    
+    background_colors = jnp.ones((max_num_rays, 3))
+    effective_samples, final_rgbds, final_opacities = integrate_rays(
+        near_distance=0.1,
+        rays_sample_startidx=rays_sample_startidx,
+        rays_n_samples=rays_n_samples,
+        bgs=background_colors,
+        dss=dss,
+        z_vals=z_vals,
+        drgbs=drgbs,
+    )
+    pred_rgbs, pred_depths = jnp.array_split(final_rgbds, [3], axis=-1)
+    return pred_rgbs, pred_depths
+
+def render_scene(
+    patch_size_x:int,
+    patch_size_y:int,
+    dataset:Dataset, 
+    scene_bound:float,
+    diagonal_n_steps:int,
+    grid_cascades:int,
+    grid_resolution:int,
+    stepsize_portion:float,
+    occupancy_bitfield:jax.Array,
+    transform_matrix:jnp.ndarray, 
+    batch_size:int,
+    state:TrainState,
+    file_name:Optional[str]='rendered_image'
+):    
+    num_patches_x = dataset.w // patch_size_x
+    num_patches_y = dataset.h // patch_size_y
+    patch_area = patch_size_x * patch_size_y
+    image = np.ones((dataset.w, dataset.h, 3), dtype=np.float32)
+    depth_map = np.ones((dataset.w, dataset.h, 1), dtype=np.float32)
+
+    for x in range(num_patches_x):
+        patch_start_x = patch_size_x * x
+        patch_end_x = patch_start_x + patch_size_x
+        x_coordinates = jnp.arange(patch_start_x, patch_end_x)
+        for y in range(num_patches_y):
+            patch_start_y = patch_size_y * y
+            patch_end_y = patch_start_y + patch_size_y
+            y_coordinates = jnp.arange(patch_start_y, patch_end_y)
+            
+            x_grid_coordinates, y_grid_coordinates = jnp.meshgrid(x_coordinates, y_coordinates)
+            x_grid_coordinates = jnp.ravel(x_grid_coordinates)
+            y_grid_coordinates = jnp.ravel(y_grid_coordinates)
+
+            rendered_colors, rendered_depths = render_rays_inference(
+                width_indices=x_grid_coordinates, 
+                height_indices=y_grid_coordinates, 
+                transform_matrix=transform_matrix, 
+                principal_point_x=dataset.cx,
+                principal_point_y=dataset.cy, 
+                focal_length_x=dataset.fl_x, 
+                focal_length_y=dataset.fl_y, 
+                scene_bound=scene_bound, 
+                diagonal_n_steps=diagonal_n_steps, 
+                grid_cascades=grid_cascades, 
+                grid_resolution=grid_resolution, 
+                stepsize_portion=stepsize_portion, 
+                total_ray_samples=batch_size, 
+                occupancy_bitfield=occupancy_bitfield, 
+                state=state, 
+                max_num_rays=patch_area
+            )
+
+            image_patch_shape = (patch_size_x, patch_size_y, 3)
+            image_patch = np.reshape(rendered_colors, image_patch_shape, order='F')
+            image[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = image_patch
+
+            depth_patch_shape = (patch_size_x, patch_size_y, 1)
+            depth_patch = np.reshape(rendered_depths, depth_patch_shape, order='F')
+            depth_map[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = depth_patch
+
+    image = np.nan_to_num(image)
+    image = np.clip(image, 0, 1)
+    image = np.transpose(image, (1, 0, 2))
+    plt.imsave(os.path.join('data/', file_name + '.png'), image)
+    depth_map = np.nan_to_num(depth_map)
+    depth_map = np.clip(depth_map, 0, 1)
+    depth_map = np.transpose(depth_map, (1, 0, 2))
+    depth_map = np.squeeze(depth_map, axis=-1)
+    plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
+
 def generate_density_grid(
     num_points:int, 
     patch_size_x:int, 
@@ -569,8 +704,8 @@ def load_dataset(dataset_path:str, downscale_factor:int):
         transform_matrices=transform_matrices,
         images=images
     )
-    dataset.fl_x = dataset.cx / jnp.tan(dataset.horizontal_fov / 2)
-    dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
+    dataset.fl_x = float(dataset.cx / jnp.tan(dataset.horizontal_fov / 2))
+    dataset.fl_y = float(dataset.cy / jnp.tan(dataset.vertical_fov / 2))
     return dataset
 
 def main():
@@ -591,13 +726,16 @@ def main():
     ray_far = 3.0
     batch_size = 30000
     train_target_samples_per_ray = 32
-    train_max_rays = batch_size // train_target_samples_per_ray
+    #train_max_rays = batch_size // train_target_samples_per_ray
+    train_max_rays = batch_size
     render_max_samples_per_ray = 128
     training_steps = 500
     num_turntable_render_frames = 3
     turntable_render_camera_distance = 1.4
-    render_patch_size_x = 32
-    render_patch_size_y = 32
+    render_patch_size_x = 4
+    render_patch_size_y = 4
+    density_grid_patch_size_x = 32
+    density_grid_patch_size_y = 32
     num_density_grid_points = 32
 
     #scene_bound = 0.5
@@ -611,7 +749,7 @@ def main():
 
     # Prepocessing is slightly different than ngp_nerf implementation.
     # See note at top of file.
-    dataset = load_dataset('data/lego', 1)
+    dataset = load_dataset('data/lego', 8)
     print('Horizontal FOV:', dataset.horizontal_fov)
     print('Vertical FOV:', dataset.vertical_fov)
     print('Focal length x:', dataset.fl_x)
@@ -623,7 +761,9 @@ def main():
     print('Images shape:', dataset.images.shape)
     print('Max num rays: ', train_max_rays)
 
-    occupancy_grid = OccupancyGrid.create(cascades=1, grid_resolution=128)
+    occupancy_grid = OccupancyGrid.create(
+        cascades=grid_cascades, grid_resolution=grid_resolution
+    )
 
     model = NGPNerfWithDepth(
         number_of_grid_levels=num_hash_table_levels,
@@ -658,10 +798,25 @@ def main():
         occupancy_grid_warmup_steps=occupancy_grid_warmup_steps,
         occupancy_grid=occupancy_grid,
     )
-    generate_density_grid(
-        num_points=num_density_grid_points,
+    render_scene(
         patch_size_x=render_patch_size_x,
         patch_size_y=render_patch_size_y,
+        dataset=dataset,
+        scene_bound=scene_bound,
+        diagonal_n_steps=diagonal_n_steps,
+        grid_cascades=grid_cascades,
+        grid_resolution=grid_resolution,
+        stepsize_portion=stepsize_portion,
+        occupancy_bitfield=occupancy_grid.occupancy,
+        transform_matrix=dataset.transform_matrices[2],
+        batch_size=batch_size,
+        state=state,
+        file_name='vrj_test_render_image'
+    )
+    generate_density_grid(
+        num_points=num_density_grid_points,
+        patch_size_x=density_grid_patch_size_x,
+        patch_size_y=density_grid_patch_size_y,
         min_coordinate=-scene_bound,
         max_coordinate=scene_bound,
         state=state,

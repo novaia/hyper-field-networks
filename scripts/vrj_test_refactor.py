@@ -5,8 +5,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 from fields import ngp_nerf_cuda, Dataset
-from volrendjax import integrate_rays, integrate_rays_inference, march_rays
-from volrendjax import march_rays_inference, morton3d_invert, packbits
+from volrendjax import morton3d_invert
 import numpy as np
 from functools import partial
 from PIL import Image
@@ -47,21 +46,25 @@ def update_occupancy_grid(
     state:ngp_nerf_cuda.TrainState, occupancy_grid:ngp_nerf_cuda.OccupancyGrid
 ):
     warmup = step < occupancy_grid.warmup_steps
-    occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
-        KEY=jax.random.PRNGKey(step),
-        batch_size=batch_size,
-        densities=occupancy_grid.densities,
-        occupancy_mask=occupancy_grid.mask,
-        grid_resolution=occupancy_grid.grid_resolution,
-        num_grid_entries=occupancy_grid.num_entries,
-        scene_bound=scene_bound,
-        state=state,
-        warmup=warmup
+    occupancy_grid.densities = jax.lax.stop_gradient(
+        ngp_nerf_cuda.update_occupancy_grid_density(
+            KEY=jax.random.PRNGKey(step),
+            batch_size=batch_size,
+            densities=occupancy_grid.densities,
+            occupancy_mask=occupancy_grid.mask,
+            grid_resolution=occupancy_grid.grid_resolution,
+            num_grid_entries=occupancy_grid.num_entries,
+            scene_bound=scene_bound,
+            state=state,
+            warmup=warmup
+        )
     )
-    occupancy_grid.mask, occupancy_grid.bitfield = ngp_nerf_cuda.threshold_occupancy_grid(
-        diagonal_n_steps=diagonal_n_steps,
-        scene_bound=scene_bound,
-        densities=occupancy_grid.densities
+    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
+        ngp_nerf_cuda.threshold_occupancy_grid(
+            diagonal_n_steps=diagonal_n_steps,
+            scene_bound=scene_bound,
+            densities=occupancy_grid.densities
+        )
     )
     return occupancy_grid
 
@@ -108,7 +111,7 @@ def train_loop(
                 state=state,
                 occupancy_grid=occupancy_grid
             )
-    return state
+    return state, occupancy_grid
 
 def main():
     num_hash_table_levels = 16
@@ -119,18 +122,18 @@ def main():
     density_mlp_width = 64
     color_mlp_width = 64
     high_dynamic_range = False
-    exponential_density_activation = False
+    exponential_density_activation = True
 
     learning_rate = 1e-2
     epsilon = 1e-15
     weight_decay_coefficient = 1e-6
-    batch_size = 30000
+    batch_size = 256 * 1024
     scene_bound = 1.0
     grid_resolution = 128
     grid_update_interval = 16
     grid_warmup_steps = 256
     diagonal_n_steps = 1024
-    train_steps = 500
+    train_steps = 1000
     stepsize_portion = 1.0 / 256.0
 
     model = ngp_nerf_cuda.NGPNerf(
@@ -160,7 +163,7 @@ def main():
         warmup_steps=grid_warmup_steps
     )
     dataset = ngp_nerf_cuda.load_dataset('data/lego', 1)
-    state = train_loop(
+    state, occupancy_grid = train_loop(
         batch_size=batch_size,
         train_steps=train_steps,
         dataset=dataset,
@@ -170,6 +173,12 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
+    jnp.save('data/occupancy_grid_density.npy', occupancy_grid.mask.astype(np.float32))
+    occupancy_grid_coordinates = morton3d_invert(
+        jnp.arange(occupancy_grid.mask.shape[0], dtype=jnp.uint32)
+    )
+    occupancy_grid_coordinates = occupancy_grid_coordinates / (grid_resolution - 1) * 2 - 1
+    jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)
 
 if __name__ == '__main__':
     main()

@@ -798,6 +798,7 @@ def main():
         occupancy_grid_warmup_steps=occupancy_grid_warmup_steps,
         occupancy_grid=occupancy_grid,
     )
+    '''
     render_scene(
         patch_size_x=render_patch_size_x,
         patch_size_y=render_patch_size_y,
@@ -822,6 +823,7 @@ def main():
         state=state,
         file_name='vrj_test_density_grid'
     )
+    '''
     jnp.save('data/occupancy_grid_bitfield.npy', occupancy_grid.occupancy)
     jnp.save('data/occupancy_grid_density.npy', occupancy_grid.density)
     occupancy_grid_coordinates = morton3d_invert(

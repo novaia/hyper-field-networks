@@ -10,7 +10,8 @@ import optax
 import json
 from PIL import Image
 from fields import ngp_nerf, Dataset
-from fields.volrendjax_temp import make_near_far_from_bound
+from fields.temp import make_near_far_from_bound
+from fields.temp import truncated_exponential, thresholded_exponential
 import os
 
 @dataclass
@@ -132,7 +133,14 @@ def create_train_state(
     x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
-    adam = optax.adam(learning_rate, eps=epsilon, eps_root=epsilon)
+    learning_rate_schedule = optax.exponential_decay(
+        init_value=learning_rate, 
+        transition_steps=100, 
+        decay_rate=1/3, 
+        transition_begin=100,
+        end_value=learning_rate/100
+    )
+    adam = optax.adam(learning_rate_schedule, eps=epsilon, eps_root=epsilon)
     # To prevent divergence after long training periods, the paper applies a weak 
     # L2 regularization to the network weights, but not the hash table entries.
     weight_decay_mask = dict({
@@ -147,10 +155,11 @@ def create_train_state(
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     # Note that the translation component is not shifted.
     # This is different than the implementation in ngp_nerf (non-cuda).
+    alt_scale = 3
     new = jnp.array([
-        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
-        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
-        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
+        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale * alt_scale],
+        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale * alt_scale],
+        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale * alt_scale],
     ])
     return new
 
@@ -232,7 +241,9 @@ class NGPNerf(nn.Module):
         x = nn.activation.relu(x)
         x = nn.Dense(16, kernel_init=nn.initializers.normal())(x)
         if self.exponential_density_activation:
-            density = jnp.exp(x[0:1])
+            #density = jnp.exp(x[0:1])
+            density = truncated_exponential()(x[0:1])
+            #density = thresholded_exponential()(x[0:1])
         else:
             density = nn.activation.relu(x[0:1])
         density_feature = x
@@ -287,7 +298,7 @@ def train_step(
     focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
     stepsize_portion:float
 ):
-    KEY, pixel_sample_key = jax.random.split(KEY, 2)
+    pixel_sample_key, random_bg_key, noise_key = jax.random.split(KEY, 3)
     image_indices, width_indices, height_indices = sample_pixels(
         key=pixel_sample_key, num_samples=batch_size, image_width=image_width,
         image_height=image_height, num_images=num_images
@@ -300,7 +311,10 @@ def train_step(
     )
 
     t_starts, t_ends = make_near_far_from_bound(scene_bound, ray_origins, ray_directions)
-    noises = jnp.zeros((batch_size,))
+    #noises = jnp.zeros((batch_size,))
+    noises = jax.random.uniform(
+        noise_key, (batch_size,), dtype=t_starts.dtype, minval=0.0, maxval=1.0
+    )
 
     ray_march_result = march_rays(
         total_samples=batch_size,
@@ -327,9 +341,10 @@ def train_step(
 
     def loss_fn(params):
         drgbs = compute_batch(params, positions, directions)
-        background_colors = jnp.ones((batch_size, 3))
+        #background_colors = jnp.ones((batch_size, 3))
+        background_colors = jax.random.uniform(random_bg_key, (batch_size, 3))
         integration_result = integrate_rays(
-            near_distance=0.1,
+            near_distance=0.3,
             rays_sample_startidx=rays_sample_start_idx,
             rays_n_samples=rays_n_samples,
             bgs=background_colors,
@@ -340,11 +355,14 @@ def train_step(
         _, final_rgbds, _ = integration_result
         pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
         target_rgbs = images[image_indices, width_indices, height_indices, :3]
+        target_alphas = images[image_indices, width_indices, height_indices, 3:]
+        target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
         loss = jnp.sum(jnp.where(
             ray_is_valid, 
             jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),
             0.0,
         )) / num_valid_rays
+        loss = jax.tree_util.tree_reduce(lambda x, y: x + y, loss)
         return loss
     
     grad_fn = jax.value_and_grad(loss_fn)

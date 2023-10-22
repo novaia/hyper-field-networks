@@ -20,8 +20,7 @@ import pydantic
 from tqdm import tqdm
 from volrendjax import morton3d_invert, packbits
 
-from ._constants import tqdm_format
-
+tqdm_format = "SBRIGHT{desc}RESET: HI{percentage:3.0f}%RESET {n_fmt}/{total_fmt} [{elapsed}<HI{remaining}RESET, {rate_fmt}]"
 
 CameraModelType = Literal[
     "SIMPLE_PINHOLE",

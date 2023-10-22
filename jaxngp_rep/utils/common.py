@@ -53,7 +53,7 @@ def jit_jaxfn_with(
         donate_argnums: Union[int, Iterable[int]] = (),
         inline: bool = False,
         keep_unused: bool = False,
-        abstracted_axes: Any | None = None,
+        abstracted_axes: Union[Any, None] = None,
     ):
     return functools.partial(
         jax.jit,

@@ -4,7 +4,7 @@ sys.path.append(os.getcwd())
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from fields import ngp_nerf_cuda, Dataset
+from fields import ngp_nerf_cuda, Dataset, temp
 from volrendjax import morton3d_invert
 import numpy as np
 from functools import partial
@@ -46,7 +46,8 @@ def update_occupancy_grid(
     state:ngp_nerf_cuda.TrainState, occupancy_grid:ngp_nerf_cuda.OccupancyGrid
 ):
     warmup = step < occupancy_grid.warmup_steps
-    occupancy_grid.densities = jax.lax.stop_gradient(
+    #occupancy_grid.densities = jax.lax.stop_gradient(
+    densities_refactored = jax.lax.stop_gradient(
         ngp_nerf_cuda.update_occupancy_grid_density(
             KEY=jax.random.PRNGKey(step),
             batch_size=batch_size,
@@ -59,13 +60,52 @@ def update_occupancy_grid(
             warmup=warmup
         )
     )
-    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
+    densities_original = jax.lax.stop_gradient(
+        temp.update_occupancy_grid_density(
+            KEY=jax.random.PRNGKey(step),
+            cas=0,
+            update_all=warmup,
+            max_inference=batch_size,
+            alive_indices=jnp.arange(occupancy_grid.num_entries, dtype=jnp.uint32),
+            alive_indices_offset=jnp.array([0, occupancy_grid.num_entries], dtype=jnp.uint32),
+            occ_mask=occupancy_grid.mask,
+            density=occupancy_grid.densities,
+            density_grid_res=occupancy_grid.grid_resolution,
+            scene_bound=scene_bound,
+            state=state
+        )
+    )
+    print(densities_refactored)
+    print(densities_original)
+    assertion_text = 'Densities refactored and original are not equal.'
+    #assert jnp.allclose(densities_refactored, densities_original), assertion_text
+    occupancy_grid.densities = densities_refactored
+
+    #occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
+    mask_refactored, bitfield_refactored = jax.lax.stop_gradient(
         ngp_nerf_cuda.threshold_occupancy_grid(
             diagonal_n_steps=diagonal_n_steps,
             scene_bound=scene_bound,
             densities=occupancy_grid.densities
         )
     )
+    mask_original, bitfield_original = jax.lax.stop_gradient(
+        temp.threshold_occupancy_grid(
+            mean_density=jnp.mean(occupancy_grid.densities),
+            diagonal_n_steps=diagonal_n_steps,
+            scene_bound=scene_bound,
+            density=occupancy_grid.densities
+        )
+    )
+    print('masks')
+    print(mask_refactored)
+    print(mask_original)
+    print('bitfields')
+    print(bitfield_refactored)
+    print(bitfield_original)
+    assert(jnp.allclose(mask_refactored, mask_original)), 'masks not close'
+    assert(jnp.allclose(bitfield_refactored, bitfield_original)), 'bitfields not close'
+    occupancy_grid.mask, occupancy_grid.bitfield = mask_refactored, bitfield_refactored
     return occupancy_grid
 
 def train_loop(
@@ -100,7 +140,7 @@ def train_loop(
             stepsize_portion=stepsize_portion
         )
         print('Step', step, 'Loss', loss)
-        
+
         if step % occupancy_grid.update_interval == 0 and step > 0:
             print('Updating occupancy grid...')
             occupancy_grid = update_occupancy_grid(

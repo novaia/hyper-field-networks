@@ -140,7 +140,7 @@ def create_train_state(
         transition_begin=100,
         end_value=learning_rate/100
     )
-    adam = optax.adam(learning_rate_schedule, eps=epsilon, eps_root=epsilon)
+    adam = optax.adam(learning_rate, eps=epsilon, eps_root=epsilon)
     # To prevent divergence after long training periods, the paper applies a weak 
     # L2 regularization to the network weights, but not the hash table entries.
     weight_decay_mask = dict({
@@ -157,7 +157,7 @@ def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     # This is different than the implementation in ngp_nerf (non-cuda).
     # The alt scale is just to debug the effects of the cameras being closer to or further away
     # from the origin.
-    alt_scale = 1
+    alt_scale = 2
     new = jnp.array([
         [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale * alt_scale],
         [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale * alt_scale],

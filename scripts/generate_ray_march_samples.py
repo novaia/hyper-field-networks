@@ -45,7 +45,9 @@ def main():
     _, ray_is_valid, rays_n_samples, rays_sample_start_idx, \
     _, positions, directions, dss, z_vals = ray_march_result
     num_valid_rays = jnp.sum(ray_is_valid)
+    num_valid_samples = jnp.sum(rays_n_samples)
     print('num_valid_rays', num_valid_rays)
+    print('num valid samples', num_valid_samples)
     print('positions shape', positions.shape)
     print('directions shape', directions.shape)
     print(jnp.max(positions))

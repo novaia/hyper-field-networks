@@ -17,7 +17,8 @@ from matplotlib import pyplot as plt
 from natsort import natsorted
 import numpy as np
 
-from .common import jit_jaxfn_with, mkValueError, tqdm
+from tqdm import tqdm
+from .common import jit_jaxfn_with, mkValueError
 from .types import (
     ImageMetadata,
     Camera,

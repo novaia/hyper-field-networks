@@ -162,7 +162,7 @@ def render_rays_train(
     return batch_metrics, final_rgbds, tv
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class MarchAndIntegrateInferencePayload:
     march_steps_cap: int
     diagonal_n_steps: int

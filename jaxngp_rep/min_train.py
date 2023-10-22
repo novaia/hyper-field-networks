@@ -30,8 +30,9 @@ def train():
         max_mem_mbytes=2500,
         bound=1
     )
-    frames_train = 'data/lego'
+    frames_train = ['data/lego']
     scene_train = data.load_scene(srcs=frames_train, scene_options=scene_options)
+    print(scene_train)
 
 def make_optimizer(lr: float) -> optax.GradientTransformation:
     lr_sch = optax.exponential_decay(

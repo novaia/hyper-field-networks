@@ -673,7 +673,7 @@ class TransformJsonBase:
     # scene's bound, the name `aabb_scale` is for compatibility with instant-ngp (note that
     # instant-ngp requires this value to be a power of 2, other than that a value that can work with
     # instant-ngp will work with this code base as well).
-    aabb_scale: float=dataclasses.field(default=1., kw_only=True)
+    aabb_scale: float=dataclasses.field(default=1.)
 
     # scale camera's translation vectors by this factor while loading (default value taken from
     # NVLabs/instant-ngp/include/neural-graphics-primitives/nerf_loader.h), since current
@@ -683,13 +683,13 @@ class TransformJsonBase:
     # I.e. if the transform*.json specifies `"scale": 0.3`, loaded cameras' translation vectors will
     # be scaled by `0.6`.  See `utils.types.TransformJsonFrame.scale_camera_positions` for details.
     # NOTE: this value does not affect scene's bounding box
-    scale: float=dataclasses.field(default=1/3, kw_only=True)
+    scale: float=dataclasses.field(default=1/3)
 
-    bg: bool=dataclasses.field(default=False, kw_only=True)
+    bg: bool=dataclasses.field(default=False)
 
-    up: Tuple[float, float, float]=dataclasses.field(default=(0, 0, 1), kw_only=True)
+    up: Tuple[float, float, float]=dataclasses.field(default=(0, 0, 1))
 
-    n_extra_learnable_dims: int=dataclasses.field(default=0, kw_only=True)
+    n_extra_learnable_dims: int=dataclasses.field(default=0)
 
     def rotate_world_up(self) -> "TransformJsonBase":
         return self.replace(

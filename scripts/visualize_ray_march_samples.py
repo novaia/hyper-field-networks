@@ -48,10 +48,12 @@ parser.add_argument('--gui', type=bool, default=False)
 args = parser.parse_args()
 
 positions = np.load('data/ray_marched_positions.npy')
+origins = np.load('data/ray_origins.npy')
 
-point_cloud = create_point_cloud(positions)
+sample_cloud = Spherecloud(centers=positions, colors=(0.5, 0.5, 0.5), sizes=0.01)
+origin_cloud = Spherecloud(centers=origins, colors=(0, 0, 0.8), sizes=0.02)
 bounding_cube_lines = create_bounding_cube_lines(1)
-renderables = [point_cloud, bounding_cube_lines]
+renderables = [sample_cloud, origin_cloud, bounding_cube_lines]
 
 if args.gui:
     from simple_3dviz.window import show

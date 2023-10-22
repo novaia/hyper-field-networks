@@ -12,6 +12,104 @@ from functools import partial
 from PIL import Image
 import matplotlib.pyplot as plt
 
+def test_occupancy_grid_functions(state):
+    batch_size = 30000
+    scene_bound = 1.0
+    diagonal_n_steps = 1024
+    grid_resolution = 128
+    warmup = False
+
+    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(grid_resolution=grid_resolution)
+    occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
+        KEY=jax.random.PRNGKey(0),
+        batch_size=batch_size,
+        densities=occupancy_grid.densities,
+        occupancy_mask=occupancy_grid.mask,
+        grid_resolution=occupancy_grid.grid_resolution,
+        num_grid_entries=occupancy_grid.num_entries,
+        scene_bound=scene_bound,
+        state=state,
+        warmup=warmup,
+    )
+
+    print('mask shape before', occupancy_grid.mask.shape)
+    print('bitfield shape before', occupancy_grid.bitfield.shape)
+    occupancy_grid.mask, occupancy_grid.bitfield = ngp_nerf_cuda.threshold_occupancy_grid(
+        diagonal_n_steps=diagonal_n_steps,
+        scene_bound=scene_bound,
+        densities=occupancy_grid.densities
+    )
+    print('mask shape after', occupancy_grid.mask.shape)
+    print('bitfield shape after', occupancy_grid.bitfield.shape)
+
+def update_occupancy_grid(
+    batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
+    state:ngp_nerf_cuda.TrainState, occupancy_grid:ngp_nerf_cuda.OccupancyGrid
+):
+    warmup = step < occupancy_grid.warmup_steps
+    occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
+        KEY=jax.random.PRNGKey(step),
+        batch_size=batch_size,
+        densities=occupancy_grid.densities,
+        occupancy_mask=occupancy_grid.mask,
+        grid_resolution=occupancy_grid.grid_resolution,
+        num_grid_entries=occupancy_grid.num_entries,
+        scene_bound=scene_bound,
+        state=state,
+        warmup=warmup
+    )
+    occupancy_grid.mask, occupancy_grid.bitfield = ngp_nerf_cuda.threshold_occupancy_grid(
+        diagonal_n_steps=diagonal_n_steps,
+        scene_bound=scene_bound,
+        densities=occupancy_grid.densities
+    )
+    return occupancy_grid
+
+def train_loop(
+    batch_size:int, 
+    train_steps:int, 
+    dataset:Dataset, 
+    scene_bound:float, 
+    diagonal_n_steps:int, 
+    stepsize_portion:float,
+    occupancy_grid:ngp_nerf_cuda.OccupancyGrid,
+    state:ngp_nerf_cuda.TrainState
+):
+    num_images = dataset.images.shape[0]
+    for step in range(train_steps):
+        loss, state = ngp_nerf_cuda.train_step(
+            KEY=jax.random.PRNGKey(step),
+            batch_size=batch_size,
+            image_width=dataset.w,
+            image_height=dataset.h,
+            num_images=num_images,
+            images=dataset.images,
+            transform_matrices=dataset.transform_matrices,
+            state=state,
+            occupancy_bitfield=occupancy_grid.bitfield,
+            grid_resolution=occupancy_grid.grid_resolution,
+            principal_point_x=dataset.cx,
+            principal_point_y=dataset.cy,
+            focal_length_x=dataset.fl_x,
+            focal_length_y=dataset.fl_y,
+            scene_bound=scene_bound,
+            diagonal_n_steps=diagonal_n_steps,
+            stepsize_portion=stepsize_portion
+        )
+        print('Step', step, 'Loss', loss)
+        
+        if step % occupancy_grid.update_interval == 0 and step > 0:
+            print('Updating occupancy grid...')
+            occupancy_grid = update_occupancy_grid(
+                batch_size=batch_size,
+                diagonal_n_steps=diagonal_n_steps,
+                scene_bound=scene_bound,
+                step=step,
+                state=state,
+                occupancy_grid=occupancy_grid
+            )
+    return state
+
 def main():
     num_hash_table_levels = 16
     max_hash_table_entries = 2**20
@@ -29,7 +127,11 @@ def main():
     batch_size = 30000
     scene_bound = 1.0
     grid_resolution = 128
+    grid_update_interval = 16
+    grid_warmup_steps = 256
     diagonal_n_steps = 1024
+    train_steps = 500
+    stepsize_portion = 1.0 / 256.0
 
     model = ngp_nerf_cuda.NGPNerf(
         number_of_grid_levels=num_hash_table_levels,
@@ -52,28 +154,22 @@ def main():
         epsilon=epsilon,
         weight_decay_coefficient=weight_decay_coefficient
     )
-    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(grid_resolution=grid_resolution)
-    occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
-        KEY=jax.random.PRNGKey(0),
+    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(
+        grid_resolution=grid_resolution, 
+        update_interval=grid_update_interval, 
+        warmup_steps=grid_warmup_steps
+    )
+    dataset = ngp_nerf_cuda.load_dataset('data/lego', 1)
+    state = train_loop(
         batch_size=batch_size,
-        densities=occupancy_grid.densities,
-        occupancy_mask=occupancy_grid.mask,
-        grid_resolution=occupancy_grid.grid_resolution,
-        num_grid_entries=occupancy_grid.num_entries,
-        scene_bound=0.5,
-        state=state,
-        warmup=False,
-    )
-
-    print('mask shape before', occupancy_grid.mask.shape)
-    print('bitfield shape before', occupancy_grid.bitfield.shape)
-    occupancy_grid.mask, occupancy_grid.bitfield = ngp_nerf_cuda.threshold_occupancy_grid(
-        diagonal_n_steps=diagonal_n_steps,
+        train_steps=train_steps,
+        dataset=dataset,
         scene_bound=scene_bound,
-        densities=occupancy_grid.densities
+        diagonal_n_steps=diagonal_n_steps,
+        stepsize_portion=stepsize_portion,
+        occupancy_grid=occupancy_grid,
+        state=state
     )
-    print('mask shape after', occupancy_grid.mask.shape)
-    print('bitfield shape after', occupancy_grid.bitfield.shape)
 
 if __name__ == '__main__':
     main()

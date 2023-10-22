@@ -2,38 +2,38 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from fields import ngp_nerf, Dataset
-from volrendjax import integrate_rays, integrate_rays_inference, march_rays, march_rays_inference
+from volrendjax import integrate_rays, march_rays
 from volrendjax import morton3d_invert, packbits
 from dataclasses import dataclass
-import dataclasses
-from typing import Callable, List, Literal, Tuple, Type, Union, Optional
-from flax import struct
-import numpy as np
 from functools import partial
 import optax
 import json
 from PIL import Image
-import matplotlib.pyplot as plt
-from fields import Dataset
+from fields import ngp_nerf, Dataset
+from fields.volrendjax_temp import make_near_far_from_bound
 import os
 
 @dataclass
 class OccupancyGrid:
     grid_resolution: int
     num_entries: int
+    update_interval: int
+    warmup_steps: int
     densities: jax.Array # Full precision density values.
     mask: jax.Array # Non-compact boolean representation of occupancy.
     bitfield: jax.Array # Compact occupancy bitfield.
 
-def create_occupancy_grid(grid_resolution: int=128) -> OccupancyGrid:
+def create_occupancy_grid(grid_resolution:int, update_interval:int, warmup_steps:int):
     num_entries = grid_resolution**3
     # Each bit is an occupancy value, and uint8 is 8 bytes, so divide num_entries by 8.
     # This gives one entry per bit.
     bitfield = 255 * jnp.ones(shape=(num_entries // 8,), dtype=jnp.uint8)
     densities = jnp.zeros(shape=(num_entries,), dtype=jnp.float32)
     mask = jnp.zeros(shape=(num_entries,), dtype=jnp.bool_)
-    return OccupancyGrid(grid_resolution, num_entries, densities, mask, bitfield)
+    return OccupancyGrid(
+        grid_resolution, num_entries, update_interval, 
+        warmup_steps, densities, mask, bitfield
+    )
 
 @jax.jit
 def compute_densities(state, positions):
@@ -251,3 +251,103 @@ class NGPNerf(nn.Module):
             color = nn.activation.sigmoid(x)
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
+
+def sample_pixels(
+    key, num_samples:int, image_width:int, image_height:int, num_images:int, 
+):
+    width_rng, height_rng, image_rng = jax.random.split(key, num=3) 
+    width_indices = jax.random.randint(
+        width_rng, shape=(num_samples,), minval=0, maxval=image_width
+    )
+    height_indices = jax.random.randint(
+        height_rng, shape=(num_samples,), minval=0, maxval=image_height
+    )
+    image_indices = jax.random.randint(
+        image_rng, shape=(num_samples,), minval=0, maxval=num_images
+    )
+    indices = (image_indices, width_indices, height_indices)
+    return indices 
+
+@jax.jit
+def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
+    direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
+    direction = transform_matrix[:3, :3] @ direction
+    direction = direction / jnp.linalg.norm(direction)
+    origin = transform_matrix[:3, -1]
+    return origin, direction
+
+@partial(jax.jit, static_argnames=(
+    'batch_size', 'image_width', 'image_height', 'num_images', 'grid_resolution',
+    'diagonal_n_steps', 'scene_bound', 'stepsize_portion'
+))
+def train_step(
+    KEY, batch_size:int, image_width:int, image_height:int, num_images:int, images:jax.Array,
+    transform_matrices:jax.Array, state:TrainState, occupancy_bitfield:jax.Array, 
+    grid_resolution:int, principal_point_x:float, principal_point_y:float, 
+    focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
+    stepsize_portion:float
+):
+    KEY, pixel_sample_key = jax.random.split(KEY, 2)
+    image_indices, width_indices, height_indices = sample_pixels(
+        key=pixel_sample_key, num_samples=batch_size, image_width=image_width,
+        image_height=image_height, num_images=num_images
+    )
+
+    get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
+    ray_origins, ray_directions = get_rays(
+        width_indices, height_indices, transform_matrices[image_indices], 
+        principal_point_x, principal_point_y, focal_length_x, focal_length_y
+    )
+
+    t_starts, t_ends = make_near_far_from_bound(scene_bound, ray_origins, ray_directions)
+    noises = jnp.zeros((batch_size,))
+
+    ray_march_result = march_rays(
+        total_samples=batch_size,
+        diagonal_n_steps=diagonal_n_steps,
+        K=1,
+        G=grid_resolution,
+        bound=scene_bound,
+        stepsize_portion=stepsize_portion,
+        rays_o=ray_origins,
+        rays_d=ray_directions,
+        t_starts=jnp.ravel(t_starts),
+        t_ends=jnp.ravel(t_ends),
+        noises=noises,
+        occupancy_bitfield=occupancy_bitfield
+    )
+
+    _, ray_is_valid, rays_n_samples, rays_sample_start_idx, \
+    _, positions, directions, dss, z_vals = ray_march_result
+    num_valid_rays = jnp.sum(ray_is_valid)
+
+    def compute_sample(params, ray_sample, direction):
+        return state.apply_fn({'params': params}, (ray_sample, direction))
+    compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+
+    def loss_fn(params):
+        drgbs = compute_batch(params, positions, directions)
+        background_colors = jnp.ones((batch_size, 3))
+        integration_result = integrate_rays(
+            near_distance=0.1,
+            rays_sample_startidx=rays_sample_start_idx,
+            rays_n_samples=rays_n_samples,
+            bgs=background_colors,
+            dss=dss,
+            z_vals=z_vals,
+            drgbs=drgbs,
+        )
+        _, final_rgbds, _ = integration_result
+        pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
+        target_rgbs = images[image_indices, width_indices, height_indices, :3]
+        loss = jnp.sum(jnp.where(
+            ray_is_valid, 
+            jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),
+            0.0,
+        )) / num_valid_rays
+        return loss
+    
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
+    state = state.apply_gradients(grads=grads)
+    return loss, state

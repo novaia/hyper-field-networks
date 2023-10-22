@@ -754,19 +754,19 @@ class TransformJsonBase:
 @replace_impl
 @pydantic.dataclasses.dataclass(frozen=True)
 class TransformJsonNeRFSynthetic(TransformJsonBase):
-    camera_angle_x: float
+    camera_angle_x: float = 0.0
 
 
 @replace_impl
 @pydantic.dataclasses.dataclass(frozen=True)
 class TransformJsonNGP(TransformJsonBase):
-    fl_x: float
-    fl_y: float
-    cx: float
-    cy: float
+    fl_x: float = 0.0
+    fl_y: float = 0.0
+    cx: float = 0.0
+    cy: float = 0.0
 
-    w: int
-    h: int
+    w: int = 0
+    h: int = 0
 
     k1: float=0.
     k2: float=0.

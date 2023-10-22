@@ -155,7 +155,9 @@ def create_train_state(
 def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
     # Note that the translation component is not shifted.
     # This is different than the implementation in ngp_nerf (non-cuda).
-    alt_scale = 3
+    # The alt scale is just to debug the effects of the cameras being closer to or further away
+    # from the origin.
+    alt_scale = 1
     new = jnp.array([
         [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale * alt_scale],
         [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale * alt_scale],

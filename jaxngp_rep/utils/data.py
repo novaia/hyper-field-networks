@@ -17,7 +17,6 @@ from matplotlib import pyplot as plt
 from natsort import natsorted
 import numpy as np
 
-from . import sfm
 from .common import jit_jaxfn_with, mkValueError, tqdm
 from .types import (
     ImageMetadata,
@@ -250,92 +249,6 @@ def write_transforms_json(
     )
     all_transform_json.save(scene_root_dir.joinpath("transforms.json"))
     return all_transform_json
-
-
-def create_scene_from_single_camera_image_collection(
-    raw_images_dir: Path,
-    scene_root_dir: Path,
-    opts: SceneCreationOptions,
-):
-    raw_images_dir, scene_root_dir = Path(raw_images_dir), Path(scene_root_dir)
-    scene_root_dir.mkdir(parents=True, exist_ok=True)
-
-    artifacts_dir = scene_root_dir.joinpath("artifacts")
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    db_path = artifacts_dir.joinpath("colmap.db")
-    sparse_reconstructions_dir = artifacts_dir.joinpath("sparse")
-    undistorted_images_dir = scene_root_dir.joinpath("images-undistorted")
-    out_model_dir = (
-        undistorted_images_dir.joinpath("sparse")
-        if opts.undistort
-        else sparse_reconstructions_dir.joinpath("0")
-    )
-    out_images_dir = (
-        undistorted_images_dir.joinpath("images")
-        if opts.undistort
-        else raw_images_dir
-    )
-    text_model_dir = artifacts_dir.joinpath("text")
-
-    sfm.extract_features(images_dir=raw_images_dir, db_path=db_path, camera_model=opts.camera_model)
-
-    sfm.match_features(matcher=opts.matcher, db_path=db_path)
-
-    maps = sfm.sparse_reconstruction(
-        images_dir=raw_images_dir,
-        sparse_reconstructions_dir=sparse_reconstructions_dir,
-        db_path=db_path,
-        matcher=opts.matcher,
-    )
-    if len(maps) == 0:
-        raise RuntimeError("mapping with colmap failed")
-    elif len(maps) > 1:
-        warnings.warn(
-            "colmap reconstructed more than 1 maps, we will only use the first map")
-
-    sparse_recon_dir = sparse_reconstructions_dir.joinpath("0")
-
-    sfm.colmap_bundle_adjustment(sparse_reconstruction_dir=sparse_recon_dir, max_num_iterations=200)
-
-    if opts.undistort:
-        sfm.undistort(
-            images_dir=raw_images_dir,
-            sparse_reconstruction_dir=sparse_recon_dir,
-            undistorted_images_dir=undistorted_images_dir,
-        )
-
-    sfm.export_text_format_model(
-        sparse_reconstruction_dir=out_model_dir,
-        text_model_dir=text_model_dir,
-    )
-
-    write_transforms_json(
-        scene_root_dir=scene_root_dir,
-        images_dir=out_images_dir,
-        text_model_dir=text_model_dir,
-        opts=opts,
-    )
-
-
-def create_scene_from_video(
-    video_path: Path,
-    scene_root_dir: Path,
-    fps: int,
-    opts: SceneCreationOptions,
-):
-    video_path, scene_root_dir = Path(video_path), Path(scene_root_dir)
-    raw_images_dir = scene_root_dir.joinpath("images-raw")
-    video_to_images(
-        video_in=video_path,
-        images_dir=raw_images_dir,
-        fps=fps,
-    )
-    create_scene_from_single_camera_image_collection(
-        raw_images_dir=raw_images_dir,
-        scene_root_dir=scene_root_dir,
-        opts=opts,
-    )
-
 
 def to_unit_cube_2d(xys: jax.Array, W: int, H: int):
     "Normalizes coordinate (x, y) into range [0, 1], where 0<=x<W, 0<=y<H"

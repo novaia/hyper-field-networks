@@ -4,12 +4,14 @@ import functools
 import gc
 import time
 from typing import Any, Dict, List, Tuple, Union
+from tqdm import tqdm
 
 import jax
 import jax.numpy as jnp
 import jax.random as jran
 import optax
 
+from volrendjax import morton3d_invert
 from nerfs import make_nerf_ngp, make_skysphere_background_model_ngp
 from utils import common, data
 from utils.types import (
@@ -19,10 +21,80 @@ from utils.types import (
     RigidTransformation,
     SceneData,
     SceneOptions,
+    RayMarchingOptions,
+    RenderingOptions
 )
 from cuda import render_rays_train
 
+def train_epoch(
+    KEY: jran.KeyArray,
+    state: NeRFState,
+    scene: SceneData,
+    iters: int,
+    total_samples: int,
+    ep_log: int,
+    total_epochs: int
+) -> Tuple[NeRFState, Dict[str, Any]]:
+    n_processed_rays = 0
+    total_loss = None
+    interrupted = False
+
+    try:
+        with tqdm(range(iters), desc="Training epoch#{:03d}/{:d}".format(ep_log, total_epochs)) as pbar:
+            start = int(state.step) % iters
+            pbar.update(start)
+            for _ in range(start, iters):
+                KEY, key_perm, key_train_step = jran.split(KEY, 3)
+                perm = jran.choice(key_perm, scene.n_pixels, shape=(total_samples,), replace=True)
+                state, metrics = train_step(
+                    state,
+                    KEY=key_train_step,
+                    total_samples=total_samples,
+                    scene=scene,
+                    perm=perm,
+                )
+                n_processed_rays += metrics["n_valid_rays"]
+                loss = metrics["loss"]
+                if total_loss is None:
+                    total_loss = loss
+                else:
+                    total_loss = jax.tree_util.tree_map(
+                        lambda total, new: total + new * metrics["n_valid_rays"],
+                        total_loss,
+                        loss,
+                    )
+
+                pbar.set_description_str(
+                    desc="Training epoch#{:03d}/{:d} ".format(
+                        ep_log,
+                        total_epochs,
+                    ) + format_metrics(metrics),
+                )
+                pbar.update(1)
+
+                if state.should_call_update_ogrid:
+                    # update occupancy grid
+                    for cas in range(state.scene_meta.cascades):
+                        KEY, key = jran.split(KEY, 2)
+                        state = state.update_ogrid_density(
+                            KEY=key,
+                            cas=cas,
+                            update_all=bool(state.should_update_all_ogrid_cells),
+                            max_inference=total_samples,
+                        )
+                    state = state.threshold_ogrid()
+    except (InterruptedError, KeyboardInterrupt):
+        interrupted = True
+
+    return state, {
+        "total_loss": total_loss,
+        "n_processed_rays": n_processed_rays,
+        "interrupted": interrupted,
+    }
+
+
 def train():
+    KEY = jran.PRNGKey(0)
     scene_options = SceneOptions(
         sharpness_threshold=-1.,
         resolution_scale=1.0,
@@ -30,9 +102,104 @@ def train():
         max_mem_mbytes=2500,
         bound=1
     )
+    raymarching_options = RayMarchingOptions(
+        diagonal_n_steps=1024,
+        perturb=True,
+        density_grid_res=128
+    )
+    rendering_options = RenderingOptions(
+        bg=(1., 1., 1.), # Ignored.
+        random_bg=True
+    )
+    # args.train.tv_scale
+    tv_scale = 0.01
+    lr = 1e-2
+    train_iters = 1000
+    train_epochs = 1
+    bs = 256 * 1024
+
     frames_train = ['data/lego']
     scene_train = data.load_scene(srcs=frames_train, scene_options=scene_options)
-    print(scene_train)
+    scene_meta = scene_train.meta
+    print('Bound:', scene_meta.bound)
+    print('Bg:', scene_meta.bg)
+    print('Camera:', scene_meta.camera)
+    print('Cascades:', scene_meta.cascades)
+
+    nerf_model, init_input = (
+        make_nerf_ngp(bound=scene_meta.bound, inference=False, tv_scale=tv_scale),
+        (
+            jnp.zeros((1, 3), dtype=jnp.float32),
+            jnp.zeros((1, 3), dtype=jnp.float32),
+            jnp.zeros((1, scene_meta.n_extra_learnable_dims), dtype=jnp.float32),
+        )
+    )
+    KEY, key = jran.split(KEY, 2)
+    nerf_variables = nerf_model.init(key, *init_input)
+    #print(nerf_model.tabulate(key, *init_input))
+    
+    KEY, key = jran.split(KEY, 2)
+    # training state
+    state = NeRFState.create(
+        ogrid=OccupancyDensityGrid.create(
+            cascades=scene_meta.cascades,
+            grid_resolution=raymarching_options.density_grid_res,
+        ),
+        raymarch=raymarching_options,
+        render=rendering_options,
+        scene_options=scene_options,
+        scene_meta=scene_meta,
+        # unfreeze the frozen dict so that the weight_decay mask can apply, see:
+        #   <https://github.com/deepmind/optax/issues/160>
+        #   <https://github.com/google/flax/issues/1223>
+        nerf_fn=nerf_model.apply,
+        #bg_fn=bg_model.apply if scene_meta.bg else None,
+        bg_fn=None,
+        params={
+            # It looks like flax doesn't freeze params anymore.
+            #"nerf": nerf_variables["params"].unfreeze(),
+            "nerf": nerf_variables["params"],
+            #"bg": bg_variables["params"].unfreeze() if scene_meta.bg else None,
+            "bg": None,
+            "appearance_embeddings": jran.uniform(
+                key=key,
+                shape=(len(scene_meta.frames), scene_meta.n_extra_learnable_dims),
+                dtype=jnp.float32,
+                minval=-1,
+                maxval=1,
+            ),
+        },
+        tx=make_optimizer(lr),
+    )
+    # TODO: see how not doing this affects the training.
+    state = state.mark_untrained_density_grid()
+
+    # training loop
+    for ep in range(state.epoch(train_iters), train_epochs):
+        gc.collect()
+        ep_log = ep + 1
+
+        KEY, key_resample, key_train = jran.split(KEY, 3)
+        scene_train = scene_train.resample_pixels(
+            KEY=key_resample,
+            new_max_mem_mbytes=scene_options.max_mem_mbytes,
+        )
+
+        state, metrics = train_epoch(
+            KEY=key_train,
+            state=state,
+            scene=scene_train,
+            iters=train_iters,
+            total_samples=bs,
+            ep_log=ep_log,
+            total_epochs=train_epochs,
+        )
+    jnp.save('data/occupancy_grid_density.npy', state.ogrid.occ_mask.astype(jnp.float32))
+    occupancy_grid_coordinates = morton3d_invert(
+        jnp.arange(state.ogrid.occ_mask.shape[0], dtype=jnp.uint32)
+    )
+    occupancy_grid_coordinates = occupancy_grid_coordinates / (128 - 1) * 2 - 1
+    jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)
 
 def make_optimizer(lr: float) -> optax.GradientTransformation:
     lr_sch = optax.exponential_decay(

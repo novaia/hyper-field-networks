@@ -1048,7 +1048,7 @@ class SceneData:
             new_max_mem_mbytes = self.max_mem_mbytes
 
         # free up GPU memory
-        self._free()
+        #self._free()
         n_pixels = self._calculate_num_pixels(max_mem_mbytes=new_max_mem_mbytes)
         make_progress_bar = functools.partial(
             tqdm,

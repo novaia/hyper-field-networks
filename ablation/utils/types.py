@@ -9,42 +9,6 @@ from volrendjax import packbits, morton3d_invert
 import numpy as np
 import dataclasses
 
-def empty_impl(clz):
-    if "__dataclass_fields__" not in clz.__dict__:
-        raise TypeError("class `{}` is not a dataclass".format(clz.__name__))
-
-    fields = clz.__dict__["__dataclass_fields__"]
-
-    def empty_fn(cls, /, **kwargs):
-        """
-        Create an empty instance of the given class, with untransformed fields set to given values.
-        """
-        for field_name, annotation in fields.items():
-            if field_name not in kwargs:
-                kwargs[field_name] = getattr(annotation.type, "empty", lambda: None)()
-        return cls(**kwargs)
-
-    setattr(clz, "empty", classmethod(empty_fn))
-    return clz
-
-
-def replace_impl(clz):
-    if "__dataclass_fields__" not in clz.__dict__:
-        raise TypeError("class `{}` is not a dataclass".format(clz.__name__))
-
-    fields = clz.__dict__["__dataclass_fields__"]
-
-    def replace_fn(self, /, **kwargs) -> Type[clz]:
-        for k in kwargs.keys():
-            if k not in fields:
-                raise RuntimeError("class `{}` does not have a field with name '{}'".format(clz.__name__, k))
-        ret = dataclasses.replace(self, **kwargs)
-        return ret
-
-    setattr(clz, "replace", replace_fn)
-    return clz
-
-@empty_impl
 @dataclass 
 class StateOptions:
     diagonal_n_steps:int
@@ -60,7 +24,6 @@ class StateOptions:
     num_images:int
     cascades:int
 
-@empty_impl
 @dataclass
 class OccupancyDensityGrid:
     # float32, full-precision density values
@@ -113,7 +76,6 @@ class OccupancyDensityGrid:
     def mean_density_up_to_cascade(self, cas: int) -> Union[float, jax.Array]:
         return self.density[self.alive_indices[:self.alive_indices_offset[cas]]].mean()
 
-@empty_impl
 class NeRFState(TrainState):
     # WARN:
     #   do not annotate fields with jax.Array as members with flax.truct.field(pytree_node=False),
@@ -204,7 +166,6 @@ class NeRFState(TrainState):
             lambda coords_part: compute_v(coords_part).ravel(),
             jnp.array_split(coordinates, max(1, n_grids // (max_inference))),
         )
-        #print('ddafdsf', list(new_densities)[0].shape)
         new_densities = jnp.concatenate(list(new_densities))
         '''
         new_densities = map(

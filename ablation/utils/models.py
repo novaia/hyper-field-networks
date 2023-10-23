@@ -11,9 +11,7 @@ from utils.encoders import (
     HashGridEncoder,
     SphericalHarmonicsEncoder,
 )
-from utils.types import empty_impl
 
-@empty_impl
 class NeRF(nn.Module):
     bound: float
 
@@ -72,7 +70,6 @@ class NeRF(nn.Module):
         rgb = self.rgb_activation(rgb)
 
         return jnp.concatenate([density, rgb], axis=-1).reshape(*original_aux_shapes, 4), tv
-
 
 class CoordinateBasedMLP(nn.Module):
     "Coordinate-based MLP"

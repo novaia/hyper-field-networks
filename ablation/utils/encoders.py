@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jran
 from typing import Any, Hashable, Iterable, Sequence, Union
-from utils.types import empty_impl
 from jax._src.lib import xla_client as xc
 import functools
 
@@ -90,7 +89,6 @@ adjacent_offsets = {
 class Encoder(nn.Module): ...
 
 # TODO: enforce types used in arrays
-@empty_impl
 class HashGridEncoder(Encoder):
     # Let's use the same notations as in the paper
 
@@ -291,7 +289,6 @@ class HashGridEncoder(Encoder):
 
         return encodings, tv
 
-@empty_impl
 class FrequencyEncoder(Encoder):
     """
     Frequency encoding from Equation(4) of the NeRF paper, except the encoded frequency orders are
@@ -332,7 +329,6 @@ class FrequencyEncoder(Encoder):
             0.,  # placeholder for the total variation loss
         )
 
-@empty_impl
 class SphericalHarmonicsEncoder(Encoder):
     # highest degree
     L: int

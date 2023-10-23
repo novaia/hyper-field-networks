@@ -24,7 +24,7 @@ def train():
     exponential_density_activation = True
 
     learning_rate = 1e-2
-    batch_size = 32 * 1024
+    batch_size = 256 * 1024
     scene_bound = 1.0
     grid_resolution = 128
     grid_update_interval = 16

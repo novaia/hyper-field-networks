@@ -41,7 +41,7 @@ def test_occupancy_grid_functions(state):
     print('mask shape after', occupancy_grid.mask.shape)
     print('bitfield shape after', occupancy_grid.bitfield.shape)
 
-def update_occupancy_grid(
+def update_occupancy_grid_test(
     batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
     state:ngp_nerf_cuda.TrainState, occupancy_grid:ngp_nerf_cuda.OccupancyGrid
 ):
@@ -108,6 +108,33 @@ def update_occupancy_grid(
     occupancy_grid.mask, occupancy_grid.bitfield = mask_refactored, bitfield_refactored
     return occupancy_grid
 
+def update_occupancy_grid(
+    batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
+    state:ngp_nerf_cuda.TrainState, occupancy_grid:ngp_nerf_cuda.OccupancyGrid
+):
+    warmup = step < occupancy_grid.warmup_steps
+    occupancy_grid.densities = jax.lax.stop_gradient(
+        ngp_nerf_cuda.update_occupancy_grid_density(
+            KEY=jax.random.PRNGKey(step),
+            batch_size=batch_size,
+            densities=occupancy_grid.densities,
+            occupancy_mask=occupancy_grid.mask,
+            grid_resolution=occupancy_grid.grid_resolution,
+            num_grid_entries=occupancy_grid.num_entries,
+            scene_bound=scene_bound,
+            state=state,
+            warmup=warmup
+        )
+    )
+    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
+        ngp_nerf_cuda.threshold_occupancy_grid(
+            diagonal_n_steps=diagonal_n_steps,
+            scene_bound=scene_bound,
+            densities=occupancy_grid.densities
+        )
+    )
+    return occupancy_grid
+
 def train_loop(
     batch_size:int, 
     train_steps:int, 
@@ -120,7 +147,7 @@ def train_loop(
 ):
     num_images = dataset.images.shape[0]
     for step in range(train_steps):
-        loss, state = ngp_nerf_cuda.train_step(
+        loss, state, n_rays = ngp_nerf_cuda.train_step(
             KEY=jax.random.PRNGKey(step),
             batch_size=batch_size,
             image_width=dataset.w,
@@ -139,7 +166,7 @@ def train_loop(
             diagonal_n_steps=diagonal_n_steps,
             stepsize_portion=stepsize_portion
         )
-        print('Step', step, 'Loss', loss)
+        print('Step', step, 'Loss', loss, 'N Rays', n_rays)
 
         if step % occupancy_grid.update_interval == 0 and step > 0:
             print('Updating occupancy grid...')
@@ -197,6 +224,9 @@ def main():
         epsilon=epsilon,
         weight_decay_coefficient=weight_decay_coefficient
     )
+    #init_input = (jnp.ones([3], jnp.float32), jnp.ones([3], jnp.float32))
+    #print(model.tabulate(state_init_key, init_input))
+    #exit(0)
     occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(
         grid_resolution=grid_resolution, 
         update_interval=grid_update_interval, 

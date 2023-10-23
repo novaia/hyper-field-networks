@@ -195,9 +195,8 @@ class NeRFState(TrainState):
 
         new_densities = map(
             lambda coords_part: jax.jit(self.nerf_fn)(
-                {"params": self.locked_params["nerf"]},
+                {"params": self.locked_params},
                 coords_part,
-                None,
                 None,
             )[0].ravel(),
             jnp.array_split(jax.lax.stop_gradient(coordinates), max(1, n_grids // (max_inference))),
@@ -341,7 +340,7 @@ class NeRFState(TrainState):
 
     @property
     def density_threshold_from_min_step_size(self) -> float:
-        return .01 * self.diagonal_n_steps / (2 * min(self.scene_bound, 1) * 3**.5)
+        return .01 * self.options.diagonal_n_steps / (2 * min(self.options.scene_bound, 1) * 3**.5)
 
     @property
     def use_background_model(self) -> bool:

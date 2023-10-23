@@ -10,6 +10,7 @@ from utils import data
 import optax
 from functools import partial
 from utils import models
+from volrendjax import morton3d_invert
 
 def train():
     num_hash_table_levels = 16
@@ -87,6 +88,12 @@ def train():
         bg_fn=None
     )
     state = train_loop(state, train_steps, batch_size)
+    jnp.save('data/occupancy_grid_density.npy', state.ogrid.occ_mask.astype(jnp.float32))
+    occupancy_grid_coordinates = morton3d_invert(
+        jnp.arange(state.ogrid.occ_mask.shape[0], dtype=jnp.uint32)
+    )
+    occupancy_grid_coordinates = occupancy_grid_coordinates / (128 - 1) * 2 - 1
+    jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)
 
 def make_optimizer(lr: float, params) -> optax.GradientTransformation:
     learning_rate_schedule = optax.exponential_decay(
@@ -107,12 +114,23 @@ def make_optimizer(lr: float, params) -> optax.GradientTransformation:
     weight_decay = optax.add_decayed_weights(1e-6, mask=weight_decay_mask)
     return optax.chain(adam, weight_decay)
 
-def train_loop(state, train_steps, batch_size):
+def train_loop(state:NeRFState, train_steps, batch_size):
     KEY = jax.random.PRNGKey(0)
     for step in range(train_steps):
         KEY, key_perm, key_train_step = jax.random.split(KEY, 3)
         loss, state, batch_metrics = train_step(state, key_train_step, batch_size)
         print('Step', step, 'Loss', loss, 'Num Rays', batch_metrics['n_valid_rays'])
+
+        if state.should_call_update_ogrid:
+            for cas in range(state.options.cascades):
+                KEY, update_key = jax.random.split(KEY, 2)
+                state = state.update_ogrid_density(
+                    KEY=update_key,
+                    cas=cas,
+                    update_all=bool(state.should_update_all_ogrid_cells),
+                    max_inference=batch_size,
+                )
+            state = state.threshold_ogrid()
     return state
 
 @partial(jax.jit, static_argnames=('total_samples'))
@@ -146,7 +164,7 @@ def train_step(state, KEY, total_samples):
             d_world=ray_directions,
             bg=bg,
             total_samples=total_samples,
-            state=state
+            state=state.replace(params=params)
         )
         pred_rgbs, pred_depths = jnp.array_split(pred_rgbds, [3], axis=-1)
         gt_rgbs = data.blend_rgba_image_array(gt_rgba, bg)

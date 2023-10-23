@@ -11,6 +11,7 @@ import optax
 from functools import partial
 from utils import models
 from volrendjax import morton3d_invert
+from utils import occupancy
 
 def train():
     num_hash_table_levels = 16
@@ -42,6 +43,7 @@ def train():
     dataset = ngp_nerf_cuda.load_dataset('data/lego', 1)
 
     ogrid = OccupancyDensityGrid.create(cascades=cascades, grid_resolution=grid_resolution)
+    # ngp_nerf_cuda model
     #'''
     nerf_model = ngp_nerf_cuda.NGPNerf(
         number_of_grid_levels=num_hash_table_levels,
@@ -58,9 +60,12 @@ def train():
     nerf_variables = nerf_model.init(jax.random.PRNGKey(0), (jnp.ones([3]), jnp.ones([3])))
     #'''
 
-    #nerf_model = models.make_nerf_ngp(bound=scene_bound, tv_scale=0.0)
-    #nerf_variables = nerf_model.init(jax.random.PRNGKey(0), jnp.ones([1, 3]), jnp.ones([1, 3]))
-
+    # jaxngp model
+    '''
+    nerf_model = models.make_nerf_ngp(bound=scene_bound, tv_scale=0.0)
+    nerf_variables = nerf_model.init(jax.random.PRNGKey(0), jnp.ones([1, 3]), jnp.ones([1, 3]))
+    '''
+    
     state_options = StateOptions(
         diagonal_n_steps=diagonal_n_steps,
         density_grid_res=grid_resolution,
@@ -124,12 +129,33 @@ def train_loop(state:NeRFState, train_steps, batch_size):
         if state.should_call_update_ogrid:
             for cas in range(state.options.cascades):
                 KEY, update_key = jax.random.split(KEY, 2)
+                # vrj_test update
+                new_density = jax.lax.stop_gradient(
+                    occupancy.update_occupancy_grid_density(
+                        KEY=update_key,
+                        cas=0,
+                        update_all=bool(state.should_update_all_ogrid_cells),
+                        max_inference=batch_size,
+                        occ_mask=state.ogrid.occ_mask,
+                        alive_indices=jnp.arange(state.ogrid.occ_mask.shape[0], dtype=jnp.uint32),
+                        density=state.ogrid.density,
+                        density_grid_res=state.options.density_grid_res,
+                        alive_indices_offset=jnp.array([0, state.ogrid.occ_mask.shape[0]], dtype=jnp.uint32),
+                        scene_bound=state.options.scene_bound,
+                        state=state
+                    )
+                )
+                new_ogrid = state.ogrid.replace(density=new_density)
+                state = state.replace(ogrid=new_ogrid)
+                # jaxngp update
+                '''
                 state = state.update_ogrid_density(
                     KEY=update_key,
                     cas=cas,
                     update_all=bool(state.should_update_all_ogrid_cells),
                     max_inference=batch_size,
                 )
+                '''
             state = state.threshold_ogrid()
     return state
 

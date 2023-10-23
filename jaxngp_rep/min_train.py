@@ -112,7 +112,8 @@ def train():
         random_bg=True
     )
     # args.train.tv_scale
-    tv_scale = 0.01
+    #tv_scale = 0.01
+    tv_scale = 0
     lr = 1e-2
     train_iters = 1000
     train_epochs = 1
@@ -341,7 +342,8 @@ def train_step(
             ).sum() / batch_metrics["n_valid_rays"],
             "total_variation": tv,
         }
-        loss = jax.tree_util.tree_reduce(lambda x, y: x + y, batch_metrics["loss"])
+        #loss = jax.tree_util.tree_reduce(lambda x, y: x + y, batch_metrics["loss"])
+        loss = batch_metrics["loss"]["rgb"]
         return loss, batch_metrics
 
     loss_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)

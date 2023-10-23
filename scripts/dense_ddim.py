@@ -229,12 +229,11 @@ if __name__ == '__main__':
     max_signal_rate = 0.95
     embedding_max_frequency = 1000.0
     embedding_dims = 32
-    widths = [2048, 2048]
-    block_depth = 1
-    output_channels = 1
-    learning_rate = 1e-4
+    widths = [512, 256, 128]
+    block_depth = 2
+    learning_rate = 5e-5
 
-    dataset = load_dataset('data/approximation_field')
+    dataset = load_dataset('data/approximation_field_small')
     feature_dim = dataset.shape[-1]
     print('Dataset shape:', dataset.shape)
     print('Dataset min:', jnp.min(dataset))
@@ -263,7 +262,7 @@ if __name__ == '__main__':
         seed=0
     )
     generated_weights = jnp.squeeze(generated_weights)
-    generated_weights = jnp.reshape(generated_weights, (generated_weights.shape[0], 177, 64))
+    generated_weights = jnp.reshape(generated_weights, (generated_weights.shape[0], 48, 16))
     for i in range(generated_weights.shape[0]):
         jnp.save(f'data/generated_weights/{i}_weights.npy', generated_weights[i])
         weights_image = generated_weights[i] - jnp.min(generated_weights[i])

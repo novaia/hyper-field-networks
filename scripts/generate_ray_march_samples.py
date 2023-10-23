@@ -75,5 +75,6 @@ if __name__ == '__main__':
     print('directions shape', directions.shape)
     print(jnp.max(positions))
     print(jnp.min(positions))
+    print(rays_n_samples)
     jnp.save('data/ray_marched_positions.npy', positions)
     jnp.save('data/ray_origins.npy', ray_origins)

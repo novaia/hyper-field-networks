@@ -71,14 +71,15 @@ def render_rays_train(KEY, o_world, d_world, bg, total_samples, state):
         occupancy_bitfield=state.ogrid.occupancy,
     )
 
-    '''
+    #'''
     def compute(xyzs, dirs):
         return state.nerf_fn({"params": state.params}, (xyzs, dirs))
     compute_batch = jax.vmap(compute, in_axes=(0, 0))
     drgbs = compute_batch(xyzs, dirs)
-    '''
+    #'''
 
-    drgbs, tv = state.nerf_fn({"params": state.params}, xyzs, dirs)
+    #drgbs, tv = state.nerf_fn({"params": state.params}, xyzs, dirs)
+    
     effective_samples, final_rgbds, final_opacities = integrate_rays(
         #near_distance=state.options.camera.near,
         near_distance=0.3,

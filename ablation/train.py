@@ -24,7 +24,7 @@ def train():
     exponential_density_activation = True
 
     learning_rate = 1e-2
-    batch_size = 256 * 1024
+    batch_size = 32 * 1024
     scene_bound = 1.0
     grid_resolution = 128
     grid_update_interval = 16
@@ -42,7 +42,7 @@ def train():
     dataset = ngp_nerf_cuda.load_dataset('data/lego', 1)
 
     ogrid = OccupancyDensityGrid.create(cascades=cascades, grid_resolution=grid_resolution)
-    '''
+    #'''
     nerf_model = ngp_nerf_cuda.NGPNerf(
         number_of_grid_levels=num_hash_table_levels,
         max_hash_table_entries=max_hash_table_entries,
@@ -56,10 +56,10 @@ def train():
         scene_bound=scene_bound
     )
     nerf_variables = nerf_model.init(jax.random.PRNGKey(0), (jnp.ones([3]), jnp.ones([3])))
-    '''
+    #'''
 
-    nerf_model = models.make_nerf_ngp(bound=scene_bound, tv_scale=0.0)
-    nerf_variables = nerf_model.init(jax.random.PRNGKey(0), jnp.ones([1, 3]), jnp.ones([1, 3]))
+    #nerf_model = models.make_nerf_ngp(bound=scene_bound, tv_scale=0.0)
+    #nerf_variables = nerf_model.init(jax.random.PRNGKey(0), jnp.ones([1, 3]), jnp.ones([1, 3]))
 
     state_options = StateOptions(
         diagonal_n_steps=diagonal_n_steps,
@@ -164,6 +164,8 @@ def train_step(state, KEY, total_samples):
             d_world=ray_directions,
             bg=bg,
             total_samples=total_samples,
+            # This replace is very important.
+            # Without it the params aren't optimized.
             state=state.replace(params=params)
         )
         pred_rgbs, pred_depths = jnp.array_split(pred_rgbds, [3], axis=-1)

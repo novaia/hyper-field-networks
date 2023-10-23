@@ -193,6 +193,20 @@ class NeRFState(TrainState):
             maxval=half_cell_width,
         )
 
+        def compute(pos):
+            return self.nerf_fn(
+                {"params": self.locked_params},
+                (pos, pos),
+            )[0]
+        compute_v = jax.jit(jax.vmap(compute, in_axes=0))
+
+        new_densities = map(
+            lambda coords_part: compute_v(coords_part).ravel(),
+            jnp.array_split(coordinates, max(1, n_grids // (max_inference))),
+        )
+        #print('ddafdsf', list(new_densities)[0].shape)
+        new_densities = jnp.concatenate(list(new_densities))
+        '''
         new_densities = map(
             lambda coords_part: jax.jit(self.nerf_fn)(
                 {"params": self.locked_params},
@@ -202,9 +216,11 @@ class NeRFState(TrainState):
             jnp.array_split(jax.lax.stop_gradient(coordinates), max(1, n_grids // (max_inference))),
         )
         new_densities = jnp.concatenate(list(new_densities))
+        '''
+        #print('cas shape', cas_density_grid[cas_updated_indices].shape)
 
         cas_density_grid = cas_density_grid.at[cas_updated_indices].set(
-            jnp.maximum(cas_density_grid[cas_updated_indices], new_densities)
+            jax.lax.stop_gradient(jnp.maximum(cas_density_grid[cas_updated_indices], new_densities))
         )
         new_ogrid = self.ogrid.replace(
             density=self.ogrid.density.at[cas_slice].set(cas_density_grid),

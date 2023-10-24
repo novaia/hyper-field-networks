@@ -14,7 +14,7 @@ from PIL import Image
 from fields import ngp_nerf, Dataset, trunc_exp
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import Optional
+from typing import Optional, Callable
 
 @dataclass
 class OccupancyGrid:
@@ -569,6 +569,50 @@ def render_scene(
     depth_map = np.squeeze(depth_map, axis=-1)
     plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
 
+def turntable_render(
+    num_frames:int, 
+    camera_distance:float, 
+    render_fn:Callable,
+    file_name:str='turntable_render'
+):
+    xy_start_position = jnp.array([0.0, -1.0])
+    xy_start_position_angle_2d = 0
+    z_start_rotation_angle_3d = 0
+    angle_delta = 2 * jnp.pi / num_frames
+
+    x_rotation_angle_3d = jnp.pi / 2
+    x_rotation_matrix = jnp.array([
+        [1, 0, 0],
+        [0, jnp.cos(x_rotation_angle_3d), -jnp.sin(x_rotation_angle_3d)],
+        [0, jnp.sin(x_rotation_angle_3d), jnp.cos(x_rotation_angle_3d)],
+    ])
+
+    for i in range(num_frames):
+        xy_position_angle_2d = xy_start_position_angle_2d + i * angle_delta
+        z_rotation_angle_3d = z_start_rotation_angle_3d + i * angle_delta
+
+        xy_rotation_matrix_2d = jnp.array([
+            [jnp.cos(xy_position_angle_2d), -jnp.sin(xy_position_angle_2d)], 
+            [jnp.sin(xy_position_angle_2d), jnp.cos(xy_position_angle_2d)]
+        ])
+        current_xy_position = xy_rotation_matrix_2d @ xy_start_position
+    
+        z_rotation_matrix = jnp.array([
+            [jnp.cos(z_rotation_angle_3d), -jnp.sin(z_rotation_angle_3d), 0],
+            [jnp.sin(z_rotation_angle_3d), jnp.cos(z_rotation_angle_3d), 0],
+            [0, 0, 1],
+        ])
+
+        rotation_matrix = z_rotation_matrix @ x_rotation_matrix
+        translation_matrix = jnp.array([
+            [current_xy_position[0]],
+            [current_xy_position[1]],
+            [0],
+        ])
+        transform_matrix = jnp.concatenate([rotation_matrix, translation_matrix], axis=-1)
+        transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
+        render_fn(transform_matrix=transform_matrix, file_name=file_name + f'_frame_{i}')
+
 def main():
     num_hash_table_levels = 16
     max_hash_table_entries = 2**20
@@ -629,12 +673,14 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
-    render_scene(
-        # Patch size has to be small otherwise not all rays will produce samples, and the
+
+    render_fn = partial(
+        render_scene,
+        # Patch size has to be small otherwise not all rays will produce samples and the
         # resulting image will have artifacts. This can be fixed by switching to the 
         # inference version of the ray marching and ray integration functions.
-        patch_size_x=8,
-        patch_size_y=8,
+        patch_size_x=32,
+        patch_size_y=32,
         dataset=dataset,
         scene_bound=scene_bound,
         diagonal_n_steps=diagonal_n_steps,
@@ -642,10 +688,18 @@ def main():
         grid_resolution=grid_resolution,
         stepsize_portion=stepsize_portion,
         occupancy_bitfield=occupancy_grid.bitfield,
-        transform_matrix=dataset.transform_matrices[0],
         batch_size=batch_size,
-        state=state,
-        file_name='ngp_nerf_cuda_rendered_image'
+        state=state
+    )
+    #render_fn(
+    #    transform_matrix=dataset.transform_matrices[3],
+    #    file_name='ngp_nerf_cuda_rendered_image'
+    #)
+    turntable_render(
+        num_frames=60*3,
+        camera_distance=1,
+        render_fn=render_fn,
+        file_name='ngp_nerf_cuda_turntable_render'
     )
     jnp.save('data/occupancy_grid_density.npy', occupancy_grid.mask.astype(jnp.float32))
     occupancy_grid_coordinates = morton3d_invert(

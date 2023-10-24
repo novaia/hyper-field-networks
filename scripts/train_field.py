@@ -1,7 +1,7 @@
 import os
 import sys
 sys.path.append(os.getcwd())
-from fields import image_field, ngp_nerf, tiny_nerf, vanilla_nerf
+from fields import image_field, ngp_nerf, ngp_nerf_cuda, tiny_nerf, vanilla_nerf
 import argparse
 
 if __name__ == '__main__':
@@ -14,6 +14,8 @@ if __name__ == '__main__':
         image_field.main()
     elif args.field == 'ngp_nerf':
         ngp_nerf.main(args.dataset_path, args.downscale_factor)
+    elif args.field == 'ngp_nerf_cuda':
+        ngp_nerf_cuda.main()
     elif args.field == 'tiny_nerf':
         tiny_nerf.main()
     elif args.field == 'vanilla_nerf':

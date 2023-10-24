@@ -10,10 +10,8 @@ import optax
 import json
 from PIL import Image
 from fields import ngp_nerf, Dataset
-from fields.temp import make_near_far_from_bound
-from fields.temp import truncated_exponential, thresholded_exponential
+from fields.temp import make_near_far_from_bound, trunc_exp
 import os
-from fields import temp
 
 @dataclass
 class OccupancyGrid:
@@ -244,9 +242,7 @@ class NGPNerf(nn.Module):
         x = nn.activation.relu(x)
         x = nn.Dense(16, kernel_init=nn.initializers.normal())(x)
         if self.exponential_density_activation:
-            #density = jnp.exp(x[0:1])
-            density = truncated_exponential()(x[0:1])
-            #density = thresholded_exponential()(x[0:1])
+            density = trunc_exp(x[0:1])
         else:
             density = nn.activation.relu(x[0:1])
         density_feature = x
@@ -344,7 +340,6 @@ def train_step(
 
     def loss_fn(params):
         drgbs = compute_batch(params, positions, directions)
-        #background_colors = jnp.ones((batch_size, 3))
         background_colors = jax.random.uniform(random_bg_key, (batch_size, 3))
         integration_result = integrate_rays(
             near_distance=0.3,
@@ -357,164 +352,18 @@ def train_step(
         )
         _, final_rgbds, _ = integration_result
         pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
-        target_rgbs = images[image_indices, height_indices, width_indices, :3]
-        target_alphas = images[image_indices, height_indices, width_indices, 3:]
+        target_pixels = images[image_indices, height_indices, width_indices]
+        target_rgbs = target_pixels[:, :3]
+        target_alphas = target_pixels[:, 3:]
         target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
         loss = jnp.sum(jnp.where(
             ray_is_valid, 
             jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),
             0.0,
         )) / num_valid_rays
-        loss = jax.tree_util.tree_reduce(lambda x, y: x + y, loss)
         return loss
     
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
     return loss, state, num_valid_rays
-
-@partial(jax.jit, static_argnames=(
-    'batch_size', 'image_width', 'image_height', 'num_images', 'grid_resolution',
-    'diagonal_n_steps', 'scene_bound', 'stepsize_portion'
-))
-def train_step_alt(
-    KEY, batch_size:int, image_width:int, image_height:int, num_images:int, images:jax.Array,
-    transform_matrices:jax.Array, state:TrainState, occupancy_bitfield:jax.Array, 
-    grid_resolution:int, principal_point_x:float, principal_point_y:float, 
-    focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
-    stepsize_portion:float
-):
-    KEY, pixel_sample_key = jax.random.split(KEY, 2)
-    image_indices, width_indices, height_indices = sample_pixels(
-        key=pixel_sample_key, 
-        num_samples=batch_size,
-        image_width=image_width, 
-        image_height=image_height, 
-        num_images=num_images, 
-    )
-    get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
-    ray_origins, ray_directions = get_rays(
-        width_indices, height_indices, transform_matrices[image_indices],
-        principal_point_x, principal_point_y, focal_length_x, focal_length_y
-    )
-
-    def loss_fn(params, gt_rgba, KEY):
-        KEY, bg_key = jax.random.split(KEY, 2)
-        bg = jax.random.uniform(
-            key=bg_key, shape=(batch_size, 3), 
-            dtype=jnp.float32, minval=0.0, maxval=1.0
-        )
-
-        KEY, render_key = jax.random.split(KEY, 2)
-        batch_metrics, pred_rgbds = temp.render_rays_train(
-            KEY=render_key,
-            o_world=ray_origins,
-            d_world=ray_directions,
-            bg=bg,
-            total_samples=batch_size,
-            state=state,
-            params=params,
-            occupancy_bitfield=occupancy_bitfield,
-        )
-        pred_rgbs, pred_depths = jnp.array_split(pred_rgbds, [3], axis=-1)
-        gt_rgbs = gt_rgba[..., :3] * gt_rgba[..., 3:] + bg * (1 - gt_rgba[..., 3:])
-        #loss = jnp.where(
-        #    batch_metrics["ray_is_valid"],
-        #    optax.huber_loss(pred_rgbs, gt_rgbs, delta=0.1).mean(axis=-1),
-        #    0.,
-        #).sum() / batch_metrics["n_valid_rays"]
-        loss = jnp.sum(jnp.where(
-            batch_metrics["ray_is_valid"], 
-            jnp.mean(optax.huber_loss(pred_rgbs, gt_rgbs, delta=0.1), axis=-1),
-            0.0,
-        )) / batch_metrics["n_valid_rays"]
-        return loss, batch_metrics
-    
-    loss_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    KEY, loss_key = jax.random.split(KEY, 2)
-    gt_rgba = images[image_indices, height_indices, width_indices]
-    (loss, batch_metrics), grads = loss_grad_fn(state.params, gt_rgba, loss_key)
-    state = state.apply_gradients(grads=grads)
-    return loss, state, batch_metrics["n_valid_rays"]
-
-@partial(jax.jit, static_argnames=(
-    'batch_size', 'image_width', 'image_height', 'num_images', 'grid_resolution',
-    'diagonal_n_steps', 'scene_bound', 'stepsize_portion'
-))
-def train_step_alt2(
-    KEY, batch_size:int, image_width:int, image_height:int, num_images:int, images:jax.Array,
-    transform_matrices:jax.Array, state:TrainState, occupancy_bitfield:jax.Array, 
-    grid_resolution:int, principal_point_x:float, principal_point_y:float, 
-    focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
-    stepsize_portion:float
-):
-    pixel_sample_key, random_bg_key, noise_key = jax.random.split(KEY, 3)
-    image_indices, width_indices, height_indices = sample_pixels(
-        key=pixel_sample_key, num_samples=batch_size, image_width=image_width,
-        image_height=image_height, num_images=num_images
-    )
-
-    get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
-    ray_origins, ray_directions = get_rays(
-        width_indices, height_indices, transform_matrices[image_indices], 
-        principal_point_x, principal_point_y, focal_length_x, focal_length_y
-    )
-
-    def loss_fn(params, target_rbgas):
-        t_starts, t_ends = temp.make_near_far_from_bound(scene_bound, ray_origins, ray_directions)
-        #noises = jnp.zeros((batch_size,))
-        noises = jax.random.uniform(
-            noise_key, shape=t_starts.shape, dtype=t_starts.dtype, minval=0.0, maxval=1.0
-        )
-
-        measured_batch_size_before_compaction, ray_is_valid, rays_n_samples, \
-        rays_sample_startidx, ray_idcs, xyzs, dirs, dss, z_vals = march_rays(
-            total_samples=batch_size,
-            diagonal_n_steps=1024,
-            K=1,
-            G=128,
-            bound=1.0,
-            stepsize_portion=1.0/256.0,
-            rays_o=ray_origins,
-            rays_d=ray_directions,
-            t_starts=t_starts.ravel(),
-            t_ends=t_ends.ravel(),
-            noises=noises,
-            occupancy_bitfield=occupancy_bitfield,
-        )
-        num_valid_rays = ray_is_valid.sum()
-
-        def compute_sample(ray_sample, direction):
-            return state.apply_fn({'params': params}, (ray_sample, direction))
-        compute_batch = jax.vmap(compute_sample, in_axes=(0, 0))
-    
-        drgbs = compute_batch(xyzs, dirs)
-        #background_colors = jnp.ones((batch_size, 3))
-        background_colors = jax.random.uniform(random_bg_key, (batch_size, 3))
-        integration_result = integrate_rays(
-            near_distance=0.3,
-            rays_sample_startidx=rays_sample_startidx,
-            rays_n_samples=rays_n_samples,
-            bgs=background_colors,
-            dss=dss,
-            z_vals=z_vals,
-            drgbs=drgbs,
-        )
-        _, final_rgbds, _ = integration_result
-        pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
-        target_alphas = target_rbgas[:, 3:]
-        target_rgbs = target_rbgas[:, :3]
-        target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
-        loss = jnp.sum(jnp.where(
-            ray_is_valid, 
-            jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),
-            0.0,
-        )) / num_valid_rays
-        loss = jax.tree_util.tree_reduce(lambda x, y: x + y, loss)
-        return loss
-    
-    grad_fn = jax.value_and_grad(loss_fn)
-    target_rgbas = images[image_indices, width_indices, height_indices]
-    loss, grads = grad_fn(state.params, target_rgbas)
-    state = state.apply_gradients(grads=grads)
-    return loss, state, 0

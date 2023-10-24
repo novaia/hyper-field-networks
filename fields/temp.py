@@ -4,6 +4,7 @@ import functools
 import flax.linen as nn
 from flax.training.train_state import TrainState
 from volrendjax import morton3d_invert, packbits, march_rays, integrate_rays
+from typing import Callable
 
 # LICENSE: ../dependencies/volume-rendering-jax/LICENSE
 
@@ -53,24 +54,23 @@ def make_near_far_from_bound(
     # [n_rays], [n_rays]
     return t_start, t_end
 
-def truncated_exponential():
-    @jax.custom_vjp
-    def trunc_exp(x):
-        "Exponential function, except its gradient calculation uses a truncated input value"
-        return jnp.exp(x)
-    def __fwd_trunc_exp(x):
-        y = trunc_exp(x)
-        aux = x  # aux contains additional information that is useful in the backward pass
-        return y, aux
-    def __bwd_trunc_exp(aux, grad_y):
-        # REF: <https://github.com/NVlabs/instant-ngp/blob/d0d35d215c7c63c382a128676f905ecb676fa2b8/src/testbed_nerf.cu#L303>
-        grad_x = jnp.exp(jnp.clip(aux, -15, 15)) * grad_y
-        return (grad_x, )
-    trunc_exp.defvjp(
-        fwd=__fwd_trunc_exp,
-        bwd=__bwd_trunc_exp,
-    )
-    return trunc_exp
+
+@jax.custom_vjp
+def trunc_exp(x):
+    "Exponential function, except its gradient calculation uses a truncated input value"
+    return jnp.exp(x)
+
+def __fwd_trunc_exp(x):
+    y = trunc_exp(x)
+    aux = x  # aux contains additional information that is useful in the backward pass
+    return y, aux
+
+def __bwd_trunc_exp(aux, grad_y):
+    # REF: <https://github.com/NVlabs/instant-ngp/blob/d0d35d215c7c63c382a128676f905ecb676fa2b8/src/testbed_nerf.cu#L303>
+    grad_x = jnp.exp(jnp.clip(aux, -15, 15)) * grad_y
+    return (grad_x, )
+
+trunc_exp.defvjp(fwd=__fwd_trunc_exp, bwd=__bwd_trunc_exp)
 
 def thresholded_exponential():
     def thresh_exp(x, thresh):

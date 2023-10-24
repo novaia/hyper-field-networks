@@ -25,7 +25,7 @@ class Dataset:
     h: Optional[int] = None # Image height.
     aabb_scale: Optional[int] = None # Scale of scene bounding box.
     transform_matrices: Optional[jnp.ndarray] = None
-    images: Optional[jnp.ndarray] = None
+    images: Optional[jax.Array] = None
 
 def frequency_encoding(x, min_deg, max_deg):
     scales = jnp.array([2**i for i in range(min_deg, max_deg)])

@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable
 import time
+from flax import struct
+from jax import lax
 
 @dataclass
 class OccupancyGrid:
@@ -42,16 +44,19 @@ def create_occupancy_grid(resolution:int, update_interval:int, warmup_steps:int)
 @jax.jit
 def compute_densities(state, positions):
     def compute(position):
-        drgb = state.apply_fn(
+        density = state.apply_fn(
             {'params': jax.lax.stop_gradient(state.params)}, 
-            (position, position) # Use position as dummy direction.
+            (position, None) # Use position as dummy direction.
         )
-        return jnp.ravel(drgb[0])
+        return density[0]
     densities = jnp.ravel(jax.vmap(compute, in_axes=0)(positions))
     return densities
 
+@partial(jax.jit, static_argnames=(
+    'warmup', 'grid_resolution', 'num_grid_entries', 'scene_bound'
+))
 def update_occupancy_grid_density(
-    KEY, batch_size:int, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
+    KEY, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
     num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
 ):
     decayed_densities = densities * .95
@@ -99,12 +104,12 @@ def update_occupancy_grid_density(
         maxval=half_cell_width,
     )
     
-    num_batches = jnp.ceil(num_updated_entries / batch_size)
-    padding_dim = int((batch_size * num_batches) - num_updated_entries)
-    padding = jnp.zeros(shape=(padding_dim, 3), dtype=jnp.float32)
-    padded_coordinates = jnp.concatenate([coordinates, padding], axis=0)
+    #num_batches = jnp.ceil(num_updated_entries / batch_size)
+    #padding_dim = int((batch_size * num_batches) - num_updated_entries)
+    #padding = jnp.zeros(shape=(padding_dim, 3), dtype=jnp.float32)
+    #padded_coordinates = jnp.concatenate([coordinates, padding], axis=0)
     # [num_updated_entries,]
-    updated_densities = compute_densities(state, padded_coordinates)[:num_updated_entries]
+    updated_densities = compute_densities(state, coordinates)
     updated_densities = jnp.maximum(decayed_densities[updated_indices], updated_densities)
     # [num_grid_entries,]
     updated_densities = decayed_densities.at[updated_indices].set(updated_densities)
@@ -249,6 +254,8 @@ class NGPNerf(nn.Module):
             density = trunc_exp(x[0:1])
         else:
             density = nn.activation.relu(x[0:1])
+        if direction is None:
+            return density
         density_feature = x
 
         encoded_direction = ngp_nerf.fourth_order_sh_encoding(direction)
@@ -266,33 +273,6 @@ class NGPNerf(nn.Module):
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
 
-def update_occupancy_grid(
-    batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
-    state:TrainState, occupancy_grid:OccupancyGrid
-):
-    warmup = step < occupancy_grid.warmup_steps
-    occupancy_grid.densities = jax.lax.stop_gradient(
-        update_occupancy_grid_density(
-            KEY=jax.random.PRNGKey(step),
-            batch_size=batch_size,
-            densities=occupancy_grid.densities,
-            occupancy_mask=occupancy_grid.mask,
-            grid_resolution=occupancy_grid.resolution,
-            num_grid_entries=occupancy_grid.num_entries,
-            scene_bound=scene_bound,
-            state=state,
-            warmup=warmup
-        )
-    )
-    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
-        threshold_occupancy_grid(
-            diagonal_n_steps=diagonal_n_steps,
-            scene_bound=scene_bound,
-            densities=occupancy_grid.densities
-        )
-    )
-    return occupancy_grid
-
 def train_loop(
     batch_size:int, 
     train_steps:int, 
@@ -303,41 +283,108 @@ def train_loop(
     occupancy_grid:OccupancyGrid,
     state:TrainState
 ):
-    num_images = dataset.images.shape[0]
-    for step in range(train_steps):
-        loss, state, n_rays = train_step(
-            KEY=jax.random.PRNGKey(step),
-            batch_size=batch_size,
-            image_width=dataset.w,
-            image_height=dataset.h,
-            num_images=num_images,
-            images=dataset.images,
-            transform_matrices=dataset.transform_matrices,
-            state=state,
-            occupancy_bitfield=occupancy_grid.bitfield,
-            grid_resolution=occupancy_grid.resolution,
-            principal_point_x=dataset.cx,
-            principal_point_y=dataset.cy,
-            focal_length_x=dataset.fl_x,
-            focal_length_y=dataset.fl_y,
-            scene_bound=scene_bound,
-            diagonal_n_steps=diagonal_n_steps,
-            stepsize_portion=stepsize_portion
-        )
-        print('Step', step, 'Loss', loss, 'N Rays', n_rays)
+    update_occupancy_grid_warmup = update_occupancy_grid_density.lower(
+        KEY=jax.random.PRNGKey(0),
+        densities=jnp.ones(shape=(128**3,), dtype=jnp.float32),
+        occupancy_mask=jnp.ones(shape=(128**3,), dtype=jnp.bool_),
+        grid_resolution=128,
+        num_grid_entries=128**3,
+        scene_bound=1.0,
+        state=state,
+        warmup=True
+    ).compile()
+    update_occupancy_grid_normal = update_occupancy_grid_density.lower(
+        KEY=jax.random.PRNGKey(0),
+        densities=jnp.ones(shape=(128**3,), dtype=jnp.float32),
+        occupancy_mask=jnp.ones(shape=(128**3,), dtype=jnp.bool_),
+        grid_resolution=128,
+        num_grid_entries=128**3,
+        scene_bound=1.0,
+        state=state,
+        warmup=False
+    ).compile()
+    sample_pixels_compiled = sample_pixels.lower(
+        key=jax.random.PRNGKey(0), num_samples=batch_size, image_width=dataset.w,
+        image_height=dataset.h, num_images=dataset.images.shape[0]
+    ).compile()
+    image_indices, width_indices, height_indices = sample_pixels_compiled(
+        key=jax.random.PRNGKey(0)
+    )
+    train_step_compiled = train_step.lower(
+        KEY=jax.random.PRNGKey(0),
+        batch_size=batch_size,
+        image_width=dataset.w,
+        image_height=dataset.h,
+        num_images=dataset.images.shape[0],
+        transform_matrices=dataset.transform_matrices[image_indices],
+        target_pixels=dataset.images[image_indices, height_indices, width_indices],
+        width_indices=width_indices,
+        height_indices=height_indices,
+        state=state,
+        occupancy_bitfield=occupancy_grid.bitfield,
+        grid_resolution=occupancy_grid.resolution,
+        principal_point_x=dataset.cx,
+        principal_point_y=dataset.cy,
+        focal_length_x=dataset.fl_x,
+        focal_length_y=dataset.fl_y,
+        scene_bound=scene_bound,
+        diagonal_n_steps=diagonal_n_steps,
+        stepsize_portion=stepsize_portion
+    ).compile()
 
-        if step % occupancy_grid.update_interval == 0 and step > 0:
-            print('Updating occupancy grid...')
-            occupancy_grid = update_occupancy_grid(
-                batch_size=batch_size,
+    def occupancy_update(KEY, state, densities, mask, bitfield, warmup):
+        densities = lax.stop_gradient(lax.cond(
+            warmup, 
+            update_occupancy_grid_warmup, 
+            update_occupancy_grid_normal,
+            operand=(KEY, densities, mask, state)
+        ))
+        mask, bitfield = lax.stop_gradient(
+            threshold_occupancy_grid(
                 diagonal_n_steps=diagonal_n_steps,
                 scene_bound=scene_bound,
-                step=step,
-                state=state,
-                occupancy_grid=occupancy_grid
+                densities=densities
             )
+        )
+        return densities, mask, bitfield
+    
+    def normal_occupancy_update(KEY, state, densities, mask, bitfield):
+        return densities, mask, bitfield
+
+    def outer_step(step, _):
+        KEY = jax.random.PRNGKey(step)
+        step_key, pixel_sample_key = jax.random.split(KEY, num=2)
+        image_indices, width_indices, height_indices = sample_pixels_compiled(
+            key=pixel_sample_key
+        )
+        loss, state, n_rays = train_step_compiled(
+            KEY=step_key,
+            state=state,
+            target_pixels=dataset.images[image_indices, height_indices, width_indices],
+            transform_matrices=dataset.transform_matrices[image_indices],
+            width_indices=width_indices,
+            height_indices=height_indices,
+            occupancy_bitfield=occupancy_grid.bitfield,
+        )
+
+        occupancy_grid_update = lax.cond(
+            step % occupancy_grid.update_interval == 0 and step > 0,
+            occupancy_update,
+            normal_occupancy_update,
+            operand=(
+                step_key, state, occupancy_grid.densities, 
+                occupancy_grid.mask, occupancy_grid.bitfield
+            )
+        )
+
+        occupancy_grid.densities, occupancy_grid.mask, occupancy_grid.bitfield = \
+            occupancy_grid_update
+        
+    inner_loop = jax.jit(lax.fori_loop(0, train_steps, outer_step, 0))
+    inner_loop()
     return state, occupancy_grid
 
+@partial(jax.jit, static_argnames=('num_samples', 'image_width', 'image_height', 'num_images'))
 def sample_pixels(key, num_samples:int, image_width:int, image_height:int, num_images:int):
     width_rng, height_rng, image_rng = jax.random.split(key, num=3) 
     width_indices = jax.random.randint(width_rng, (num_samples,), 0, image_width)
@@ -355,24 +402,23 @@ def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
 
 @partial(jax.jit, static_argnames=(
     'batch_size', 'image_width', 'image_height', 'num_images', 'grid_resolution',
-    'diagonal_n_steps', 'scene_bound', 'stepsize_portion'
+    'diagonal_n_steps', 'scene_bound', 'stepsize_portion', 'principal_point_x',
+    'principal_point_y', 'focal_length_x', 'focal_length_y', 'scene_bound', 
+    'diagonal_n_steps', 'stepsize_portion'
 ))
 def train_step(
-    KEY, batch_size:int, image_width:int, image_height:int, num_images:int, images:jax.Array,
-    transform_matrices:jax.Array, state:TrainState, occupancy_bitfield:jax.Array, 
+    KEY, batch_size:int, image_width:int, image_height:int, num_images:int,
+    target_pixels:jax.Array, transform_matrices:jax.Array, state:TrainState, 
     grid_resolution:int, principal_point_x:float, principal_point_y:float, 
     focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
-    stepsize_portion:float
+    stepsize_portion:float, width_indices:jax.Array, height_indices:jax.Array,
+    occupancy_bitfield:jax.Array, 
 ):
-    pixel_sample_key, random_bg_key, noise_key = jax.random.split(KEY, 3)
-    image_indices, width_indices, height_indices = sample_pixels(
-        key=pixel_sample_key, num_samples=batch_size, image_width=image_width,
-        image_height=image_height, num_images=num_images
-    )
+    random_bg_key, noise_key = jax.random.split(KEY, 2)
 
     get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
     ray_origins, ray_directions = get_rays(
-        width_indices, height_indices, transform_matrices[image_indices], 
+        width_indices, height_indices, transform_matrices, 
         principal_point_x, principal_point_y, focal_length_x, focal_length_y
     )
 
@@ -418,7 +464,6 @@ def train_step(
         )
         _, final_rgbds, _ = integration_result
         pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
-        target_pixels = images[image_indices, height_indices, width_indices]
         target_rgbs = target_pixels[:, :3]
         target_alphas = target_pixels[:, 3:]
         target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
@@ -433,7 +478,6 @@ def train_step(
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
     return loss, state, num_valid_rays
-
 
 @partial(jax.jit, static_argnames=(
     'principal_point_x',

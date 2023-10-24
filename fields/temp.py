@@ -46,20 +46,3 @@ def make_near_far_from_bound(
 
     # [n_rays], [n_rays]
     return t_start, t_end
-
-
-# Exponential function except its gradient calculation uses a truncated input value.
-@jax.custom_vjp
-def trunc_exp(x):
-    return jnp.exp(x)
-
-def __fwd_trunc_exp(x):
-    y = trunc_exp(x)
-    aux = x
-    return y, aux
-
-def __bwd_trunc_exp(aux, grad_y):
-    grad_x = jnp.exp(jnp.clip(aux, -15, 15)) * grad_y
-    return (grad_x, )
-
-trunc_exp.defvjp(fwd=__fwd_trunc_exp, bwd=__bwd_trunc_exp)

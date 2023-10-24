@@ -5,13 +5,13 @@ import flax.linen as nn
 from flax.training.train_state import TrainState
 from volrendjax import integrate_rays, march_rays
 from volrendjax import morton3d_invert, packbits
+from volrendjax import make_near_far_from_bound
 from dataclasses import dataclass
 from functools import partial
 import optax
 import json
 from PIL import Image
 from fields import ngp_nerf, Dataset, trunc_exp
-from fields.temp import make_near_far_from_bound
 
 @dataclass
 class OccupancyGrid:

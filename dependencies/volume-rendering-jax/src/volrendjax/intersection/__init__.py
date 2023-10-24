@@ -1,15 +1,12 @@
 import jax
 import jax.numpy as jnp
 
-# TODO: move this into the volume-rendering-jax library.
 @jax.jit
 def make_near_far_from_bound(
     bound: float,
     o: jax.Array,  # [n_rays, 3]
     d: jax.Array,  # [n_rays, 3]
 ):
-    # This function is subject to the volume-rendering-jax license 
-    # (../dependencies/volume-rendering-jax/LICENSE)
     "Calculates near and far intersections with the bounding box [-bound, bound]^3 for each ray."
 
     # avoid d[j] being zero

@@ -262,21 +262,84 @@ class NGPNerf(nn.Module):
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
 
-def sample_pixels(
-    key, num_samples:int, image_width:int, image_height:int, num_images:int, 
+def update_occupancy_grid(
+    batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
+    state:TrainState, occupancy_grid:OccupancyGrid
 ):
+    warmup = step < occupancy_grid.warmup_steps
+    occupancy_grid.densities = jax.lax.stop_gradient(
+        update_occupancy_grid_density(
+            KEY=jax.random.PRNGKey(step),
+            batch_size=batch_size,
+            densities=occupancy_grid.densities,
+            occupancy_mask=occupancy_grid.mask,
+            grid_resolution=occupancy_grid.grid_resolution,
+            num_grid_entries=occupancy_grid.num_entries,
+            scene_bound=scene_bound,
+            state=state,
+            warmup=warmup
+        )
+    )
+    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
+        threshold_occupancy_grid(
+            diagonal_n_steps=diagonal_n_steps,
+            scene_bound=scene_bound,
+            densities=occupancy_grid.densities
+        )
+    )
+    return occupancy_grid
+
+def train_loop(
+    batch_size:int, 
+    train_steps:int, 
+    dataset:Dataset, 
+    scene_bound:float, 
+    diagonal_n_steps:int, 
+    stepsize_portion:float,
+    occupancy_grid:OccupancyGrid,
+    state:TrainState
+):
+    num_images = dataset.images.shape[0]
+    for step in range(train_steps):
+        loss, state, n_rays = train_step(
+            KEY=jax.random.PRNGKey(step),
+            batch_size=batch_size,
+            image_width=dataset.w,
+            image_height=dataset.h,
+            num_images=num_images,
+            images=dataset.images,
+            transform_matrices=dataset.transform_matrices,
+            state=state,
+            occupancy_bitfield=occupancy_grid.bitfield,
+            grid_resolution=occupancy_grid.grid_resolution,
+            principal_point_x=dataset.cx,
+            principal_point_y=dataset.cy,
+            focal_length_x=dataset.fl_x,
+            focal_length_y=dataset.fl_y,
+            scene_bound=scene_bound,
+            diagonal_n_steps=diagonal_n_steps,
+            stepsize_portion=stepsize_portion
+        )
+        print('Step', step, 'Loss', loss, 'N Rays', n_rays)
+
+        if step % occupancy_grid.update_interval == 0 and step > 0:
+            print('Updating occupancy grid...')
+            occupancy_grid = update_occupancy_grid(
+                batch_size=batch_size,
+                diagonal_n_steps=diagonal_n_steps,
+                scene_bound=scene_bound,
+                step=step,
+                state=state,
+                occupancy_grid=occupancy_grid
+            )
+    return state, occupancy_grid
+
+def sample_pixels(key, num_samples:int, image_width:int, image_height:int, num_images:int):
     width_rng, height_rng, image_rng = jax.random.split(key, num=3) 
-    width_indices = jax.random.randint(
-        width_rng, shape=(num_samples,), minval=0, maxval=image_width
-    )
-    height_indices = jax.random.randint(
-        height_rng, shape=(num_samples,), minval=0, maxval=image_height
-    )
-    image_indices = jax.random.randint(
-        image_rng, shape=(num_samples,), minval=0, maxval=num_images
-    )
-    indices = (image_indices, width_indices, height_indices)
-    return indices 
+    width_indices = jax.random.randint(width_rng, (num_samples,), 0, image_width)
+    height_indices = jax.random.randint(height_rng, (num_samples,), 0, image_height)
+    image_indices = jax.random.randint(image_rng, (num_samples,), 0, num_images)
+    return image_indices, width_indices, height_indices 
 
 @jax.jit
 def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
@@ -310,7 +373,6 @@ def train_step(
     )
 
     t_starts, t_ends = make_near_far_from_bound(scene_bound, ray_origins, ray_directions)
-    #noises = jnp.zeros((batch_size,))
     noises = jax.random.uniform(
         noise_key, (batch_size,), dtype=t_starts.dtype, minval=0.0, maxval=1.0
     )

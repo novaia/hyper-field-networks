@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from volrendjax import morton3d_invert
+from volrendjax import morton3d_invert, packbits
 from functools import partial
 import optax
 
@@ -88,3 +88,26 @@ def update_occupancy_grid_density(
     )
     new_density = density.at[cas_slice].set(cas_density_grid)
     return new_density
+
+@jax.jit
+def density_threshold_from_min_step_size(diagonal_n_steps, scene_bound) -> float:
+    # This function is subject to the volume-rendering-jax license 
+    # (../dependencies/volume-rendering-jax/LICENSE)
+    # Changed from jaxngp implementation.
+    # Old: return .01 * diagonal_n_steps / (2 * min(scene_bound, 1) * 3**.5)
+    # TODO: pretty sure the new version does the same thing, but should probably verify.
+    return .01 * diagonal_n_steps / (2 * jnp.minimum(scene_bound, 1) * 3**.5)
+
+@jax.jit
+def threshold_occupancy_grid(mean_density, diagonal_n_steps, scene_bound, density:jax.Array):
+    # This function is subject to the volume-rendering-jax license 
+    # (../dependencies/volume-rendering-jax/LICENSE)
+    # NOTE: mean_density should equal occupancy_grid.mean_density_up_to_cascade(1).
+    density_threshold = jnp.minimum(
+        density_threshold_from_min_step_size(diagonal_n_steps, scene_bound), mean_density
+    )
+    new_occupied_mask, new_occupancy_bitfield = packbits(
+        density_threshold=density_threshold,
+        density_grid=density,
+    )
+    return new_occupied_mask, new_occupancy_bitfield

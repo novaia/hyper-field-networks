@@ -156,7 +156,15 @@ def train_loop(state:NeRFState, train_steps, batch_size):
                     max_inference=batch_size,
                 )
                 '''
-            state = state.threshold_ogrid()
+            new_occ_mask, new_bitfield = occupancy.threshold_occupancy_grid(
+                mean_density=jnp.mean(state.ogrid.density),
+                diagonal_n_steps=state.options.diagonal_n_steps,
+                scene_bound=state.options.scene_bound,
+                density=state.ogrid.density
+            )
+            new_ogrid = state.ogrid.replace(occ_mask=new_occ_mask, occupancy=new_bitfield)
+            state = state.replace(ogrid=new_ogrid)
+            #state = state.threshold_ogrid()
     return state
 
 @partial(jax.jit, static_argnames=('total_samples'))

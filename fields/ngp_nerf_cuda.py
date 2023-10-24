@@ -15,7 +15,7 @@ import os
 
 @dataclass
 class OccupancyGrid:
-    grid_resolution: int
+    resolution: int
     num_entries: int
     update_interval: int
     warmup_steps: int
@@ -23,15 +23,15 @@ class OccupancyGrid:
     mask: jax.Array # Non-compact boolean representation of occupancy.
     bitfield: jax.Array # Compact occupancy bitfield.
 
-def create_occupancy_grid(grid_resolution:int, update_interval:int, warmup_steps:int):
-    num_entries = grid_resolution**3
+def create_occupancy_grid(resolution:int, update_interval:int, warmup_steps:int):
+    num_entries = resolution**3
     # Each bit is an occupancy value, and uint8 is 8 bytes, so divide num_entries by 8.
     # This gives one entry per bit.
     bitfield = 255 * jnp.ones(shape=(num_entries // 8,), dtype=jnp.uint8)
     densities = jnp.zeros(shape=(num_entries,), dtype=jnp.float32)
     mask = jnp.zeros(shape=(num_entries,), dtype=jnp.bool_)
     return OccupancyGrid(
-        grid_resolution, num_entries, update_interval, 
+        resolution, num_entries, update_interval, 
         warmup_steps, densities, mask, bitfield
     )
 
@@ -273,7 +273,7 @@ def update_occupancy_grid(
             batch_size=batch_size,
             densities=occupancy_grid.densities,
             occupancy_mask=occupancy_grid.mask,
-            grid_resolution=occupancy_grid.grid_resolution,
+            grid_resolution=occupancy_grid.resolution,
             num_grid_entries=occupancy_grid.num_entries,
             scene_bound=scene_bound,
             state=state,
@@ -311,7 +311,7 @@ def train_loop(
             transform_matrices=dataset.transform_matrices,
             state=state,
             occupancy_bitfield=occupancy_grid.bitfield,
-            grid_resolution=occupancy_grid.grid_resolution,
+            grid_resolution=occupancy_grid.resolution,
             principal_point_x=dataset.cx,
             principal_point_y=dataset.cy,
             focal_length_x=dataset.fl_x,
@@ -475,7 +475,7 @@ def main():
         weight_decay_coefficient=weight_decay_coefficient
     )
     occupancy_grid = create_occupancy_grid(
-        grid_resolution=grid_resolution, 
+        resolution=grid_resolution, 
         update_interval=grid_update_interval, 
         warmup_steps=grid_warmup_steps
     )

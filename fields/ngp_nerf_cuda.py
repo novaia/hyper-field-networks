@@ -1,3 +1,4 @@
+import os
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -9,9 +10,8 @@ from functools import partial
 import optax
 import json
 from PIL import Image
-from fields import ngp_nerf, Dataset
-from fields.temp import make_near_far_from_bound, trunc_exp
-import os
+from fields import ngp_nerf, Dataset, trunc_exp
+from fields.temp import make_near_far_from_bound
 
 @dataclass
 class OccupancyGrid:

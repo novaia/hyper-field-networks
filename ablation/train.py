@@ -203,9 +203,7 @@ def train_step(state, KEY, total_samples):
             state=state.replace(params=params)
         )
         pred_rgbs, pred_depths = jnp.array_split(pred_rgbds, [3], axis=-1)
-        #gt_rgbs = data.blend_rgba_image_array(gt_rgba, bg)
-        #gt_rgbs = gt_rgba[..., :3] * gt_rgba[..., 3:] + bg * (1 - gt_rgba[..., 3:])
-        gt_rgbs = gt_rgba[..., :3] + bg * (1 - gt_rgba[..., 3:])
+        gt_rgbs = data.blend_rgba_image_array(gt_rgba, bg)
         loss = jnp.where(
             batch_metrics["ray_is_valid"],
             optax.huber_loss(pred_rgbs, gt_rgbs, delta=0.1).mean(axis=-1),

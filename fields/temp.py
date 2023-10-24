@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import functools
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from volrendjax import morton3d_invert, packbits
+from volrendjax import morton3d_invert, packbits, march_rays, integrate_rays
 
 # LICENSE: ../dependencies/volume-rendering-jax/LICENSE
 
@@ -210,3 +210,59 @@ def threshold_ogrid(self) -> "NeRFState":
 def density_threshold_from_min_step_size(self) -> float:
     return .01 * self.raymarch.diagonal_n_steps / (2 * min(self.scene_meta.bound, 1) * 3**.5)
 '''
+
+def render_rays_train(
+    KEY, o_world, d_world, bg, total_samples, state, occupancy_bitfield, params
+):
+    t_starts, t_ends = make_near_far_from_bound(
+        bound=1.0, o=o_world, d=d_world
+    )
+
+    KEY, noise_key = jax.random.split(KEY, 2)
+    noises = jax.random.uniform(
+        noise_key, shape=t_starts.shape, dtype=t_starts.dtype, minval=0.0, maxval=1.0
+    )
+
+    measured_batch_size_before_compaction, ray_is_valid, rays_n_samples, \
+    rays_sample_startidx, ray_idcs, xyzs, dirs, dss, z_vals = march_rays(
+        total_samples=total_samples,
+        diagonal_n_steps=1024,
+        K=1,
+        G=128,
+        bound=1.0,
+        stepsize_portion=1.0/256.0,
+        rays_o=o_world,
+        rays_d=d_world,
+        t_starts=t_starts.ravel(),
+        t_ends=t_ends.ravel(),
+        noises=noises,
+        occupancy_bitfield=occupancy_bitfield,
+    )
+
+    #'''
+    def compute(xyzs, dirs):
+        return state.apply_fn({"params": params}, (xyzs, dirs))
+    compute_batch = jax.vmap(compute, in_axes=(0, 0))
+    drgbs = compute_batch(xyzs, dirs)
+    #'''
+
+    #drgbs, tv = state.nerf_fn({"params": state.params}, xyzs, dirs)
+    
+    effective_samples, final_rgbds, final_opacities = integrate_rays(
+        #near_distance=state.options.camera.near,
+        near_distance=0.3,
+        rays_sample_startidx=rays_sample_startidx,
+        rays_n_samples=rays_n_samples,
+        bgs=bg,
+        dss=dss,
+        z_vals=z_vals,
+        drgbs=drgbs,
+    )
+
+    batch_metrics = {
+        "n_valid_rays": ray_is_valid.sum(),
+        "ray_is_valid": ray_is_valid,
+        "measured_batch_size_before_compaction": measured_batch_size_before_compaction,
+        "measured_batch_size": jnp.where(effective_samples > 0, effective_samples, 0).sum(),
+    }
+    return batch_metrics, final_rgbds

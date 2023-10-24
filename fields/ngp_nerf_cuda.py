@@ -13,6 +13,7 @@ from fields import ngp_nerf, Dataset
 from fields.temp import make_near_far_from_bound
 from fields.temp import truncated_exponential, thresholded_exponential
 import os
+from fields import temp
 
 @dataclass
 class OccupancyGrid:
@@ -293,7 +294,7 @@ def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
     'batch_size', 'image_width', 'image_height', 'num_images', 'grid_resolution',
     'diagonal_n_steps', 'scene_bound', 'stepsize_portion'
 ))
-def train_step(
+def train_step_old(
     KEY, batch_size:int, image_width:int, image_height:int, num_images:int, images:jax.Array,
     transform_matrices:jax.Array, state:TrainState, occupancy_bitfield:jax.Array, 
     grid_resolution:int, principal_point_x:float, principal_point_y:float, 
@@ -371,3 +372,62 @@ def train_step(
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
     return loss, state, num_valid_rays
+
+@partial(jax.jit, static_argnames=(
+    'batch_size', 'image_width', 'image_height', 'num_images', 'grid_resolution',
+    'diagonal_n_steps', 'scene_bound', 'stepsize_portion'
+))
+def train_step(
+    KEY, batch_size:int, image_width:int, image_height:int, num_images:int, images:jax.Array,
+    transform_matrices:jax.Array, state:TrainState, occupancy_bitfield:jax.Array, 
+    grid_resolution:int, principal_point_x:float, principal_point_y:float, 
+    focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
+    stepsize_portion:float
+):
+    KEY, pixel_sample_key = jax.random.split(KEY, 2)
+    image_indices, width_indices, height_indices = sample_pixels(
+        key=pixel_sample_key, 
+        num_samples=batch_size,
+        image_width=image_width, 
+        image_height=image_height, 
+        num_images=num_images, 
+    )
+    get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
+    ray_origins, ray_directions = get_rays(
+        width_indices, height_indices, transform_matrices[image_indices],
+        principal_point_x, principal_point_y, focal_length_x, focal_length_y
+    )
+
+    def loss_fn(params, gt_rgba, KEY):
+        KEY, bg_key = jax.random.split(KEY, 2)
+        bg = jax.random.uniform(
+            key=bg_key, shape=(batch_size, 3), 
+            dtype=jnp.float32, minval=0.0, maxval=1.0
+        )
+
+        KEY, render_key = jax.random.split(KEY, 2)
+        batch_metrics, pred_rgbds = temp.render_rays_train(
+            KEY=render_key,
+            o_world=ray_origins,
+            d_world=ray_directions,
+            bg=bg,
+            total_samples=batch_size,
+            state=state,
+            params=params,
+            occupancy_bitfield=occupancy_bitfield,
+        )
+        pred_rgbs, pred_depths = jnp.array_split(pred_rgbds, [3], axis=-1)
+        gt_rgbs = gt_rgba[..., :3] * gt_rgba[..., 3:] + bg * (1 - gt_rgba[..., 3:])
+        loss = jnp.where(
+            batch_metrics["ray_is_valid"],
+            optax.huber_loss(pred_rgbs, gt_rgbs, delta=0.1).mean(axis=-1),
+            0.,
+        ).sum() / batch_metrics["n_valid_rays"]
+        return loss, batch_metrics
+    
+    loss_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    KEY, loss_key = jax.random.split(KEY, 2)
+    gt_rgba = images[image_indices, height_indices, width_indices]
+    (loss, batch_metrics), grads = loss_grad_fn(state.params, gt_rgba, loss_key)
+    state = state.apply_gradients(grads=grads)
+    return loss, state, batch_metrics["n_valid_rays"]

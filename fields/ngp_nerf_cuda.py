@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable
 import time
+from jaxtcnn import hashgrid_encode, HashGridMetadata
+import math
 
 @dataclass
 class OccupancyGrid:
@@ -38,17 +40,6 @@ def create_occupancy_grid(resolution:int, update_interval:int, warmup_steps:int)
         resolution, num_entries, update_interval, 
         warmup_steps, densities, mask, bitfield
     )
-
-@jax.jit
-def compute_densities(state, positions):
-    def compute(position):
-        drgb = state.apply_fn(
-            {'params': jax.lax.stop_gradient(state.params)}, 
-            (position, position) # Use position as dummy direction.
-        )
-        return jnp.ravel(drgb[0])
-    densities = jnp.ravel(jax.vmap(compute, in_axes=0)(positions))
-    return densities
 
 def update_occupancy_grid_density(
     KEY, batch_size:int, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
@@ -81,7 +72,6 @@ def update_occupancy_grid_density(
             uniform_index_samples, uniform_occupied_index_samples
         ])
 
-    num_updated_entries = updated_indices.shape[0]
     updated_indices = updated_indices.astype(jnp.uint32)
     coordinates = morton3d_invert(updated_indices).astype(jnp.float32)
     # Transform coordinates to [-1, 1].
@@ -99,12 +89,10 @@ def update_occupancy_grid_density(
         maxval=half_cell_width,
     )
     
-    num_batches = jnp.ceil(num_updated_entries / batch_size)
-    padding_dim = int((batch_size * num_batches) - num_updated_entries)
-    padding = jnp.zeros(shape=(padding_dim, 3), dtype=jnp.float32)
-    padded_coordinates = jnp.concatenate([coordinates, padding], axis=0)
     # [num_updated_entries,]
-    updated_densities = compute_densities(state, padded_coordinates)[:num_updated_entries]
+    updated_densities = jnp.ravel(
+        state.apply_fn({'params': state.params}, (coordinates, None))
+    )
     updated_densities = jnp.maximum(decayed_densities[updated_indices], updated_densities)
     # [num_grid_entries,]
     updated_densities = decayed_densities.at[updated_indices].set(updated_densities)
@@ -133,7 +121,7 @@ def create_train_state(
     epsilon:float, 
     weight_decay_coefficient:float
 ):
-    x = (jnp.ones([3]) / 3, jnp.ones([3]) / 3)
+    x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
     learning_rate_schedule = optax.exponential_decay(
@@ -217,6 +205,54 @@ def load_dataset(dataset_path:str, downscale_factor:int):
     dataset.fl_y = float(dataset.cy / jnp.tan(dataset.vertical_fov / 2))
     return dataset
 
+class MultiResolutionHashEncoding(nn.Module):
+    table_size: int
+    num_levels: int
+    min_resolution: int
+    max_resolution: int
+    feature_dim: int
+
+    def setup(self):
+        self.levels = jnp.arange(self.num_levels)
+        self.hash_offset = self.levels * self.table_size
+        self.hash_offset = jnp.concatenate([
+            self.hash_offset, jnp.array([self.hash_offset[-1] + self.table_size])
+        ], axis=0)
+        self.spatial_dim = 3
+        if self.num_levels > 1:
+            self.growth_factor = jnp.exp(
+                (jnp.log(self.max_resolution) - jnp.log(self.min_resolution)) 
+                / (self.num_levels - 1)
+            )
+        else:
+            self.growth_factor = 1.0
+        self.scalings = jnp.floor(self.min_resolution * self.growth_factor**self.levels)
+        self.scalings = jnp.reshape(self.scalings, (self.scalings.shape[0], 1))
+        absolute_table_size = self.table_size * self.num_levels
+        self.hash_table = self.param(
+            'hash_table', 
+            nn.initializers.uniform(scale=10**-4), 
+            (absolute_table_size, self.feature_dim,)
+        )
+
+    def __call__(self, x):
+        _growth_factor = math.exp(
+            (math.log(self.max_resolution) - math.log(self.min_resolution)) 
+            / (self.num_levels - 1)
+        )
+        encoded_position = hashgrid_encode(
+            desc=HashGridMetadata(
+                L=int(self.num_levels),
+                F=int(self.feature_dim),
+                N_min=int(self.min_resolution),
+                per_level_scale=_growth_factor
+            ),
+            offset_table_data=jnp.asarray(self.hash_offset, jnp.uint32),
+            coords_rm=x.T,
+            params=self.hash_table
+        )
+        return encoded_position.T
+
 class NGPNerf(nn.Module):
     number_of_grid_levels: int # Corresponds to L in the paper.
     max_hash_table_entries: int # Corresponds to T in the paper.
@@ -233,7 +269,7 @@ class NGPNerf(nn.Module):
     def __call__(self, x):
         position, direction = x
         position = (position + self.scene_bound) / (2.0 * self.scene_bound)
-        encoded_position = ngp_nerf.MultiResolutionHashEncoding(
+        encoded_position = MultiResolutionHashEncoding(
             table_size=self.max_hash_table_entries,
             num_levels=self.number_of_grid_levels,
             min_resolution=self.coarsest_resolution,
@@ -246,13 +282,15 @@ class NGPNerf(nn.Module):
         x = nn.activation.relu(x)
         x = nn.Dense(16, kernel_init=nn.initializers.normal())(x)
         if self.exponential_density_activation:
-            density = trunc_exp(x[0:1])
+            density = trunc_exp(x[:, 0:1])
         else:
-            density = nn.activation.relu(x[0:1])
+            density = nn.activation.relu(x[:, 0:1])
+        if direction is None:
+            return density
         density_feature = x
 
-        encoded_direction = ngp_nerf.fourth_order_sh_encoding(direction)
-        x = jnp.concatenate([density_feature, jnp.ravel(encoded_direction)], axis=0)
+        encoded_direction = jax.vmap(ngp_nerf.fourth_order_sh_encoding, in_axes=0)(direction)
+        x = jnp.concatenate([density_feature, encoded_direction], axis=-1)
         x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
         x = nn.activation.relu(x)
         x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
@@ -324,10 +362,9 @@ def train_loop(
             diagonal_n_steps=diagonal_n_steps,
             stepsize_portion=stepsize_portion
         )
-        print('Step', step, 'Loss', loss, 'N Rays', n_rays)
-
+        #print('Step', step, 'Loss', loss, 'N Rays', n_rays)
         if step % occupancy_grid.update_interval == 0 and step > 0:
-            print('Updating occupancy grid...')
+            #print('Updating occupancy grid...')
             occupancy_grid = update_occupancy_grid(
                 batch_size=batch_size,
                 diagonal_n_steps=diagonal_n_steps,
@@ -402,7 +439,8 @@ def train_step(
 
     def compute_sample(params, ray_sample, direction):
         return state.apply_fn({'params': params}, (ray_sample, direction))
-    compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+    #compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
+    compute_batch = compute_sample
 
     def loss_fn(params):
         drgbs = compute_batch(params, positions, directions)

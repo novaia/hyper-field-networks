@@ -15,7 +15,6 @@ from fields import ngp_nerf, Dataset, trunc_exp
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable
-import time
 
 @dataclass
 class OccupancyGrid:
@@ -614,12 +613,6 @@ def turntable_render(
         transform_matrix = process_3x4_transform_matrix(transform_matrix, camera_distance)
         render_fn(transform_matrix=transform_matrix, file_name=file_name + f'_frame_{i}')
 
-def benchmark_training(train_loop_with_args:Callable):
-    start_time = time.time()
-    state, occupancy_grid = train_loop_with_args()
-    end_time = time.time()
-    print('Training time:', end_time - start_time)
-
 def main():
     num_hash_table_levels = 16
     max_hash_table_entries = 2**20
@@ -670,8 +663,7 @@ def main():
         warmup_steps=grid_warmup_steps
     )
     dataset = load_dataset('data/lego', 1)
-    train_loop_with_args = partial(
-        train_loop,
+    state, occupancy_grid = train_loop(
         batch_size=batch_size,
         train_steps=train_steps,
         dataset=dataset,
@@ -681,10 +673,6 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
-    benchmark_training(train_loop_with_args)
-    exit(0)
-    
-    state, occupancy_grid = train_loop_with_args()
 
     render_fn = partial(
         render_scene,

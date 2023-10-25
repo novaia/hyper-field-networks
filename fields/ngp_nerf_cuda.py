@@ -52,80 +52,41 @@ def compute_densities(state, positions):
     densities = jnp.ravel(jax.vmap(compute, in_axes=0)(positions))
     return densities
 
-@partial(jax.jit, static_argnames=('grid_resolution', 'num_grid_entries', 'scene_bound'))
-def update_occupancy_grid_density_warmup(
+@partial(jax.jit, static_argnames=(
+    'warmup', 'grid_resolution', 'num_grid_entries', 'scene_bound'
+))
+def update_occupancy_grid_density(
     KEY, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
-    num_grid_entries:int, scene_bound:float, state:TrainState
+    num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
 ):
-    num_grid_entries = 128**3
-    grid_resolution = 128
-    scene_bound = 1.0
     decayed_densities = densities * .95
     all_indices = jnp.arange(num_grid_entries)
-    updated_indices = all_indices
+    if warmup:
+        updated_indices = all_indices
+    else:
+        quarter_num_grid_entries = num_grid_entries // 4 # Corresponds to M/2 in the paper.
+        KEY, first_half_key, second_half_key = jax.random.split(KEY, 3)
+        # Uniformly sample M/2 grid cells.
+        uniform_index_samples = jax.random.choice(
+            key=first_half_key, 
+            a=all_indices, 
+            shape=(quarter_num_grid_entries,), 
+            replace=True, # Allow duplicate choices. 
+        )
+        # Uniformly sample M/2 occupied grid cells.
+        uniform_occupied_index_samples = jax.random.choice(
+            key=second_half_key, 
+            a=all_indices, 
+            shape=(quarter_num_grid_entries,), 
+            replace=True, # Allow duplicate choices. 
+            p=occupancy_mask.astype(jnp.float32) # Only sample from occupied cells.
+        )
+        # Total of M samples, where M is num_grid_entries / 2.
+        updated_indices = jnp.concatenate([
+            uniform_index_samples, uniform_occupied_index_samples
+        ])
 
     num_updated_entries = updated_indices.shape[0]
-    updated_indices = updated_indices.astype(jnp.uint32)
-    coordinates = morton3d_invert(updated_indices).astype(jnp.float32)
-    # Transform coordinates to [-1, 1].
-    coordinates = coordinates / (grid_resolution - 1) * 2 - 1
-    half_cell_width = scene_bound / grid_resolution
-    # Transform coordinates to [-scene_bound + half_cell_width, scene_bound - half_cell_width].
-    coordinates = coordinates * (scene_bound - half_cell_width)
-    # Get random points inside grid cells.
-    KEY, key = jax.random.split(KEY, 2)
-    coordinates = coordinates + jax.random.uniform(
-        key,
-        coordinates.shape,
-        coordinates.dtype,
-        minval=-half_cell_width,
-        maxval=half_cell_width,
-    )
-    
-    #num_batches = jnp.ceil(num_updated_entries / batch_size)
-    #padding_dim = int((batch_size * num_batches) - num_updated_entries)
-    #padding = jnp.zeros(shape=(padding_dim, 3), dtype=jnp.float32)
-    #padded_coordinates = jnp.concatenate([coordinates, padding], axis=0)
-    # [num_updated_entries,]
-    updated_densities = compute_densities(state, coordinates)
-    updated_densities = jnp.maximum(decayed_densities[updated_indices], updated_densities)
-    # [num_grid_entries,]
-    updated_densities = decayed_densities.at[updated_indices].set(updated_densities)
-    return updated_densities
-
-def update_occupancy_grid_density_normal(
-    KEY, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution:int, 
-    num_grid_entries:int, scene_bound:float, state:TrainState
-):
-    num_grid_entries = 128**3
-    grid_resolution = 128
-    scene_bound = 1.0
-    decayed_densities = densities * .95
-    all_indices = jnp.arange(num_grid_entries)
-    
-    KEY, index_key = jax.random.split(KEY, 2)
-    quarter_num_grid_entries = num_grid_entries // 4 # Corresponds to M/2 in the paper.
-    first_half_key, second_half_key = jax.random.split(index_key, 2)
-    # Uniformly sample M/2 grid cells.
-    uniform_index_samples = jax.random.choice(
-        key=first_half_key, 
-        a=all_indices, 
-        shape=(quarter_num_grid_entries,), 
-        replace=True, # Allow duplicate choices. 
-    )
-    # Uniformly sample M/2 occupied grid cells.
-    uniform_occupied_index_samples = jax.random.choice(
-        key=second_half_key, 
-        a=all_indices, 
-        shape=(quarter_num_grid_entries,), 
-        replace=True, # Allow duplicate choices. 
-        p=occupancy_mask.astype(jnp.float32) # Only sample from occupied cells.
-    )
-    # Total of M samples, where M is num_grid_entries / 2.
-    updated_indices = jnp.concatenate([
-        uniform_index_samples, uniform_occupied_index_samples
-    ])
-
     updated_indices = updated_indices.astype(jnp.uint32)
     coordinates = morton3d_invert(updated_indices).astype(jnp.float32)
     # Transform coordinates to [-1, 1].
@@ -322,16 +283,45 @@ def train_loop(
     occupancy_grid:OccupancyGrid,
     state:TrainState
 ):
-    sample_pixels_partial = partial(
-        sample_pixels, num_samples=batch_size, image_width=dataset.w, image_height=dataset.h, 
-        num_images=dataset.images.shape[0]
+    update_occupancy_grid_warmup = update_occupancy_grid_density.lower(
+        KEY=jax.random.PRNGKey(0),
+        densities=jnp.ones(shape=(128**3,), dtype=jnp.float32),
+        occupancy_mask=jnp.ones(shape=(128**3,), dtype=jnp.bool_),
+        grid_resolution=128,
+        num_grid_entries=128**3,
+        scene_bound=1.0,
+        state=state,
+        warmup=True
+    ).compile()
+    update_occupancy_grid_normal = update_occupancy_grid_density.lower(
+        KEY=jax.random.PRNGKey(0),
+        densities=jnp.ones(shape=(128**3,), dtype=jnp.float32),
+        occupancy_mask=jnp.ones(shape=(128**3,), dtype=jnp.bool_),
+        grid_resolution=128,
+        num_grid_entries=128**3,
+        scene_bound=1.0,
+        state=state,
+        warmup=False
+    ).compile()
+    sample_pixels_compiled = sample_pixels.lower(
+        key=jax.random.PRNGKey(0), num_samples=batch_size, image_width=dataset.w,
+        image_height=dataset.h, num_images=dataset.images.shape[0]
+    ).compile()
+    image_indices, width_indices, height_indices = sample_pixels_compiled(
+        key=jax.random.PRNGKey(0)
     )
-    train_step_partial = partial(
-        train_step, 
+    train_step_compiled = train_step.lower(
+        KEY=jax.random.PRNGKey(0),
         batch_size=batch_size,
         image_width=dataset.w,
         image_height=dataset.h,
         num_images=dataset.images.shape[0],
+        transform_matrices=dataset.transform_matrices[image_indices],
+        target_pixels=dataset.images[image_indices, height_indices, width_indices],
+        width_indices=width_indices,
+        height_indices=height_indices,
+        state=state,
+        occupancy_bitfield=occupancy_grid.bitfield,
         grid_resolution=occupancy_grid.resolution,
         principal_point_x=dataset.cx,
         principal_point_y=dataset.cy,
@@ -340,16 +330,15 @@ def train_loop(
         scene_bound=scene_bound,
         diagonal_n_steps=diagonal_n_steps,
         stepsize_portion=stepsize_portion
-    )
+    ).compile()
 
-    @jax.jit
-    def occupancy_update(KEY, local_state, densities, mask, bitfield, warmup_arg):
-        densities = lax.cond(
-            warmup_arg,
-            update_occupancy_grid_density_warmup,
-            update_occupancy_grid_density_normal,
-            KEY, densities, mask, 128, 128**3, 1.0, local_state
-        )
+    def occupancy_update(KEY, state, densities, mask, bitfield, warmup):
+        densities = lax.stop_gradient(lax.cond(
+            warmup, 
+            update_occupancy_grid_warmup, 
+            update_occupancy_grid_normal,
+            operand=(KEY, densities, mask, state)
+        ))
         mask, bitfield = lax.stop_gradient(
             threshold_occupancy_grid(
                 diagonal_n_steps=diagonal_n_steps,
@@ -359,67 +348,40 @@ def train_loop(
         )
         return densities, mask, bitfield
     
-    def normal_occupancy_update(KEY, local_state, densities, mask, bitfield, warmup_arg):
+    def normal_occupancy_update(KEY, state, densities, mask, bitfield):
         return densities, mask, bitfield
 
-    def inner_loop(
-        train_steps:int, local_state:TrainState, 
-        occupancy_grid_densities:jax.Array, occupancy_grid_mask:jax.Array, 
-        occupancy_grid_bitfield:jax.Array
-    ):
-        accumulated_loss = 0.0
-        for step in range(train_steps):
-            KEY = jax.random.PRNGKey(step)
-            step_key, pixel_sample_key = jax.random.split(KEY, num=2)
-            image_indices, width_indices, height_indices = sample_pixels_partial(
-                key=pixel_sample_key
-            )
-            loss, local_state, n_rays = train_step_partial(
-                KEY=step_key,
-                state=local_state,
-                target_pixels=dataset.images[image_indices, height_indices, width_indices],
-                transform_matrices=dataset.transform_matrices[image_indices],
-                width_indices=width_indices,
-                height_indices=height_indices,
-                occupancy_bitfield=occupancy_grid.bitfield,
-            )
-            accumulated_loss += loss
+    def outer_step(step, _):
+        KEY = jax.random.PRNGKey(step)
+        step_key, pixel_sample_key = jax.random.split(KEY, num=2)
+        image_indices, width_indices, height_indices = sample_pixels_compiled(
+            key=pixel_sample_key
+        )
+        loss, state, n_rays = train_step_compiled(
+            KEY=step_key,
+            state=state,
+            target_pixels=dataset.images[image_indices, height_indices, width_indices],
+            transform_matrices=dataset.transform_matrices[image_indices],
+            width_indices=width_indices,
+            height_indices=height_indices,
+            occupancy_bitfield=occupancy_grid.bitfield,
+        )
 
-            occupancy_grid_update = lax.cond(
-                (
-                    local_state.step % occupancy_grid.update_interval == 0 and 
-                    local_state.step > 0
-                ),
-                occupancy_update,
-                normal_occupancy_update,    
-                step_key, local_state, occupancy_grid_densities, 
-                occupancy_grid_mask, occupancy_grid_bitfield, 
-                step < occupancy_grid.warmup_steps
+        occupancy_grid_update = lax.cond(
+            step % occupancy_grid.update_interval == 0 and step > 0,
+            occupancy_update,
+            normal_occupancy_update,
+            operand=(
+                step_key, state, occupancy_grid.densities, 
+                occupancy_grid.mask, occupancy_grid.bitfield
             )
+        )
 
-            occupancy_grid_densities, occupancy_grid_mask, occupancy_grid_bitfield = \
-                occupancy_grid_update
+        occupancy_grid.densities, occupancy_grid.mask, occupancy_grid.bitfield = \
+            occupancy_grid_update
         
-        occupancy_grid_arrays = (
-            occupancy_grid_densities, occupancy_grid_mask, occupancy_grid_bitfield
-        )
-        return accumulated_loss, local_state, occupancy_grid_arrays
-     
-    inner_loop = jax.jit(inner_loop, static_argnames=('train_steps',))
-    start_time = time.time()
-    for _ in range(train_steps // 16):
-        accumulated_loss, state, occupancy_grid_arrays = inner_loop(
-            16, state, occupancy_grid.densities, 
-            occupancy_grid.mask, occupancy_grid.bitfield
-        )
-        loss = accumulated_loss / 16
-        print('Loss:', loss)
-        densities, mask, bitfield = occupancy_grid_arrays
-        occupancy_grid.densities = densities
-        occupancy_grid.mask = mask
-        occupancy_grid.bitfield = bitfield
-    end_time = time.time()
-    print('Training time (post compile):', end_time - start_time)
+    inner_loop = jax.jit(lax.fori_loop(0, train_steps, outer_step, 0))
+    inner_loop()
     return state, occupancy_grid
 
 @partial(jax.jit, static_argnames=('num_samples', 'image_width', 'image_height', 'num_images'))

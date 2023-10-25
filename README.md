@@ -51,6 +51,18 @@ for more details.
 ```
 
 ```bibtex
+@software{tiny-cuda-nn,
+	author = {M\"uller, Thomas},
+	license = {BSD-3-Clause},
+	month = {4},
+	title = {{tiny-cuda-nn}},
+	url = {https://github.com/NVlabs/tiny-cuda-nn},
+	version = {1.7},
+	year = {2021}
+}
+```
+
+```bibtex
 @inproceedings{mildenhall2020nerf,
     title={NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis},
     author={Ben Mildenhall and Pratul P. Srinivasan and Matthew Tancik and Jonathan T. Barron and Ravi Ramamoorthi and Ren Ng},

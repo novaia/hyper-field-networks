@@ -124,13 +124,6 @@ def create_train_state(
     x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
-    learning_rate_schedule = optax.exponential_decay(
-        init_value=learning_rate, 
-        transition_steps=100, 
-        decay_rate=1/3, 
-        transition_begin=100,
-        end_value=learning_rate/100
-    )
     adam = optax.adam(learning_rate, eps=epsilon, eps_root=epsilon)
     # To prevent divergence after long training periods, the paper applies a weak 
     # L2 regularization to the network weights, but not the hash table entries.
@@ -519,11 +512,7 @@ def render_rays_inference(
         occupancy_bitfield=occupancy_bitfield
     )
 
-    def compute_sample(params, ray_sample, direction):
-        return state.apply_fn({'params': params}, (ray_sample, direction))
-    compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
-    drgbs = compute_batch(state.params, xyzs, dirs)
-    
+    drgbs = state.apply_fn({'params': state.params}, (xyzs, dirs))    
     background_colors = jnp.ones((max_num_rays, 3))
     effective_samples, final_rgbds, final_opacities = integrate_rays(
         near_distance=0.1,
@@ -719,8 +708,8 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
-    benchmark_training(train_loop_with_args)
-    exit(0)
+    #benchmark_training(train_loop_with_args)
+    #exit(0)
     
     state, occupancy_grid = train_loop_with_args()
 
@@ -741,16 +730,16 @@ def main():
         batch_size=batch_size,
         state=state
     )
-    #render_fn(
-    #    transform_matrix=dataset.transform_matrices[3],
-    #    file_name='ngp_nerf_cuda_rendered_image'
-    #)
-    turntable_render(
-        num_frames=60*3,
-        camera_distance=1,
-        render_fn=render_fn,
-        file_name='ngp_nerf_cuda_turntable_render'
+    render_fn(
+        transform_matrix=dataset.transform_matrices[3],
+        file_name='ngp_nerf_cuda_rendered_image'
     )
+    #turntable_render(
+    #    num_frames=60*3,
+    #    camera_distance=1,
+    #    render_fn=render_fn,
+    #    file_name='ngp_nerf_cuda_turntable_render'
+    #)
     jnp.save('data/occupancy_grid_density.npy', occupancy_grid.mask.astype(jnp.float32))
     occupancy_grid_coordinates = morton3d_invert(
         jnp.arange(occupancy_grid.mask.shape[0], dtype=jnp.uint32)

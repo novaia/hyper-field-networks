@@ -358,6 +358,9 @@ def train_loop(
             )
         )
         return densities, mask, bitfield
+    
+    def normal_occupancy_update(KEY, local_state, densities, mask, bitfield, warmup_arg):
+        return densities, mask, bitfield
 
     def inner_loop(
         train_steps:int, local_state:TrainState, 
@@ -381,11 +384,26 @@ def train_loop(
                 occupancy_bitfield=occupancy_grid.bitfield,
             )
             accumulated_loss += loss
-        occupancy_grid_update_result = occupancy_update(
-            jax.random.PRNGKey(local_state.step), local_state, occupancy_grid_densities,
-            occupancy_grid_mask, occupancy_grid_bitfield, True
+
+            occupancy_grid_update = lax.cond(
+                (
+                    local_state.step % occupancy_grid.update_interval == 0 and 
+                    local_state.step > 0
+                ),
+                occupancy_update,
+                normal_occupancy_update,    
+                step_key, local_state, occupancy_grid_densities, 
+                occupancy_grid_mask, occupancy_grid_bitfield, 
+                step < occupancy_grid.warmup_steps
+            )
+
+            occupancy_grid_densities, occupancy_grid_mask, occupancy_grid_bitfield = \
+                occupancy_grid_update
+        
+        occupancy_grid_arrays = (
+            occupancy_grid_densities, occupancy_grid_mask, occupancy_grid_bitfield
         )
-        return accumulated_loss, local_state, occupancy_grid_update_result
+        return accumulated_loss, local_state, occupancy_grid_arrays
      
     inner_loop = jax.jit(inner_loop, static_argnames=('train_steps',))
     start_time = time.time()

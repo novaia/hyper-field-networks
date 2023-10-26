@@ -366,6 +366,7 @@ def train_loop(
                 state=state,
                 occupancy_grid=occupancy_grid
             )
+    print('Final loss:', loss)
     return state, occupancy_grid
 
 def sample_pixels(key, num_samples:int, image_width:int, image_height:int, num_images:int):

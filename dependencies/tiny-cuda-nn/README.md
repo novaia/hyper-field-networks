@@ -3,12 +3,16 @@
 This is a stripped down version of tiny-cuda-nn containing only the parts required 
 for jax-tcnn. The official version can be found at [NVLabs/tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn).
 
-To build the project, use the following commands:
+To build the library, use the following commands:
 ```
-tiny-cuda-nn$ cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 ```
-tiny-cuda-nn$ cmake --build build --config RelWithDebInfo -j
+cmake --build build --config RelWithDebInfo -j
+```
+You can then copy static library to /usr/lib/ or /usr/local/lib/ or wherever you want to install it.
+```
+cp build/libtiny-cuda-nn.a /usr/lib/
 ```
 
 ## Citation

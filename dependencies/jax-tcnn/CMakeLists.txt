@@ -12,8 +12,10 @@ find_package(Python COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(fmt REQUIRED)
 
-include_directories(/tiny-cuda-nn/dependencies)
-include_directories(/tiny-cuda-nn/include)
+#include_directories(/tiny-cuda-nn/dependencies)
+#include_directories(/tiny-cuda-nn/include)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../tiny-cuda-nn/dependencies)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../tiny-cuda-nn/include)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/lib)
 
 include_directories(${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})

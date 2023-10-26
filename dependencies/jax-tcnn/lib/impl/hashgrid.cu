@@ -58,7 +58,6 @@ void hashgrid_forward_launcher(cudaStream_t stream, void **buffers, char const *
     , offset_table \
     , N_min \
     , log2f(per_level_scale) \
-    , 0.f \
     , 1e3f \
     , nullptr \
     , tcnn::InterpolationType::Linear \

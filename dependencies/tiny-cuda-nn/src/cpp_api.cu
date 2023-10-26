@@ -32,9 +32,7 @@
 #include <tiny-cuda-nn/encoding.h>
 #include <tiny-cuda-nn/multi_stream.h>
 
-#if !defined(TCNN_NO_NETWORKS)
-#include <tiny-cuda-nn/network_with_input_encoding.h>
-#endif
+#define TCNN_NO_NETWORKS true
 
 namespace tcnn { namespace cpp {
 

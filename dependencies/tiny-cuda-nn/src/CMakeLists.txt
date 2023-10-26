@@ -37,10 +37,6 @@ set(SOURCES
 	reduce_sum.cu
 )
 
-if (MIN_GPU_ARCH GREATER_EQUAL 70)
-	list(APPEND SOURCES fully_fused_mlp.cu)
-endif()
-
 ###############################################################################
 # Linker / library
 ###############################################################################

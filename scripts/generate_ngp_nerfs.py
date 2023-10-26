@@ -2,17 +2,26 @@ import os
 import sys
 sys.path.append(os.getcwd())
 import gc
+import pandas as pd
+import time
 import argparse
 import jax
 import jax.numpy as jnp
 from fields import ngp_nerf_cuda
-from flax.serialization import to_state_dict
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_dir', type=str)
 parser.add_argument('--output_dir', type=str)
+parser.add_argument('--csv_path', type=str)
 args = parser.parse_args()
 os.makedirs(args.output_dir, exist_ok=True)
+
+if args.csv_path is None:
+    args.csv_path = os.path.join(args.output_dir, 'fields.csv')
+if not os.path.exists(args.csv_path):
+    with open(args.csv_path, 'w+') as f:
+        f.write('dataset_path,final_loss,field_path\n')
+already_trained_datasets = pd.read_csv(args.csv_path)['dataset_path'].values
 
 num_hash_table_levels = 16
 max_hash_table_entries = 2**20
@@ -39,8 +48,12 @@ state_init_key = jax.random.PRNGKey(0)
 
 dataset_list = os.listdir(args.dataset_dir)
 for dataset_name in dataset_list:
-    print(f'Generating NGP-NeRF for {dataset_name}...')
     dataset_path = os.path.join(args.dataset_dir, dataset_name)
+    if dataset_path in already_trained_datasets:
+        print(f'Skipped {dataset_name}, already trained')
+        continue
+    print(f'Training NGP-NeRF for {dataset_name}...')
+    start_time = time.time()
     dataset = ngp_nerf_cuda.load_dataset(dataset_path, 1)
     
     model = ngp_nerf_cuda.NGPNerf(
@@ -70,7 +83,7 @@ for dataset_name in dataset_list:
         warmup_steps=grid_warmup_steps
     )
 
-    state = ngp_nerf_cuda.train_loop(
+    state, occupancy_grid, final_loss = ngp_nerf_cuda.train_loop(
         batch_size=batch_size,
         train_steps=train_steps,
         dataset=dataset,
@@ -78,11 +91,18 @@ for dataset_name in dataset_list:
         diagonal_n_steps=diagonal_n_steps,
         stepsize_portion=stepsize_portion,
         occupancy_grid=occupancy_grid,
-        state=state
+        state=state,
+        return_final_loss=True
     )
-    
-    file_name = os.path.join(args.output_dir, dataset_name)
-    jnp.save(file_name + '.npy', to_state_dict(state))
+    end_time = time.time()
+    train_time = end_time - start_time
+    print(f'Training time (sec): {train_time}')
+    print('Final loss:', final_loss)
+    file_name = os.path.join(args.output_dir, dataset_name) + '.npy'
+    output_dict = {'final_loss': final_loss, 'params': dict(state.params)}
+    jnp.save(file_name, output_dict)
+    with open(args.csv_path, 'a') as f:
+        f.write(f'{dataset_path},{final_loss},{file_name}\n')
     
     del dataset
     del model

@@ -332,7 +332,8 @@ def train_loop(
     diagonal_n_steps:int, 
     stepsize_portion:float,
     occupancy_grid:OccupancyGrid,
-    state:TrainState
+    state:TrainState,
+    return_final_loss:bool=False
 ):
     num_images = dataset.images.shape[0]
     for step in range(train_steps):
@@ -366,8 +367,10 @@ def train_loop(
                 state=state,
                 occupancy_grid=occupancy_grid
             )
-    print('Final loss:', loss)
-    return state, occupancy_grid
+    if return_final_loss:
+        return state, occupancy_grid, loss
+    else:
+        return state, occupancy_grid
 
 def sample_pixels(key, num_samples:int, image_width:int, image_height:int, num_images:int):
     width_rng, height_rng, image_rng = jax.random.split(key, num=3) 

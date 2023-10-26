@@ -1,5 +1,12 @@
 # proc-gen
 
+## Useful Commands
+
+Generating NGP NeRFs from a directory of datasets:
+```
+python3 scripts/generate_ngp_nerfs.py --dataset_dir data/synthetic_nerf_data --output_dir data/synthetic_nerfs
+```
+
 ## Docker Environment
 
 Building image:

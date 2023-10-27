@@ -86,6 +86,7 @@ extensions = [
 setup(
     name="jax-tcnn",
     author="blurgyy",
+    license="Apache License, Version 2.0",
     package_dir={"": "src"},
     packages=find_packages("src"),
     include_package_data=True,

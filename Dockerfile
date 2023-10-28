@@ -1,6 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
-
-# If this fails, try rebuilding with no cache.
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04 AS base-dependencies
 RUN apt-get update -y \ 
     && apt-get install -y \
         # general dependencies
@@ -39,27 +37,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install software-properties-common=0.
     && apt-get install -y cmake=3.27.7-0kitware1ubuntu20.04.1 \
     && apt-get clean
 
-COPY ./dependencies/ /project/dependencies/
-
-# Compile tiny-cuda-nn.
-RUN cd /project/dependencies/tiny-cuda-nn \
-    && cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    && cmake --build build --config RelWithDebInfo -j \
-    # Symlink the static libary to /usr/lib/.
-    && ln -s \
-        /project/dependencies/tiny-cuda-nn/build/libtiny-cuda-nn.a \
-        /usr/lib/libtiny-cuda-nn.a
-
-RUN python3 -m pip install "jax[cuda11_cudnn86]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-RUN python3 -m pip install --upgrade pip
-COPY requirements.txt requirements.txt
-RUN python3 -m pip install -r requirements.txt
-
-# Compile/install volume-rendering-jax and jax-tcnn.
-RUN python3 -m pip install \
-    /project/dependencies/volume-rendering-jax \
-    /project/dependencies/jax-tcnn
-
+FROM base-dependencies AS blender-install
 # Install Blender.
 ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
 ARG BLENDER_PACKAGE_URL="https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
@@ -76,8 +54,31 @@ RUN tar -xJf /tmp/${BLENDER_PACKAGE_NAME}.tar.xz -C /tmp/ \
     && mv /tmp/${BLENDER_PACKAGE_NAME} ${BLENDER_PATH}
 ENV PATH="$PATH:$BLENDER_PATH"
 
+FROM blender-install AS tiny-cuda-nn-build
+COPY ./dependencies/ /project/dependencies/
+# Build tiny-cuda-nn.
+RUN cd /project/dependencies/tiny-cuda-nn \
+    && cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    && cmake --build build --config RelWithDebInfo -j \
+    # Symlink the static libary to /usr/lib/.
+    && ln -s \
+        /project/dependencies/tiny-cuda-nn/build/libtiny-cuda-nn.a \
+        /usr/lib/libtiny-cuda-nn.a
+
+FROM tiny-cuda-nn-build AS final
+ARG JAX_PACKAGE_URL="https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+COPY requirements.txt requirements.txt
+RUN python3 -m pip install --upgrade pip \
+    # Install Jax with GPU support.
+    && python3 -m pip install \
+        "jax[cuda11_cudnn86]" -f $JAX_PACKAGE_URL \
+    && python3 -m pip install \
+        -r requirements.txt \
+    # Compile/install volume-rendering-jax and jax-tcnn.
+    && python3 -m pip install \
+        /project/dependencies/volume-rendering-jax \
+        /project/dependencies/jax-tcnn
+
 WORKDIR project
-
 EXPOSE 7070
-
 ENTRYPOINT ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root", "--no-browser", "--NotebookApp.token=''", "--NotebookApp.password=''"]

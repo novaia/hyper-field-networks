@@ -29,8 +29,6 @@ project(
 	LANGUAGES CXX CUDA
 )
 
-option(TCNN_BUILD_BENCHMARK "Build tiny-cuda-nn example benchmark?" ON)
-option(TCNN_BUILD_EXAMPLES "Build tiny-cuda-nn example applications?" ON)
 option(TCNN_ALLOW_CUBLAS_CUSOLVER "Allows tiny-cuda-nn to use cuBLAS and cuSolver. Only required for the Shampoo optimizer." OFF)
 set(TCNN_CUDA_ARCHITECTURES "" CACHE STRING "Build tiny-cuda-nn for a specific GPU architecture.")
 
@@ -182,14 +180,6 @@ if (TCNN_HAS_PARENT)
 	set(TCNN_CUDA_VERSION ${CUDA_VERSION} PARENT_SCOPE)
 endif()
 
-if (MIN_GPU_ARCH LESS_EQUAL 70)
-	message(WARNING
-		"Fully fused MLPs do not support GPU architectures of 70 or less. "
-		"Falling back to CUTLASS MLPs. Remove GPU architectures 70 and lower "
-		"to allow maximum performance"
-	)
-endif()
-
 if (CUDA_VERSION VERSION_LESS 10.2)
 	message(FATAL_ERROR "CUDA version too low. tiny-cuda-nn require CUDA 10.2 or higher.")
 endif()
@@ -227,7 +217,6 @@ if (NOT MSVC)
 endif()
 
 set(BUILD_SHARED_LIBS OFF)
-#add_subdirectory("dependencies/fmt")
 
 ###############################################################################
 # tiny-cuda-nn library, samples, and benchmarks
@@ -255,7 +244,5 @@ target_compile_options(tiny-cuda-nn PUBLIC $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_NVC
 target_include_directories(tiny-cuda-nn PUBLIC
 	"include"
 	"dependencies"
-	#"dependencies/fmt/include"
 )
-#target_link_libraries(tiny-cuda-nn PUBLIC ${CUDA_LIBRARIES} ${TCNN_LIBRARIES} fmt)
 target_link_libraries(tiny-cuda-nn PUBLIC ${CUDA_LIBRARIES} ${TCNN_LIBRARIES} fmt)

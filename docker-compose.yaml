@@ -5,11 +5,12 @@ services:
       dockerfile: Dockerfile
       args:
         - rm:true
+    image: pcg
+    container_name: pcg
     ports:
       - 7070:8888
     volumes:
       - .:/project
-      - /tmp/.X11-unix:/tmp/.X11-unix
     deploy:
       resources:
         reservations:

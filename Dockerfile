@@ -73,15 +73,16 @@ RUN cd /project/dependencies/tiny-cuda-nn \
 
 FROM tiny-cuda-nn-build AS final
 ARG JAX_PACKAGE_URL="https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+ARG NO_CACHE="--no-cache-dir"
 COPY requirements.txt requirements.txt
-RUN python3 -m pip install --upgrade pip \
+RUN python3 -m pip install $NO_CACHE --upgrade pip \
     # Install jax with GPU support.
-    && python3 -m pip install \
+    && python3 -m pip install $NO_CACHE \
         "jax[cuda11_cudnn86]" -f $JAX_PACKAGE_URL \
-    && python3 -m pip install \
+    && python3 -m pip install $NO_CACHE \
         -r requirements.txt \
     # Compile/install volume-rendering-jax and jax-tcnn.
-    && python3 -m pip install \
+    && python3 -m pip install $NO_CACHE \
         /project/dependencies/volume-rendering-jax \
         /project/dependencies/jax-tcnn
 

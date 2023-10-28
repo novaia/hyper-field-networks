@@ -17,10 +17,12 @@ RUN apt-get update -y \
         # python3 and pip
         python3-dev=3.8.2-0ubuntu2 \
         python3-pip=20.0.2-5ubuntu1.9 \
-    && apt-get clean
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Upgrade to gcc-11 and g++-11, then install cmake.
-RUN DEBIAN_FRONTEND=noninteractive apt-get install $NO_RECS -y \
+RUN apt-get update -y \
+    && DEBIAN_FRONTEND=noninteractive apt-get install $NO_RECS -y \
         software-properties-common=0.99.9.12 \
     && DEBIAN_FRONTEND=noninteractive add-apt-repository -y \
         ppa:ubuntu-toolchain-r/test \
@@ -38,7 +40,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install $NO_RECS -y \
     && apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" \
     && apt-get update -y \
     && apt-get install $NO_RECS -y cmake=3.27.7-0kitware1ubuntu20.04.1 \
-    && apt-get clean
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 FROM base-dependencies AS blender-install
 # Install blender.

@@ -1,6 +1,7 @@
 FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04 AS base-dependencies
+ARG NO_RECS="--no-install-recommends"
 RUN apt-get update -y \ 
-    && apt-get install -y \
+    && apt-get install $NO_RECS -y \
         # general dependencies
         wget=1.20.3-1ubuntu2 \
         # blender dependencies
@@ -14,15 +15,17 @@ RUN apt-get update -y \
         # volume-rendering-jax dependencies
         libfmt-dev=6.1.2+ds-2 \
         # python3 and pip
-        python3=3.8.2-0ubuntu2 -y \
-        python3-pip=20.0.2-5ubuntu1.9 -y \
+        python3-dev=3.8.2-0ubuntu2 \
+        python3-pip=20.0.2-5ubuntu1.9 \
     && apt-get clean
 
 # Upgrade to gcc-11 and g++-11, then install cmake.
-RUN DEBIAN_FRONTEND=noninteractive apt-get install software-properties-common=0.99.9.12 -y \
-    && DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+RUN DEBIAN_FRONTEND=noninteractive apt-get install $NO_RECS -y \
+        software-properties-common=0.99.9.12 \
+    && DEBIAN_FRONTEND=noninteractive add-apt-repository -y \
+        ppa:ubuntu-toolchain-r/test \
     && apt-get update -y \
-    && apt-get install -y \
+    && apt-get install $NO_RECS -y \
         gcc-11=11.4.0-2ubuntu1~20.04 \
         g++-11=11.4.0-2ubuntu1~20.04 \
     # Set gcc-11 as the default gcc version and g++-11 as the default g++ version.
@@ -34,7 +37,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install software-properties-common=0.
     # Install cmake from kitware.
     && apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" \
     && apt-get update -y \
-    && apt-get install -y cmake=3.27.7-0kitware1ubuntu20.04.1 \
+    && apt-get install $NO_RECS -y cmake=3.27.7-0kitware1ubuntu20.04.1 \
     && apt-get clean
 
 FROM base-dependencies AS blender-install

@@ -31,14 +31,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install software-properties-common=0.
     # Download kitware's signing key.
     && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null \
         | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null \
-    # Install cmake from Kitware.
+    # Install cmake from kitware.
     && apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" \
     && apt-get update -y \
     && apt-get install -y cmake=3.27.7-0kitware1ubuntu20.04.1 \
     && apt-get clean
 
 FROM base-dependencies AS blender-install
-# Install Blender.
+# Install blender.
 ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
 ARG BLENDER_PACKAGE_URL="https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
 ARG BLENDER_PATH="/usr/local/blender"
@@ -69,7 +69,7 @@ FROM tiny-cuda-nn-build AS final
 ARG JAX_PACKAGE_URL="https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
 COPY requirements.txt requirements.txt
 RUN python3 -m pip install --upgrade pip \
-    # Install Jax with GPU support.
+    # Install jax with GPU support.
     && python3 -m pip install \
         "jax[cuda11_cudnn86]" -f $JAX_PACKAGE_URL \
     && python3 -m pip install \

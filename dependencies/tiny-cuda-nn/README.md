@@ -10,9 +10,9 @@ cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 cmake --build build --config RelWithDebInfo -j
 ```
-You can then copy static library to /usr/lib/ or /usr/local/lib/ or wherever you want to install it.
+You can then link the static library to /usr/lib/ or wherever you want to install it.
 ```
-cp build/libtiny-cuda-nn.a /usr/lib/
+ln -s /project/dependencies/tiny-cuda-nn/build/libtiny-cuda-nn.a /usr/lib/libtiny-cuda-nn.a
 ```
 
 ## Citation

@@ -1,1 +1,1 @@
-mkdir data && mkdir data/blender-versions
+mkdir data && mkdir data/blender_versions

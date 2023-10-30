@@ -2,14 +2,11 @@ import bpy
 import bmesh
 import mathutils
 import random
-import math
-import json
 import os
 import sys
 print(os.getcwd())
 sys.path.append(os.getcwd())
 import synthetic_data_helper as sdh
-import argparse
 
 def extrude(offset, ops_mesh):
     ops_mesh.extrude_vertices_move(

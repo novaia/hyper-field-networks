@@ -8,19 +8,20 @@ if __name__ == '__main__':
     parser.add_argument('--script', type=str)
     help_text = 'Number of generations.'
     parser.add_argument('--number', type=int, default=1)
-    parser.add_argument('--save_directory', type=str, default='data/renders')
+    parser.add_argument('--save_directory', type=str, default='data/renders/render')
     parser.add_argument('--num_renders', type=int, default=200)
     args = parser.parse_args()
 
     if not os.path.exists(args.save_directory):
-        os.mkdir(args.save_directory)
+        print('here')
+        os.makedirs(args.save_directory)
 
     command = [
         'xvfb-run', 
         'blender',
         '--background',
         '-P',
-        f'scripts/pcg/{args.script}',
+        f'synthetic_data_helper/blender_scripts/{args.script}',
         '--',
         '--save_directory',
         args.save_directory,

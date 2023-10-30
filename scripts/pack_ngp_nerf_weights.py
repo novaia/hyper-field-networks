@@ -1,0 +1,75 @@
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+
+def pack_weights(params, packed_width):
+    packed_height = 0
+    weight_map = []
+    packed_weights = []
+    for key in params.keys():
+        new_weight_map_entry = {'layer': key}
+        if key == 'MultiResolutionHashEncoding_0':
+            parameter = params[key]['hash_table']
+            new_weight_map_entry['num_entries'] = parameter_shape[0]
+            new_weight_map_entry['feature_dim'] = parameter_shape[1]
+            parameter = jnp.ravel(parameter)
+            parameter_shape = parameter.shape
+            packed_weights.append(jnp.reshape(
+                parameter, (parameter_shape[0] // packed_width, packed_width)
+            ))
+        for sub_key in params[key].keys():
+            parameter = params[key][sub_key]
+            parameter_shape = parameter.shape
+            if sub_key == 'bias':
+                new_weight_map_entry['bias_width'] = parameter_shape[0]
+                packed_weights.append(jnp.expand_dims(
+                    jnp.concatenate([
+                        parameter, jnp.zeros((packed_width - parameter_shape[0]))
+                    ], axis=-1),
+                    axis=0
+                ))
+                packed_height += 1
+            elif sub_key == 'kernel':
+                height_greater_than_width = parameter_shape[0] > parameter_shape[1]
+                height_equal_to_packed_width = parameter_shape[0] == packed_width
+                # The second operand is important because we don't want to transpose
+                # unless it will create a shape that can be concatenated with the other
+                # parameters along the height axis, i.e. (parameter_height, packed_width).
+                if height_greater_than_width and height_equal_to_packed_width:
+                    kernel_height = parameter_shape[1]
+                    kernel_width = parameter_shape[0]
+                    packed_weights.append(jnp.transpose(parameter))
+                    new_weight_map_entry['kernel_transposed'] = True
+                    packed_height += kernel_height
+                else:
+                    kernel_height = parameter_shape[0]
+                    kernel_width = parameter_shape[1]
+                    packed_weights.append(parameter)
+                    new_weight_map_entry['kernel_transposed'] = False
+                    packed_height += kernel_height
+                new_weight_map_entry['kernel_height'] = kernel_height
+                new_weight_map_entry['kernel_width'] = kernel_width
+        weight_map.append(new_weight_map_entry)
+    packed_weights = jnp.concatenate(packed_weights, axis=0)
+    return packed_weights, weight_map
+
+def main():
+    loss_threshold = 1e-3
+    params = jnp.load('data/synthetic_nerfs/aliens/0-39/alien_10.npy', allow_pickle=True)
+    params = params.tolist()
+    final_loss = params['final_loss']
+    if final_loss > loss_threshold:
+        print('Loss is too high, skipping')
+        return
+    params = params['params']
+    packed_weights, weight_map = pack_weights(params, 64)
+    print('Packed weights shape:', packed_weights.shape)
+    print('Weight map:', weight_map)
+    print('Max', jnp.max(packed_weights))
+    print('Min', jnp.min(packed_weights))
+    weights_image = packed_weights - jnp.min(packed_weights)
+    weights_image = weights_image / jnp.max(weights_image)
+    plt.imsave('data/weights_image.png', weights_image, cmap='magma')
+
+if __name__ == '__main__':
+    main()

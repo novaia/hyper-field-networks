@@ -88,6 +88,4 @@ RUN python3 -m pip install $NO_CACHE --upgrade pip \
 
 WORKDIR project
 EXPOSE 7070
-#ENTRYPOINT ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root", "--no-browser", "--NotebookApp.token=''", "--NotebookApp.password=''"]
-#ENTRYPOINT ["while", "true;", "do", "sleep", "1;", "done"]
-ENTRYPOINT while true; do sleep 1; done
+ENTRYPOINT ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root", "--no-browser", "--NotebookApp.token=''", "--NotebookApp.password=''"]

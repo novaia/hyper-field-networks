@@ -1,6 +1,5 @@
 services:
   pcg:
-    user: ${UID}:${GID}
     build:
       context: .
       dockerfile: Dockerfile

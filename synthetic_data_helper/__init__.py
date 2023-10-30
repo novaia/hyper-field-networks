@@ -164,7 +164,7 @@ def save_transform_data(transform_data, save_directory):
             f,
             indent=4
         )
-        
+
 def listify_matrix(matrix):
     matrix_list = []
     for row in matrix:
@@ -300,3 +300,16 @@ def random_render_on_sphere(
             build_extrinsics_element(render_name, listify_matrix(camera.matrix_world))
         )
     return {'frames': extrinsic_camera_data}
+
+def global_mirror_offset_extrude(offset, ops_mesh):
+    ops_mesh.extrude_vertices_move(
+        MESH_OT_extrude_verts_indiv={'mirror':False}, 
+        TRANSFORM_OT_translate={
+            'value':offset, 
+            'orient_type':'GLOBAL', 
+            'orient_matrix':((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
+            'orient_matrix_type':'GLOBAL', 
+            'constraint_axis':(True, True, True), 
+            'mirror':True
+        }
+    )

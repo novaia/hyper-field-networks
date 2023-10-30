@@ -5,13 +5,59 @@ import random
 import json
 import os
 import warnings
+import sys
+import argparse
+
+def set_renderer_cycles_gpu():
+    bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
+    bpy.context.preferences.addons['cycles'].preferences.get_devices()
+    bpy.context.scene.cycles.device = 'GPU'
+    bpy.data.scenes['Scene'].render.engine = 'CYCLES'
+
+def set_general_render_settings():
+    bpy.context.scene.render.resolution_x = 512
+    bpy.context.scene.render.resolution_y = 512
+    bpy.context.scene.render.image_settings.file_format = 'PNG'
+    bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+    bpy.context.scene.render.film_transparent = True
+
+def set_cycles_render_settings():
+    bpy.context.scene.cycles.samples = 100
+
+def delete_all_and_add_camera():
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    bpy.ops.object.camera_add()
+    bpy.context.scene.camera = bpy.context.object
+
+def set_background_white():
+    world = bpy.data.worlds['World']
+    world.use_nodes = True
+    bg = world.node_tree.nodes['Background']
+    bg.inputs[0].default_value[:3] = (1, 1, 1)
+    bg.inputs[1].default_value = 1.0
+
+def move_bounding_sphere_to_origin(d_obj):
+    bounding_box = d_obj.bound_box
+    sphere_radius, sphere_origin = get_bounding_sphere(bounding_box)
+    d_obj.location = -mathutils.Vector(sphere_origin)
+    return sphere_radius
+
+def get_arguments():
+    arguments = sys.argv[sys.argv.index("--")+1:]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--save_directory', type=str, default='data/renders')
+    parser.add_argument('--num_renders', type=int, default=200)
+    return parser.parse_args(arguments)
 
 # For more information on camera intrinsics and extrinsics, see NerfStudio documentation:
 # https://docs.nerf.studio/en/latest/quickstart/data_conventions.html
 # For more information on how this data is extracted from Blender, see Maxime Raafat's
 # BlenderNeRF repository, specifically, blender_nerf_operator.py:
 # https://github.com/maximeraafat/BlenderNeRF
-def get_intrinsic_camera_data(scene, camera, bounding_box):
+def get_intrinsic_camera_data():
+    scene = bpy.context.scene
+    camera = scene.camera
     camera_angle_x = camera.data.angle_x # Camera FOV.
     camera_angle_y = camera.data.angle_y
     sensor_size_mm = camera.data.sensor_width
@@ -36,7 +82,7 @@ def get_intrinsic_camera_data(scene, camera, bounding_box):
         'cy': optical_center_y,
         'w': render_resolution_x,
         'h': render_resolution_y,
-        'aabb_scale': get_aabb_scale(bounding_box)
+        'aabb_scale': 1
     } 
 
     # Debug.
@@ -118,7 +164,7 @@ def save_transform_data(transform_data, save_directory):
             f,
             indent=4
         )
-    
+        
 def listify_matrix(matrix):
     matrix_list = []
     for row in matrix:

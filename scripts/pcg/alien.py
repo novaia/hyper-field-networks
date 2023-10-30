@@ -244,26 +244,17 @@ def get_randomized_vertex_radii():
         head_top_radius
     )
 
-if __name__ == '__main__':
-    arguments = sys.argv[sys.argv.index("--")+1:]
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--save_directory', type=str, default='data/renders')
-    parser.add_argument('--num_renders', type=int, default=200)
-    args = parser.parse_args(arguments)
+def main():
+    args = sdh.get_arguments()
+    sdh.delete_all_and_add_camera()
 
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.delete(use_global=False)
-    bpy.ops.object.camera_add()
-    bpy.context.scene.camera = bpy.context.object
-
-    # Randomize color.
+    # Generate.
     color = (
         random.uniform(0, 1),
         random.uniform(0, 1),
         random.uniform(0, 1),
         1
     )
-
     d_obj = generate(
         *get_randomized_vertex_offsets(),
         *get_randomized_vertex_radii(),
@@ -271,32 +262,11 @@ if __name__ == '__main__':
         False
     )
 
-    # Get bounding sphere.
-    bounding_box = d_obj.bound_box
-    sphere_radius, sphere_origin = sdh.get_bounding_sphere(bounding_box)
-    d_obj.location = -mathutils.Vector(sphere_origin)
-    #bpy.ops.mesh.primitive_uv_sphere_add(radius=sphere_radius, location=sphere_origin)
-
-    # Enable GPU rendering.
-    bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
-    bpy.context.preferences.addons['cycles'].preferences.get_devices()
-    bpy.context.scene.cycles.device = 'GPU'
-    bpy.data.scenes['Scene'].render.engine = 'CYCLES'
-
-    # Set world background color.
-    world = bpy.data.worlds['World']
-    world.use_nodes = True
-    bg = world.node_tree.nodes['Background']
-    bg.inputs[0].default_value[:3] = (1, 1, 1)
-    bg.inputs[1].default_value = 1.0
-
-    # Render settings.
-    bpy.context.scene.render.resolution_x = 512
-    bpy.context.scene.render.resolution_y = 512
-    bpy.context.scene.render.image_settings.file_format = 'PNG'
-    bpy.context.scene.render.image_settings.color_mode = 'RGBA'
-    bpy.context.scene.render.film_transparent = True
-    bpy.context.scene.cycles.samples = 100
+    sphere_radius = sdh.move_bounding_sphere_to_origin(d_obj)
+    sdh.set_renderer_cycles_gpu()
+    sdh.set_background_white()
+    sdh.set_general_render_settings()
+    sdh.set_cycles_render_settings()
 
     # Render.
     camera = bpy.context.scene.objects['Camera']
@@ -304,10 +274,11 @@ if __name__ == '__main__':
         camera, bpy.context.scene, sphere_radius+10, 
         (0, 0, 0), args.num_renders, args.save_directory
     )
-    intrinsic_camera_data = sdh.get_intrinsic_camera_data(
-        bpy.context.scene, camera, bounding_box
-    )
+    intrinsic_camera_data = sdh.get_intrinsic_camera_data()
     transform_data = sdh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
     sdh.save_transform_data(transform_data, args.save_directory)
             
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')
+
+if __name__ == '__main__':
+    main()

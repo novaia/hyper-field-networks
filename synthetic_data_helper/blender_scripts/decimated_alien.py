@@ -154,7 +154,7 @@ def main():
     d_obj = generate()
     sphere_radius = sdh.move_bounding_sphere_to_origin(d_obj)
     sdh.set_renderer_cycles_gpu()
-    sdh.set_background_white()
+    sdh.set_background((0.7, 0.7, 0.7), 0.5)
     sdh.set_general_render_settings()
     sdh.set_cycles_render_settings()
     camera = bpy.context.scene.objects['Camera']
@@ -165,7 +165,7 @@ def main():
     intrinsic_camera_data = sdh.get_intrinsic_camera_data()
     transform_data = sdh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
     sdh.save_transform_data(transform_data, args.save_directory)
-            
+    sdh.fetch_and_save_tri_count(args.save_directory)
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')
 
 if __name__ == '__main__':

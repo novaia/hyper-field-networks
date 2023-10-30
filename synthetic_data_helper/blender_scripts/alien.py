@@ -159,7 +159,7 @@ def main():
     intrinsic_camera_data = sdh.get_intrinsic_camera_data()
     transform_data = sdh.build_transform_data(intrinsic_camera_data, extrinsic_camera_data)
     sdh.save_transform_data(transform_data, args.save_directory)
-            
+    sdh.fetch_and_save_tri_count(args.save_directory)
     bpy.ops.wm.save_as_mainfile(filepath='data/blend_files/test.blend')
 
 if __name__ == '__main__':

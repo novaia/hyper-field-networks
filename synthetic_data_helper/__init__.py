@@ -30,12 +30,15 @@ def delete_all_and_add_camera():
     bpy.ops.object.camera_add()
     bpy.context.scene.camera = bpy.context.object
 
-def set_background_white():
+def set_background(color, strength):
     world = bpy.data.worlds['World']
     world.use_nodes = True
     bg = world.node_tree.nodes['Background']
-    bg.inputs[0].default_value[:3] = (1, 1, 1)
-    bg.inputs[1].default_value = 1.0
+    bg.inputs[0].default_value[:3] = color
+    bg.inputs[1].default_value = strength
+
+def set_background_white():
+    set_background((1.0, 1.0, 1.0), 1.0)
 
 def move_bounding_sphere_to_origin(d_obj):
     bounding_box = d_obj.bound_box
@@ -49,6 +52,12 @@ def get_arguments():
     parser.add_argument('--save_directory', type=str, default='data/renders')
     parser.add_argument('--num_renders', type=int, default=200)
     return parser.parse_args(arguments)
+
+def fetch_and_save_tri_count(save_directory):
+    stats = bpy.context.scene.statistics(bpy.context.view_layer)
+    tri_count = int(stats.split("Tris:")[1].split(' ')[0].replace(',', ''))
+    with open(os.path.join(save_directory, 'tri_count.txt'), 'w') as f:
+        f.write(str(tri_count))
 
 # For more information on camera intrinsics and extrinsics, see NerfStudio documentation:
 # https://docs.nerf.studio/en/latest/quickstart/data_conventions.html

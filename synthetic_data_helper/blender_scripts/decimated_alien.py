@@ -55,7 +55,7 @@ def generate():
     ops_obj.modifier_add(type='SUBSURF')
 
     ctx_obj = bpy.context.object
-    ctx_obj.modifiers['Skin'].use_smooth_shade = True
+    ctx_obj.modifiers['Skin'].use_smooth_shade = False
     ctx_obj.modifiers["Subdivision"].levels = 3
     ctx_obj.modifiers["Subdivision"].render_levels = 3
 
@@ -148,11 +148,18 @@ def generate():
 
     return d_obj
 
+def add_sun():
+    bpy.ops.object.light_add(type='SUN', location=(0, 0, 0))
+    bpy.context.object.name = 'Sun'
+    bpy.data.lights['Sun'].energy = 10
+    bpy.data.lights['Sun'].color = (1.0, 0.655, 0.101)
+
 def main():
     args = sdh.get_arguments()
     sdh.delete_all_and_add_camera()
     d_obj = generate()
     sphere_radius = sdh.move_bounding_sphere_to_origin(d_obj)
+    add_sun()
     sdh.set_renderer_cycles_gpu()
     sdh.set_background((0.7, 0.7, 0.7), 0.5)
     sdh.set_general_render_settings()

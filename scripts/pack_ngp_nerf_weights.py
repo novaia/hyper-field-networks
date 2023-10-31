@@ -10,13 +10,15 @@ def pack_weights(params, packed_width):
         new_weight_map_entry = {'layer': key}
         if key == 'MultiResolutionHashEncoding_0':
             parameter = params[key]['hash_table']
-            new_weight_map_entry['num_entries'] = parameter_shape[0]
-            new_weight_map_entry['feature_dim'] = parameter_shape[1]
+            new_weight_map_entry['num_entries'] = parameter.shape[0]
+            new_weight_map_entry['feature_dim'] = parameter.shape[1]
             parameter = jnp.ravel(parameter)
             parameter_shape = parameter.shape
             packed_weights.append(jnp.reshape(
                 parameter, (parameter_shape[0] // packed_width, packed_width)
             ))
+            new_weight_map_entry['table_height'] = packed_weights[-1].shape[0]
+            new_weight_map_entry['table_width'] = packed_weights[-1].shape[1]
         for sub_key in params[key].keys():
             parameter = params[key][sub_key]
             parameter_shape = parameter.shape
@@ -53,6 +55,35 @@ def pack_weights(params, packed_width):
     packed_weights = jnp.concatenate(packed_weights, axis=0)
     return packed_weights, weight_map
 
+def unpack_weights(packed_weights, weight_map):
+    unpacked_weights = {}
+    current_height = 0
+    for layer in weight_map:
+        layer_name = layer['layer']
+        if layer_name != 'MultiResolutionHashEncoding_0':
+            bias_width = layer['bias_width']
+            bias = packed_weights[current_height, :bias_width]
+            current_height += 1
+            kernel_height = layer['kernel_height']
+            kernel_width = layer['kernel_width']
+            kernel = packed_weights[current_height:current_height+kernel_height, :kernel_width]
+            current_height += kernel_height
+            if layer['kernel_transposed']:
+                kernel = jnp.transpose(kernel)
+            unpacked_weights[layer_name] = {'bias': bias, 'kernel': kernel}
+        else:
+            table_height = layer['table_height']
+            table_width = layer['table_width']
+            num_entries = layer['num_entries']
+            feature_dim = layer['feature_dim']
+            hash_table = packed_weights[current_height:current_height+table_height, :table_width]
+            current_height += table_height
+            hash_table = jnp.reshape(jnp.ravel(hash_table), (num_entries, feature_dim))
+            unpacked_weights[layer_name] = {'hash_table': hash_table}
+    print(unpacked_weights.keys())
+    print(current_height)
+    return unpacked_weights
+
 def main():
     loss_threshold = 1e-3
     params = jnp.load('data/synthetic_nerfs/aliens/0-39/alien_10.npy', allow_pickle=True)
@@ -65,11 +96,13 @@ def main():
     packed_weights, weight_map = pack_weights(params, 64)
     print('Packed weights shape:', packed_weights.shape)
     print('Weight map:', weight_map)
-    print('Max', jnp.max(packed_weights))
-    print('Min', jnp.min(packed_weights))
-    weights_image = packed_weights - jnp.min(packed_weights)
-    weights_image = weights_image / jnp.max(weights_image)
-    plt.imsave('data/weights_image.png', weights_image, cmap='magma')
+    unpacked_weights = unpack_weights(packed_weights, weight_map)
+    print(params['MultiResolutionHashEncoding_0']['hash_table'].shape)
+    print(unpacked_weights['MultiResolutionHashEncoding_0']['hash_table'].shape)
+    print('Correct unpack', jnp.allclose(
+        params['MultiResolutionHashEncoding_0']['hash_table'],
+        unpacked_weights['MultiResolutionHashEncoding_0']['hash_table']
+    ))
 
 if __name__ == '__main__':
     main()

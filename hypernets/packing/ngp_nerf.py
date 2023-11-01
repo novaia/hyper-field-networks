@@ -78,6 +78,4 @@ def unpack_weights(packed_weights, weight_map):
             current_height += table_height
             hash_table = jnp.reshape(jnp.ravel(hash_table), (num_entries, feature_dim))
             unpacked_weights[layer_name] = {'hash_table': hash_table}
-    print(unpacked_weights.keys())
-    print(current_height)
     return unpacked_weights

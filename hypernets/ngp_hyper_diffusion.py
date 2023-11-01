@@ -4,13 +4,16 @@ from jax import lax
 import flax.linen as nn
 from flax.training.train_state import TrainState
 import optax
-from functools import partial
 import os
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import List, Tuple, Callable
 from operator import itemgetter
 import math
+from fields import ngp_nerf_cuda
+from hypernets.packing.ngp_nerf import unpack_weights
+import json
+from functools import partial
 
 @dataclass
 class DatasetInfo:
@@ -322,7 +325,7 @@ def reverse_diffusion(
 def main():
     print('GPU:', jax.devices('gpu'))
 
-    epochs = 1
+    epochs = 1000
     batch_size = 8
     min_signal_rate = 0.02
     max_signal_rate = 0.95
@@ -380,11 +383,66 @@ def main():
         seed=0
     )
     print('Generated weights shape', generated_weights.shape)
-    exit(0)
-    generated_weights = jnp.squeeze(generated_weights)
-    generated_weights = jnp.reshape(generated_weights, (generated_weights.shape[0], 48, 16))
-    for i in range(generated_weights.shape[0]):
-        jnp.save(f'data/generated_weights/{i}_weights.npy', generated_weights[i])
-        weights_image = generated_weights[i] - jnp.min(generated_weights[i])
-        weights_image = weights_image / jnp.max(weights_image)
-        plt.imsave(f'data/generated_weights/{i}_weights.png', weights_image, cmap='magma')
+    with open('data/synthetic_nerfs/packed_aliens/param_map.json', 'r') as f:
+        weight_map = json.load(f)
+    unpacked_weights = unpack_weights(generated_weights, weight_map)
+    print(unpacked_weights.keys())
+    
+    num_hash_table_levels = 16
+    max_hash_table_entries = 2**20
+    hash_table_feature_dim = 2
+    coarsest_resolution = 16
+    finest_resolution = 2**19
+    density_mlp_width = 64
+    color_mlp_width = 64
+    high_dynamic_range = False
+    exponential_density_activation = True
+    scene_bound = 1.0
+    grid_resolution = 128
+    diagonal_n_steps = 1024
+    stepsize_portion = 1.0 / 256.0
+    batch_size = 256 * 1024
+    
+    model = ngp_nerf_cuda.NGPNerf(
+        number_of_grid_levels=num_hash_table_levels,
+        max_hash_table_entries=max_hash_table_entries,
+        hash_table_feature_dim=hash_table_feature_dim,
+        coarsest_resolution=coarsest_resolution,
+        finest_resolution=finest_resolution,
+        density_mlp_width=density_mlp_width,
+        color_mlp_width=color_mlp_width,
+        high_dynamic_range=high_dynamic_range,
+        exponential_density_activation=exponential_density_activation,
+        scene_bound=scene_bound
+    )
+    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(grid_resolution, 0, scene_bound)
+    KEY = jax.random.PRNGKey(0)
+    state = ngp_nerf_cuda.create_train_state(model, KEY, 1, 1, 1)
+    state = state.replace(params=unpacked_weights)
+    dataset = ngp_nerf_cuda.load_dataset('data/synthetic_nerf_data/aliens/alien_0', 1)
+    render_fn = partial(
+        ngp_nerf_cuda.render_scene,
+        # Patch size has to be small otherwise not all rays will produce samples and the
+        # resulting image will have artifacts. This can be fixed by switching to the 
+        # inference version of the ray marching and ray integration functions.
+        patch_size_x=32,
+        patch_size_y=32,
+        dataset=dataset,
+        scene_bound=scene_bound,
+        diagonal_n_steps=diagonal_n_steps,
+        grid_cascades=1,
+        grid_resolution=grid_resolution,
+        stepsize_portion=stepsize_portion,
+        occupancy_bitfield=occupancy_grid.bitfield,
+        batch_size=batch_size,
+        state=state
+    )
+    occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
+        KEY, batch_size, occupancy_grid.densities, occupancy_grid.mask, 
+        occupancy_grid.resolution, occupancy_grid.num_entries, scene_bound, state, False
+    )
+    threshold_result = ngp_nerf_cuda.threshold_occupancy_grid(
+        diagonal_n_steps, scene_bound, occupancy_grid.densities
+    )
+    occupancy_grid.mask, occupancy_grid.bitfield = threshold_result
+    render_fn(transform_matrix=dataset.transform_matrices[0])

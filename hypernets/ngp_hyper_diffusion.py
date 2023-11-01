@@ -8,7 +8,7 @@ from functools import partial
 import os
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 from operator import itemgetter
 import math
 
@@ -25,6 +25,7 @@ class DatasetInfo:
     samples_per_file: int # Number of samples to take from each file for batch.
     loaded_shape: Tuple[int, int, int] # Shape of loaded batch files.
     pad_shape: Tuple[int, int, int] # Shape of padding needed to split file into num_contexts.
+    num_pad_tokens: int # Number of padding tokens needed to split file into num_contexts.
     final_shape: Tuple[int, int, int] # Shape of final batch.
     context_indices: jax.Array
     file_indices: jax.Array
@@ -41,13 +42,13 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
     assert len(base_sample.shape) == 2, 'Samples arrays must be 2D'
     num_tokens = base_sample.shape[0]
     token_dim = base_sample.shape[1]
-    pad_size = (context_length - (num_tokens % context_length)) % context_length
-    num_contexts = (num_tokens + pad_size) // context_length
+    num_pad_tokens = (context_length - (num_tokens % context_length)) % context_length
+    num_contexts = (num_tokens + num_pad_tokens) // context_length
     context_indices = jnp.arange(context_length)
     file_indices = jnp.arange(num_files)
     files_to_load = math.ceil(batch_size / num_contexts)
     loaded_shape = (files_to_load, num_tokens, token_dim)
-    pad_shape = (files_to_load, pad_size, token_dim)
+    pad_shape = (files_to_load, num_pad_tokens, token_dim)
     samples_per_file = batch_size // files_to_load
     final_shape = (batch_size, context_length, token_dim)
 
@@ -78,6 +79,7 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
         context_length=context_length,
         context_indices=context_indices,
         file_indices=file_indices,
+        num_pad_tokens=num_pad_tokens
     )
     return dataset_info
 
@@ -257,9 +259,10 @@ def train_step(
     return loss, state
 
 def reverse_diffusion(
-    apply_fn, 
+    dataset_info:DatasetInfo,
+    apply_fn:Callable, 
     params,
-    num_images, 
+    batch_size, 
     diffusion_steps, 
     context_length,
     token_dim, 
@@ -269,41 +272,57 @@ def reverse_diffusion(
     seed, 
     initial_noise = None,
 ):
-    if initial_noise == None:
-        initial_noise = jax.random.normal(
-            jax.random.PRNGKey(seed), 
-            shape=(num_images, context_length, token_dim)
-        )
-    step_size = 1.0 / diffusion_steps
-    
-    next_noisy_images = initial_noise
-    for step in range(diffusion_steps):
-        noisy_images = next_noisy_images
-        
-        diffusion_times = jnp.ones((num_images, 1, 1)) - step * step_size
-        noise_rates, signal_rates = diffusion_schedule_fn(
-            diffusion_times, min_signal_rate, max_signal_rate
-        )
-        pred_noises = lax.stop_gradient(
-            apply_fn(
-                {'params': params}, 
-                [noisy_images, noise_rates**2], 
+    assert batch_size <= dataset_info.num_contexts, 'Batch size must be <= num contexts'
+    num_batches = math.ceil(dataset_info.num_contexts / batch_size)
+    denoised_contexts = []
+    for i in range(num_batches):
+        if initial_noise == None:
+            initial_noise = jax.random.normal(
+                jax.random.PRNGKey(seed), 
+                shape=(batch_size, context_length, token_dim)
             )
-        )
-        pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
-        
-        next_diffusion_times = diffusion_times - step_size
-        next_noise_rates, next_signal_rates = diffusion_schedule_fn(
-            next_diffusion_times, min_signal_rate, max_signal_rate
-        )
-        next_noisy_images = (next_signal_rates * pred_images + next_noise_rates * pred_noises)
+        step_size = 1.0 / diffusion_steps
+        context_indices = jnp.arange(i * batch_size, (i+1) * batch_size)
+        context_indices = jnp.reshape(context_indices, (batch_size, 1, 1))
 
-    return pred_images
+        next_noisy_weights = initial_noise
+        for step in range(diffusion_steps):
+            noisy_weights = next_noisy_weights
+            
+            diffusion_times = jnp.ones((batch_size, 1, 1)) - step * step_size
+            noise_rates, signal_rates = diffusion_schedule_fn(
+                diffusion_times, min_signal_rate, max_signal_rate
+            )
+            x = [noisy_weights, context_indices, noise_rates**2]
+            pred_noises = lax.stop_gradient(apply_fn({'params': params}, x))
+            pred_weights = (noisy_weights - noise_rates * pred_noises) / signal_rates
+            
+            next_diffusion_times = diffusion_times - step_size
+            next_noise_rates, next_signal_rates = diffusion_schedule_fn(
+                next_diffusion_times, min_signal_rate, max_signal_rate
+            )
+            next_noisy_weights = \
+                next_signal_rates * pred_weights + next_noise_rates * pred_noises
+        print(f'Context {i * batch_size} to {(i+1) * batch_size} denoised')
+        denoised_contexts.append(pred_weights)
+    
+    num_leftover_contexts = dataset_info.num_contexts % batch_size
+    if num_leftover_contexts != 0:
+        denoised_contexts[-1] = denoised_contexts[-1][:num_leftover_contexts, :, :]
+
+    denoised_weights = jnp.concatenate(denoised_contexts, axis=0)
+    new_shape = (
+        denoised_weights.shape[0] * denoised_weights.shape[1],
+        dataset_info.token_dim
+    )
+    denoised_weights = jnp.reshape(denoised_weights, new_shape)
+    denoised_weights = denoised_weights[dataset_info.num_pad_tokens:, :]
+    return denoised_weights
 
 def main():
     print('GPU:', jax.devices('gpu'))
 
-    epochs = 1000
+    epochs = 1
     batch_size = 8
     min_signal_rate = 0.02
     max_signal_rate = 0.95
@@ -320,8 +339,8 @@ def main():
         'data/synthetic_nerfs/packed_aliens', context_length, batch_size, verbose=True
     )
     batch, context_indices = load_batch(dataset_info, jax.random.PRNGKey(0))
-    print(batch.shape)
-    print(context_indices.shape)
+    print('Batch shape', batch.shape)
+    print('Batch context indices shape', context_indices.shape)
     token_dim = batch.shape[-1]
     steps_per_epoch = (dataset_info.num_files * dataset_info.num_tokens) // batch_size
 
@@ -347,11 +366,11 @@ def main():
         max_signal_rate, 
         state
     )
-    exit(0)
     generated_weights = reverse_diffusion(
+        dataset_info=dataset_info,
         apply_fn=state.apply_fn, 
         params=state.params, 
-        num_images=4, 
+        batch_size=32, 
         diffusion_steps=20,
         context_length=context_length,
         token_dim=token_dim,
@@ -360,6 +379,8 @@ def main():
         max_signal_rate=max_signal_rate,
         seed=0
     )
+    print('Generated weights shape', generated_weights.shape)
+    exit(0)
     generated_weights = jnp.squeeze(generated_weights)
     generated_weights = jnp.reshape(generated_weights, (generated_weights.shape[0], 48, 16))
     for i in range(generated_weights.shape[0]):

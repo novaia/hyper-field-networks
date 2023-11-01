@@ -24,7 +24,7 @@ def sinusoidal_embedding(x, embedding_max_frequency, embedding_dims):
     )
     return embeddings
     
-class TransformerDDIM(nn.Module):
+class HyperDiffusion(nn.Module):
     num_blocks: int
     feed_forward_dim: int
     attention_dim: int
@@ -186,12 +186,9 @@ def load_dataset(path:str):
         if file.endswith('.npy'):
             dataset.append(jnp.load(os.path.join(path, file)))
     dataset = jnp.array(dataset, dtype=jnp.float32)
-    #dataset = dataset - jnp.min(dataset)
-    #dataset = dataset / jnp.max(dataset)
-    #dataset = dataset * 2.0 - 1.0
     return dataset
 
-if __name__ == '__main__':
+def main():
     print('GPU:', jax.devices('gpu'))
 
     epochs = 1000
@@ -214,7 +211,7 @@ if __name__ == '__main__':
     print('Dataset min:', jnp.min(dataset))
     print('Dataset max:', jnp.max(dataset))
 
-    model = TransformerDDIM(
+    model = HyperDiffusion(
         num_blocks=num_blocks,
         feed_forward_dim=feed_forward_dim,
         attention_dim=attention_dim,

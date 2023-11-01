@@ -1,7 +1,7 @@
 import os
 import sys
 sys.path.append(os.getcwd())
-from hypernets import hyper_diffusion
+from hypernets import hyper_diffusion, ngp_hyper_diffusion
 import argparse
 
 if __name__ == '__main__':
@@ -12,5 +12,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.net == 'hyper_diffusion':
         hyper_diffusion.main()
+    elif args.net == 'ngp_hyper_diffusion':
+        ngp_hyper_diffusion.main()
     else:
         raise ValueError(f'Unknown network: {args.net}')

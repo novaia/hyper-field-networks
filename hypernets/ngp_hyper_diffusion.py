@@ -7,6 +7,11 @@ import optax
 from functools import partial
 import os
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
+from typing import List, Tuple
+from operator import itemgetter
+import math
+
 
 def sinusoidal_embedding(x, embedding_max_frequency, embedding_dims):
     embedding_min_frequency = 1.0
@@ -198,11 +203,116 @@ def load_dataset(path:str, context_length:int):
     dataset = jnp.reshape(dataset, (num_samples, num_contexts, context_length, token_dim))
     return dataset
 
+@dataclass
+class DatasetInfo:
+    sample_paths: List[str]
+    num_samples: int
+    num_tokens: int
+    token_dim: int
+    loaded_shape: Tuple[int, int]
+    pad_shape: Tuple[int, int]
+    num_contexts: int
+    samples_to_load: int
+    batch_size: int
+    context_length: int
+    context_indices: jax.Array
+    sample_indices: jax.Array
+
+def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bool):
+    path_list = os.listdir(path)
+    sample_paths = []
+    for file_path in path_list:
+        if file_path.endswith('.npy'):
+            sample_paths.append(os.path.join(path, file_path))
+    num_samples = len(sample_paths)
+    assert num_samples > 0, 'No .npy files found in specified directory'
+    base_sample = jnp.load(sample_paths[0])
+    assert len(base_sample.shape) == 2, 'Samples arrays must be 2D'
+    num_tokens = base_sample.shape[0]
+    token_dim = base_sample.shape[1]
+    pad_size = (context_length - (num_tokens % context_length)) % context_length
+    pad_shape = (pad_size, token_dim)
+    num_contexts = (num_tokens + pad_size) // context_length
+    context_indices = jnp.arange(context_length)
+    sample_indices = jnp.arange(num_samples)
+    samples_to_load = math.ceil(batch_size / num_contexts)
+    loaded_shape = (samples_to_load * num_tokens, token_dim)
+
+    if verbose:
+        print('Number of samples:', num_samples)
+        print('Number of tokens per sample:', num_tokens)
+        print('Token dim:', token_dim)
+        print('Context length:', context_length)
+        print('Number of contexts per sample:', num_contexts)
+        print('Loaded shape:', loaded_shape)
+        print('Pad shape:', pad_shape)
+        print('Samples to load:', samples_to_load)
+        print('Batch size:', batch_size)
+        print('Context length:', context_length)
+
+    dataset_info = DatasetInfo(
+        sample_paths=sample_paths,
+        num_samples=num_samples,
+        num_tokens=num_tokens,
+        token_dim=token_dim,
+        loaded_shape=loaded_shape,
+        pad_shape=pad_shape,
+        num_contexts=num_contexts,
+        samples_to_load=samples_to_load,
+        batch_size=batch_size,
+        context_length=context_length,
+        context_indices=context_indices,
+        sample_indices=sample_indices,
+    )
+    return dataset_info
+
+def load_batch(dataset_info:DatasetInfo, key):
+    sample_key, context_key = jax.random.split(key, num=2)
+
+    # Load all files required for the batch.
+    sample_indices = jax.random.choice(
+        sample_key, 
+        dataset_info.num_samples, 
+        shape=(dataset_info.samples_to_load,), 
+        replace=False
+    )
+    batch_paths = itemgetter(*sample_indices.tolist())(dataset_info.sample_paths)
+    if type(batch_paths) == str:
+        batch_paths = [batch_paths]
+    else:
+        batch_paths = list(batch_paths)
+    batch = []
+    for path in batch_paths:
+        batch.append(jnp.load(path))
+    batch = jnp.array(batch, dtype=jnp.float32)
+    batch = jnp.reshape(batch, dataset_info.loaded_shape)
+
+    # Pad the batch.
+    batch = jnp.concatenate([jnp.zeros(dataset_info.pad_shape), batch], axis=0)
+
+    # Split the batch into multiple contexts.
+    split_contexts_shape = (
+        dataset_info.num_contexts, 
+        dataset_info.context_length, 
+        dataset_info.token_dim
+    )
+    batch = jnp.reshape(batch, split_contexts_shape)
+
+    # Select random contexts.
+    context_indices = jax.random.choice(
+        context_key,
+        dataset_info.context_indices,
+        shape=(dataset_info.batch_size,),
+        replace=True
+    )
+    batch = batch[:, context_indices, :]
+    return batch
+
 def main():
     print('GPU:', jax.devices('gpu'))
 
     epochs = 1000
-    batch_size = 1
+    batch_size = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     embedding_max_frequency = 1000.0
@@ -214,14 +324,11 @@ def main():
     learning_rate = 5e-5
     context_length = 2048
 
-    dataset = load_dataset('data/synthetic_nerfs/packed_aliens/', context_length)
-    print(dataset.shape)
-    token_dim = dataset.shape[-1]
-    context_length = dataset.shape[-2]
-    steps_per_epoch = dataset.shape[0] // batch_size
-    print('Dataset shape:', dataset.shape)
-    print('Dataset min:', jnp.min(dataset))
-    print('Dataset max:', jnp.max(dataset))
+    datast_info = create_dataset_info(
+        'data/synthetic_nerfs/packed_aliens', context_length, batch_size, verbose=True
+    )
+    batch = load_batch(datast_info, jax.random.PRNGKey(0))
+    print(batch.shape)
     exit(0)
 
     model = HyperDiffusion(

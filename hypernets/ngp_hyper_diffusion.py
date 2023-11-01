@@ -209,12 +209,14 @@ class DatasetInfo:
     num_samples: int
     num_tokens: int
     token_dim: int
-    loaded_shape: Tuple[int, int]
-    pad_shape: Tuple[int, int]
     num_contexts: int
-    samples_to_load: int
     batch_size: int
     context_length: int
+    files_to_load: int # Number of files needed to fill a batch.
+    samples_per_file: int # Number of samples to take from each file for batch.
+    loaded_shape: Tuple[int, int, int] # Shape of loaded batch files.
+    pad_shape: Tuple[int, int, int] # Shape of padding needed to split file into num_contexts.
+    final_shape: Tuple[int, int, int] # Shape of final batch.
     context_indices: jax.Array
     sample_indices: jax.Array
 
@@ -231,12 +233,14 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
     num_tokens = base_sample.shape[0]
     token_dim = base_sample.shape[1]
     pad_size = (context_length - (num_tokens % context_length)) % context_length
-    pad_shape = (pad_size, token_dim)
     num_contexts = (num_tokens + pad_size) // context_length
     context_indices = jnp.arange(context_length)
     sample_indices = jnp.arange(num_samples)
-    samples_to_load = math.ceil(batch_size / num_contexts)
-    loaded_shape = (samples_to_load * num_tokens, token_dim)
+    files_to_load = math.ceil(batch_size / num_contexts)
+    loaded_shape = (files_to_load, num_tokens, token_dim)
+    pad_shape = (files_to_load, pad_size, token_dim)
+    samples_per_file = batch_size // files_to_load
+    final_shape = (batch_size, context_length, token_dim)
 
     if verbose:
         print('Number of samples:', num_samples)
@@ -246,7 +250,7 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
         print('Number of contexts per sample:', num_contexts)
         print('Loaded shape:', loaded_shape)
         print('Pad shape:', pad_shape)
-        print('Samples to load:', samples_to_load)
+        print('Files to load:', files_to_load)
         print('Batch size:', batch_size)
         print('Context length:', context_length)
 
@@ -257,8 +261,10 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
         token_dim=token_dim,
         loaded_shape=loaded_shape,
         pad_shape=pad_shape,
+        final_shape=final_shape,
         num_contexts=num_contexts,
-        samples_to_load=samples_to_load,
+        files_to_load=files_to_load,
+        samples_per_file=samples_per_file,
         batch_size=batch_size,
         context_length=context_length,
         context_indices=context_indices,
@@ -273,7 +279,7 @@ def load_batch(dataset_info:DatasetInfo, key):
     sample_indices = jax.random.choice(
         sample_key, 
         dataset_info.num_samples, 
-        shape=(dataset_info.samples_to_load,), 
+        shape=(dataset_info.files_to_load,), 
         replace=False
     )
     batch_paths = itemgetter(*sample_indices.tolist())(dataset_info.sample_paths)
@@ -288,10 +294,11 @@ def load_batch(dataset_info:DatasetInfo, key):
     batch = jnp.reshape(batch, dataset_info.loaded_shape)
 
     # Pad the batch.
-    batch = jnp.concatenate([jnp.zeros(dataset_info.pad_shape), batch], axis=0)
+    batch = jnp.concatenate([jnp.zeros(dataset_info.pad_shape), batch], axis=1)
 
     # Split the batch into multiple contexts.
     split_contexts_shape = (
+        dataset_info.files_to_load,
         dataset_info.num_contexts, 
         dataset_info.context_length, 
         dataset_info.token_dim
@@ -302,10 +309,11 @@ def load_batch(dataset_info:DatasetInfo, key):
     context_indices = jax.random.choice(
         context_key,
         dataset_info.context_indices,
-        shape=(dataset_info.batch_size,),
+        shape=(dataset_info.samples_per_file,),
         replace=True
     )
-    batch = batch[:, context_indices, :]
+    batch = batch[:, context_indices, :, :]
+    batch = jnp.reshape(batch, dataset_info.final_shape)
     return batch
 
 def main():

@@ -124,10 +124,10 @@ def create_train_state(rng, model, input_shape, learning_rate):
 
 def main():
     dataset_path = 'data/synthetic_nerfs/packed_aliens'
-    learning_rate = 1e-3
+    learning_rate = 1e-4
     batch_size = 32
     widths = [32, 32]
-    train_steps = 100
+    train_steps = 300
     tile_size = 128
 
     file_names = get_file_names(dataset_path)
@@ -158,5 +158,6 @@ def main():
         'output': batched_output, 
         'square_pad_size': square_pad_size, 
         'tile_pad_size': tile_pad_size,
+        'input_path': file_names[0] 
     }
     jnp.save('data/autoencoder_output.npy', autoencoder_output, allow_pickle=True)

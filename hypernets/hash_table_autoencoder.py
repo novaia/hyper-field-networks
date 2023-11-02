@@ -27,7 +27,7 @@ def square_reshape(array):
     pad_size = k**2 - n
     new_array = jnp.concatenate([array, jnp.zeros(pad_size)])
     new_array = jnp.reshape(new_array, (k, k))
-    return new_array
+    return new_array, pad_size
 
 def split_into_tiles(array, tile_size):
     if len(array.shape) != 2:
@@ -43,14 +43,16 @@ def split_into_tiles(array, tile_size):
     horizontal_split = jnp.split(vertical_split, num_splits, axis=2)
     horizontal_split = jnp.concatenate(horizontal_split, axis=0)
     num_tiles = horizontal_split.shape[0]
-    return horizontal_split, num_tiles
+    return horizontal_split, num_tiles, pad_size
 
-def process_sample(sample, tile_size, table_height):
+def process_sample(sample, tile_size, table_height, return_padding=False):
     sample = sample[:table_height]
     sample = jnp.ravel(sample)
-    sample = square_reshape(sample)
-    sample, num_tiles = split_into_tiles(sample, tile_size)
+    sample, square_pad_size = square_reshape(sample)
+    sample, num_tiles, tile_pad_size = split_into_tiles(sample, tile_size)
     sample = jnp.expand_dims(sample, axis=-1)
+    if return_padding:
+        return sample, num_tiles, square_pad_size, tile_pad_size
     return sample, num_tiles
 
 def load_batch(file_names:list, batch_size:int, table_height:int, tile_size:int, key):
@@ -125,7 +127,7 @@ def main():
     learning_rate = 1e-3
     batch_size = 32
     widths = [32, 32]
-    train_steps = 1000
+    train_steps = 100
     tile_size = 128
 
     file_names = get_file_names(dataset_path)
@@ -141,3 +143,20 @@ def main():
     rng = jax.random.PRNGKey(0)
     state = create_train_state(rng, model, batch.shape, learning_rate)
     state = train_loop(state, train_steps, get_batch_fn, batch_size)
+
+    test_sample_full = jnp.load(file_names[0])
+    test_sample, num_tiles, square_pad_size, tile_pad_size = process_sample(
+        test_sample_full, tile_size, table_height, return_padding=True
+    )
+    batched_test_sample = jnp.array_split(test_sample, batch_size, axis=0)
+    batched_output = []
+    for i in range(len(batched_test_sample)):
+        batched_output.append(state.apply_fn({'params': state.params}, batched_test_sample[i]))
+    batched_output = jnp.concatenate(batched_output, axis=0)
+
+    autoencoder_output = {
+        'output': batched_output, 
+        'square_pad_size': square_pad_size, 
+        'tile_pad_size': tile_pad_size,
+    }
+    jnp.save('data/autoencoder_output.npy', autoencoder_output, allow_pickle=True)

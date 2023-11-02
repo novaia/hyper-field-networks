@@ -18,7 +18,7 @@ def split_into_tiles(array, tile_size):
     right_padding = jnp.zeros((array.shape[0], pad_size))
     right_padded = jnp.concatenate([array, right_padding], axis=1)
     bottom_padding = jnp.zeros((pad_size, right_padded.shape[1]))
-    bottom_padded = jnp.concatenate([bottom_padding, right_padded], axis=0)
+    bottom_padded = jnp.concatenate([right_padded, bottom_padding], axis=0)
     num_splits = bottom_padded.shape[0] // tile_size
     vertical_split = jnp.split(bottom_padded, num_splits, axis=0)
     vertical_split = jnp.stack(vertical_split)

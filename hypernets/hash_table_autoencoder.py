@@ -126,7 +126,7 @@ def main():
     dataset_path = 'data/synthetic_nerfs/packed_aliens'
     learning_rate = 1e-4
     batch_size = 32
-    widths = [32, 32]
+    widths = [128, 128]
     train_steps = 300
     tile_size = 128
 

@@ -68,15 +68,7 @@ def render_with_weights(weights, file_name):
     occupancy_grid.mask, occupancy_grid.bitfield = threshold_result
     render_fn(transform_matrix=dataset.transform_matrices[0], file_name=file_name)
 
-def main():
-    autoencoder_output = jnp.load('data/autoencoder_output.npy', allow_pickle=True).tolist()
-    x = autoencoder_output['output']
-    square_pad_size = autoencoder_output['square_pad_size']
-    tile_pad_size = autoencoder_output['tile_pad_size']
-    input_path = autoencoder_output['input_path']
-    print('square_pad_size', square_pad_size)
-    print('tile_pad_size', tile_pad_size)
-
+def reshape_ae_output(x, square_pad_size, tile_pad_size, table_width):
     num_tiles_per_dim = int(math.ceil(jnp.sqrt(x.shape[0])))
     x = jnp.split(x, num_tiles_per_dim, axis=0)
     vertically_joined = []
@@ -86,11 +78,21 @@ def main():
     x = jnp.squeeze(x, axis=-1)
     x = x[:-tile_pad_size, :-tile_pad_size]
     x = jnp.ravel(x)[:-square_pad_size]
-    table_width = 64
     table_height = x.shape[0] // table_width
     hash_table = jnp.reshape(x, (table_height, table_width))
+    return hash_table, table_height
+
+def main():
+    autoencoder_output = jnp.load('data/autoencoder_output.npy', allow_pickle=True).tolist()
+    x = autoencoder_output['output']
+    square_pad_size = autoencoder_output['square_pad_size']
+    tile_pad_size = autoencoder_output['tile_pad_size']
+    input_path = autoencoder_output['input_path']
+    print('square_pad_size', square_pad_size)
+    print('tile_pad_size', tile_pad_size)
 
     original_packed_weights = jnp.load(input_path)
+    hash_table, table_height = reshape_ae_output(x, square_pad_size, tile_pad_size, 64)
     packed_weights = original_packed_weights[table_height:, :]
     packed_weights = jnp.concatenate([hash_table, packed_weights], axis=0)
 

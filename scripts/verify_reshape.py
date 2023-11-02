@@ -40,12 +40,13 @@ def process_sample(sample, tile_size, table_height, return_padding=False):
 def reshape_ae_output(x, square_pad_size, tile_pad_size, table_width):
     print(x.shape)
     num_tiles_per_dim = int(math.ceil(jnp.sqrt(x.shape[0])))
+    x = jnp.squeeze(x, axis=-1)
     x = jnp.split(x, num_tiles_per_dim, axis=0)
     vertically_joined = []
     for i in range(len(x)):
-        vertically_joined.append(jnp.concatenate(x[i], axis=1))
-    x = jnp.concatenate(vertically_joined, axis=0)
-    x = jnp.squeeze(x, axis=-1)
+        vertical_tiles = jnp.split(x[i], num_tiles_per_dim, axis=0)
+        vertically_joined.append(jnp.squeeze(jnp.concatenate(vertical_tiles, axis=1), axis=0))
+    x = jnp.concatenate(vertically_joined, axis=1)
     x = x[:-tile_pad_size, :-tile_pad_size]
     x = jnp.ravel(x)[:-square_pad_size]
     table_height = x.shape[0] // table_width
@@ -56,17 +57,26 @@ def main():
     table_height = 524288
     table_width = 64
     tile_size = 128
-    hash_table = jnp.arange(table_height * table_width)
+    hash_table = jnp.arange(table_height * table_width, dtype=jnp.uint32)
     hash_table = jnp.reshape(hash_table, (table_height, table_width))
     original_hash_table = hash_table
     hash_table, num_tiles, square_pad_size, tile_pad_size = process_sample(
         hash_table, tile_size, table_height, return_padding=True
     )
-    print('Autoencoded hash table', hash_table.shape)
-    print(hash_table[0])
     hash_table, _ = reshape_ae_output(hash_table, square_pad_size, tile_pad_size, table_width)
+    print(original_hash_table[-2:])
+    print('')
+    print(hash_table[-2:])
+    print('')
     print(original_hash_table[:2])
+    print('')
     print(hash_table[:2])
+    print('Tables are equal:', jnp.array_equal(hash_table, original_hash_table))
+    print('Original table shape:', original_hash_table.shape)
+    print('Reshaped table shape:', hash_table.shape)
+
+    table_diff = jnp.where(hash_table == original_hash_table, 1, 0)
+    print(table_diff[-2:])
 
 if __name__ == '__main__':
     main()

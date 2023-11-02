@@ -70,12 +70,13 @@ def render_with_weights(weights, file_name):
 
 def reshape_ae_output(x, square_pad_size, tile_pad_size, table_width):
     num_tiles_per_dim = int(math.ceil(jnp.sqrt(x.shape[0])))
+    x = jnp.squeeze(x, axis=-1)
     x = jnp.split(x, num_tiles_per_dim, axis=0)
     vertically_joined = []
     for i in range(len(x)):
-        vertically_joined.append(jnp.concatenate(x[i], axis=1))
-    x = jnp.concatenate(vertically_joined, axis=0)
-    x = jnp.squeeze(x, axis=-1)
+        vertical_tiles = jnp.split(x[i], num_tiles_per_dim, axis=0)
+        vertically_joined.append(jnp.squeeze(jnp.concatenate(vertical_tiles, axis=1), axis=0))
+    x = jnp.concatenate(vertically_joined, axis=1)
     x = x[:-tile_pad_size, :-tile_pad_size]
     x = jnp.ravel(x)[:-square_pad_size]
     table_height = x.shape[0] // table_width

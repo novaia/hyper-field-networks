@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from jax import lax
 import flax.linen as nn
 from flax.training.train_state import TrainState
+from flax import serialization
 import optax
 import os
 import matplotlib.pyplot as plt
@@ -228,7 +229,7 @@ def train_loop(
                 state=state,
                 parent_key=train_key
             )
-            print('Step', step, 'Loss:', loss)
+            #print('Step', step, 'Loss:', loss)
             losses_this_epoch.append(loss)
         losses.append(sum(losses_this_epoch) / len(losses_this_epoch))
         print('Epoch', epoch, 'Loss:', losses[-1])
@@ -325,6 +326,8 @@ def reverse_diffusion(
 def main():
     print('GPU:', jax.devices('gpu'))
 
+    load_checkpoint = False
+    checkpoint_path = 'data/ngp_hyper_diffusion_state.npy'
     epochs = 1000
     batch_size = 8
     min_signal_rate = 0.02
@@ -357,11 +360,15 @@ def main():
         embedding_max_frequency=embedding_max_frequency,
         context_length=context_length
     )
-    rng = jax.random.PRNGKey(0)
-    state = create_train_state(
-        model, rng, learning_rate, context_length, token_dim, steps_per_epoch
-    )
-    del rng
+    if load_checkpoint:
+        serialized_state = jnp.load(checkpoint_path, allow_pickle=True)
+        state = serialization.from_state_dict(serialized_state)
+    else:
+        rng = jax.random.PRNGKey(0)
+        state = create_train_state(
+            model, rng, learning_rate, context_length, token_dim, steps_per_epoch
+        )
+        del rng
     state = train_loop(
         dataset_info, 
         epochs,
@@ -369,6 +376,9 @@ def main():
         max_signal_rate, 
         state
     )
+    serialized_state = serialization.to_state_dict(state)
+    jnp.save(serialized_state, serialized_state, allow_pickle=True)
+    
     generated_weights = reverse_diffusion(
         dataset_info=dataset_info,
         apply_fn=state.apply_fn, 

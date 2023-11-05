@@ -23,37 +23,10 @@ class SparseTransformer(nn.Module):
     feed_forward_dim:int
     embedding_max_frequency:float
     context_length:int
+    num_heads:int=1
 
     @nn.compact
     def __call__(self, x):
-        def attention_projection(x):
-            def project_and_expand(x):
-                return jnp.expand_dims(nn.Dense(features=self.attention_dim)(x), axis=-1)
-            query = project_and_expand(x)
-            key = project_and_expand(x)
-            value = project_and_expand(x)
-            return query, key, value
-
-        @jax.custom_vjp
-        def recomputed_attention(query, key, value):
-            return nn.dot_product_attention(query, key, value)
-        def recomputed_attention_fwd(query, key, value):
-            residuals = (query, key, value)
-            return recomputed_attention(query, key, value), residuals
-        def recomputed_attention_bwd(residuals, gradients):
-            query, key, value = residuals
-            _, vjp_fn = jax.vjp(nn.dot_product_attention, query, key, value)
-            return vjp_fn(gradients)
-        recomputed_attention.defvjp(recomputed_attention_fwd, recomputed_attention_bwd)
-
-        def attention(x):
-            query, key, value = attention_projection(x)
-            x = recomputed_attention(query, key, value)
-            x = jnp.sum(x, axis=-1)
-            x = nn.Dense(features=self.embedding_dim)(x)
-            x = nn.gelu(x)
-            return x
-
         def sinusoidal_embedding(x):
             embedding_min_frequency = 1.0
             frequencies = jnp.exp(
@@ -80,9 +53,14 @@ class SparseTransformer(nn.Module):
         )(positions)
         x = x + embedded_position
 
+        RematAttention = nn.remat(nn.SelfAttention)
         for _ in range(self.num_bocks):
             residual = x
-            x = attention(x)
+            x = RematAttention(
+                num_heads=self.num_heads, 
+                qkv_features=self.attention_dim,
+                out_features=self.embedding_dim
+            )(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
             x = nn.Dense(features=self.feed_forward_dim)(x)
@@ -116,8 +94,8 @@ def save_image(image, file_path):
     plt.imsave(file_path, image)
 
 def main():
-    sequence_height = 300
-    sequence_width = 40
+    sequence_height = 10000
+    sequence_width = 64
     sequence = jnp.arange(sequence_height) * jnp.pi / 16
     sequence = jnp.sin(sequence)
     sequence = jnp.repeat(jnp.expand_dims(sequence, axis=-1), sequence_width, axis=-1)

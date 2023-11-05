@@ -5,6 +5,8 @@ from flax.training.train_state import TrainState
 import optax
 import matplotlib.pyplot as plt
 import os
+import random
+from functools import partial
 
 def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     start_angle = jnp.arccos(max_signal_rate)
@@ -38,19 +40,6 @@ class LinearTransformer(nn.Module):
             Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
             V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
             x = nn.Dense(features=self.embedding_dim)(V)
-            x = nn.gelu(x)
-            return x
-
-        def attention(x):
-            query = nn.Dense(features=self.attention_dim)(x)
-            key = nn.Dense(features=self.attention_dim)(x)
-            value = nn.Dense(features=self.attention_dim)(x)
-            query = jnp.expand_dims(query, axis=-1)
-            key = jnp.expand_dims(key, axis=-1)
-            value = jnp.expand_dims(value, axis=-1)
-            x = nn.dot_product_attention(query, key, value)
-            x = jnp.sum(x, axis=-1)
-            x = nn.Dense(features=self.embedding_dim)(x)
             x = nn.gelu(x)
             return x
             
@@ -169,33 +158,56 @@ def load_dataset(path:str):
     dataset = jnp.array(dataset, dtype=jnp.float32)
     return dataset
 
+def load_batch(sample_paths, batch_size):
+    random.shuffle(sample_paths)
+    batch_paths = sample_paths[:batch_size]
+    batch = []
+    for path in batch_paths:
+        batch.append(jnp.load(path))
+    batch = jnp.array(batch, dtype=jnp.float32)
+    return batch
+
 def main():
-    dataset = load_dataset('data/approximation_field_small')
-    print('Dataset', dataset.shape)
+    batch_size = 1
+    datast_path = 'data/synthetic_nerfs/packed_aliens'
+    all_sample_paths = os.listdir(datast_path)
+    valid_sample_paths = []
+    for path in all_sample_paths:
+        if path.endswith('.npy'):
+            full_path = os.path.join(datast_path, path)
+            valid_sample_paths.append(full_path)
+    del all_sample_paths
+    load_batch_fn = partial(load_batch, sample_paths=valid_sample_paths, batch_size=batch_size)
+
+    dummy_batch = load_batch_fn()
+    print('batch shape', dummy_batch.shape)
+    token_dim = dummy_batch.shape[-1]
+    #context_length = dummy_batch.shape[-2]
+    context_length = 60_000
 
     model = LinearTransformer(
         attention_dim=256,
-        token_dim=dataset.shape[-1],
+        token_dim=token_dim,
         embedding_dim=256,
         num_bocks=2,
         feed_forward_dim=256,
         embedding_max_frequency=1000.0,
-        context_length=dataset.shape[-2]
+        context_length=context_length
     )
 
     tx = optax.adam(1e-3)
     rng = jax.random.PRNGKey(0)
-    x = (jnp.ones((1, dataset.shape[-2], dataset.shape[-1])), jnp.ones((1, 1, 1)))
+    x = (jnp.ones((1, context_length, token_dim)), jnp.ones((1, 1, 1)))
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    batch_size = 32
     train_steps = 100
     for step in range(train_steps):
         step_key = jax.random.PRNGKey(step)
-        train_key, batch_key = jax.random.split(step_key)
-        batch = jax.random.choice(batch_key, dataset, shape=(batch_size,), axis=0)
-        loss, state = train_step(state, train_key, batch)
+        batch = load_batch_fn()
+        batch, extra = jnp.split(batch, axis=1, indices_or_sections=[context_length])
+        extra.delete()
+        loss, state = train_step(state, step_key, batch)
         print('loss:', loss)
 
     generation = reverse_diffusion(
@@ -203,8 +215,8 @@ def main():
         state.params, 
         num_images=1, 
         diffusion_steps=20, 
-        context_length=dataset.shape[-2],
-        token_dim=dataset.shape[-1],
+        context_length=context_length,
+        token_dim=token_dim,
         diffusion_schedule_fn=diffusion_schedule,
         min_signal_rate=0.02,
         max_signal_rate=0.95,

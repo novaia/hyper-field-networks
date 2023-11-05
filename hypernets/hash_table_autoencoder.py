@@ -161,3 +161,6 @@ def main():
         'input_path': file_names[0] 
     }
     jnp.save('data/autoencoder_output.npy', autoencoder_output, allow_pickle=True)
+
+if __name__ == '__main__':
+    main()

@@ -456,3 +456,6 @@ def main():
     )
     occupancy_grid.mask, occupancy_grid.bitfield = threshold_result
     render_fn(transform_matrix=dataset.transform_matrices[0])
+
+if __name__ == '__main__':
+    main()

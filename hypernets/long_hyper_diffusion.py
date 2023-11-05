@@ -41,12 +41,12 @@ class HyperDiffusion(nn.Module):
             noise_variances, self.embedding_max_frequency, self.token_dim
         )
         x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
-        x = nn.Dense(features=self.embedded_token_dim)(x)
         positions = jnp.arange(self.context_length+1)
         embedded_position = nn.Embed(
-            num_embeddings=self.context_length+1, features=self.embedded_token_dim
+            num_embeddings=self.context_length+1, features=self.token_dim
         )(positions)
-        x = x + embedded_position
+        high_dim_tokens = x + embedded_position
+        x = nn.Dense(features=self.embedded_token_dim)(high_dim_tokens)
         for _ in range(self.num_blocks):
             residual = x
             x = nn.SelfAttention(
@@ -56,9 +56,10 @@ class HyperDiffusion(nn.Module):
             )(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
-            x = nn.Dense(features=self.feed_forward_dim)(x)
+            x = nn.Dense(features=self.token_dim)(x)
             x = nn.activation.relu(x)
-            x = nn.Dense(features=self.embedded_token_dim)(x)
+            high_dim_tokens = x + high_dim_tokens
+            x = nn.Dense(features=self.embedded_token_dim)(high_dim_tokens)
             x = nn.activation.relu(x)
             x = nn.LayerNorm()(x + residual)
         x = nn.Dense(features=self.token_dim)(x)
@@ -179,12 +180,18 @@ def reverse_diffusion(
 
     return pred_images
 
-def load_dataset(path:str):
+def load_dataset(path:str, token_dim:int):
     dataset_directory_list = os.listdir(path)
     dataset = []
     for file in dataset_directory_list:
         if file.endswith('.npy'):
-            dataset.append(jnp.load(os.path.join(path, file)))
+            sample = jnp.load(os.path.join(path, file))
+            sample = jnp.ravel(sample)
+            pad_size = (token_dim - (sample.shape[0] % token_dim)) % token_dim
+            sample = jnp.concatenate([jnp.zeros(pad_size), sample])
+            sample = jnp.reshape(sample, (sample.shape[0] // token_dim, token_dim))
+            dataset.append(sample)
+            break
     dataset = jnp.array(dataset, dtype=jnp.float32)
     return dataset
 
@@ -192,7 +199,7 @@ def main():
     print('GPU:', jax.devices('gpu'))
 
     epochs = 1000
-    batch_size = 32
+    batch_size = 1
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     embedding_max_frequency = 1000.0
@@ -200,16 +207,17 @@ def main():
     feed_forward_dim = 512
     attention_dim = 512
     embedded_token_dim = 512
-    attention_heads = 8
+    attention_heads = 1
     learning_rate = 5e-5
 
-    dataset = load_dataset('data/approximation_field_small')
+    dataset = load_dataset('data/synthetic_nerfs/packed_aliens', 4096)
     token_dim = dataset.shape[-1]
     context_length = dataset.shape[-2]
     steps_per_epoch = dataset.shape[0] // batch_size
     print('Dataset shape:', dataset.shape)
     print('Dataset min:', jnp.min(dataset))
     print('Dataset max:', jnp.max(dataset))
+    #exit(0)
 
     model = HyperDiffusion(
         num_blocks=num_blocks,

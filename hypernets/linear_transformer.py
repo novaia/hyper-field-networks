@@ -1,3 +1,4 @@
+from typing import Any
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -18,6 +19,37 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
+class LinearAttention(nn.Module):
+    attention_dim:int
+    output_dim:int
+
+    @nn.compact
+    def __call__(self, x):
+        query = nn.Dense(features=self.attention_dim)(x)
+        key = nn.Dense(features=self.attention_dim)(x)
+        value = nn.Dense(features=self.attention_dim)(x)
+        feature_map = lambda x: nn.elu(x) + 1.0
+        Q = feature_map(query)
+        K = feature_map(key)
+        KV = jnp.einsum('nsh,nsh->nh', K, value)
+        Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
+        V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
+        x = nn.Dense(features=self.output_dim)(V)
+        x = nn.gelu(x)
+        return x
+    
+class FeedForward(nn.Module):
+    feed_forward_dim:int
+    output_dim:int
+
+    @nn.compact
+    def __call__(self, x):
+        x = nn.Dense(features=self.feed_forward_dim)(x)
+        x = nn.gelu(x)
+        x = nn.Dense(features=self.output_dim)(x)
+        x = nn.gelu(x)
+        return x
+
 class LinearTransformer(nn.Module):
     attention_dim:int
     token_dim:int
@@ -30,23 +62,8 @@ class LinearTransformer(nn.Module):
     @nn.compact
     def __call__(self, x):
         RematDense = nn.remat(nn.Dense)
-
-        def linear_attention(x):
-            query = RematDense(features=self.attention_dim)(x)
-            key = RematDense(features=self.attention_dim)(x)
-            value = RematDense(features=self.attention_dim)(x)
-            def attention(query, key, value):
-                feature_map = lambda x: nn.elu(x) + 1.0
-                Q = feature_map(query)
-                K = feature_map(key)
-                KV = jnp.einsum('nsh,nsh->nh', K, value)
-                Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
-                V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
-                return V
-            x = jax.remat(attention)(query, key, value)
-            x = RematDense(features=self.embedding_dim)(x)
-            x = nn.gelu(x)
-            return x
+        RematLinearAttention = nn.remat(LinearAttention)
+        RematFeedForward = nn.remat(FeedForward)
             
         def sinusoidal_embedding(x):
             embedding_min_frequency = 1.0
@@ -67,7 +84,7 @@ class LinearTransformer(nn.Module):
         x, noise_variances = x
         embeded_noise_variances = sinusoidal_embedding(noise_variances)
         x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
-        x = nn.Dense(features=self.embedding_dim)(x)
+        x = RematDense(features=self.embedding_dim)(x)
         positions = jnp.arange(self.context_length+1)
         embedded_positions = nn.Embed(
             num_embeddings=self.context_length+1, features=self.embedding_dim
@@ -76,13 +93,10 @@ class LinearTransformer(nn.Module):
 
         for _ in range(self.num_bocks):
             residual = x
-            x = linear_attention(x)
+            x = RematLinearAttention(self.attention_dim, self.embedding_dim)(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
-            x = RematDense(features=self.feed_forward_dim)(x)
-            x = nn.gelu(x)
-            x = RematDense(features=self.embedding_dim)(x)
-            x = nn.gelu(x)
+            x = RematFeedForward(self.feed_forward_dim, self.embedding_dim)(x)
             x = nn.LayerNorm()(x + residual)
 
         x = nn.Dense(features=self.token_dim)(x)
@@ -188,7 +202,7 @@ def main():
     print('batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     #context_length = dummy_batch.shape[-2]
-    context_length = 72_000
+    context_length = 120_000
 
     model = LinearTransformer(
         attention_dim=256,
@@ -213,7 +227,9 @@ def main():
         batch, extra = jnp.split(batch, axis=1, indices_or_sections=[context_length])
         extra.delete()
         loss, state = train_step(state, step_key, batch)
+        batch.delete()
         print('loss:', loss)
+    print('Finished training')
 
     generation = reverse_diffusion(
         state.apply_fn, 

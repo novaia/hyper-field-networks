@@ -4,6 +4,7 @@ import flax.linen as nn
 from flax.training.train_state import TrainState
 import optax
 import matplotlib.pyplot as plt
+import os
 
 def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     start_angle = jnp.arccos(max_signal_rate)
@@ -23,28 +24,36 @@ class LinearTransformer(nn.Module):
     feed_forward_dim:int
     embedding_max_frequency:float
     context_length:int
-    num_heads:int=1
 
     @nn.compact
     def __call__(self, x):
-        def linear_attention(query, key, value):
+        def linear_attention(x):
+            query = nn.Dense(features=self.attention_dim)(x)
+            key = nn.Dense(features=self.attention_dim)(x)
+            value = nn.Dense(features=self.attention_dim)(x)
             feature_map = lambda x: nn.elu(x) + 1.0
             Q = feature_map(query)
             K = feature_map(key)
             KV = jnp.einsum('nsh,nsh->nh', K, value)
-            Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1)))
+            Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
             V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
-            return V
+            x = nn.Dense(features=self.embedding_dim)(V)
+            x = nn.gelu(x)
+            return x
 
         def attention(x):
             query = nn.Dense(features=self.attention_dim)(x)
             key = nn.Dense(features=self.attention_dim)(x)
             value = nn.Dense(features=self.attention_dim)(x)
-            x = linear_attention(query, key, value)
+            query = jnp.expand_dims(query, axis=-1)
+            key = jnp.expand_dims(key, axis=-1)
+            value = jnp.expand_dims(value, axis=-1)
+            x = nn.dot_product_attention(query, key, value)
+            x = jnp.sum(x, axis=-1)
             x = nn.Dense(features=self.embedding_dim)(x)
             x = nn.gelu(x)
             return x
-
+            
         def sinusoidal_embedding(x):
             embedding_min_frequency = 1.0
             frequencies = jnp.exp(
@@ -66,35 +75,37 @@ class LinearTransformer(nn.Module):
         x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
         x = nn.Dense(features=self.embedding_dim)(x)
         positions = jnp.arange(self.context_length+1)
-        embedded_position = nn.Embed(
+        embedded_positions = nn.Embed(
             num_embeddings=self.context_length+1, features=self.embedding_dim
         )(positions)
-        x = x + embedded_position
+        x = x + embedded_positions
 
         for _ in range(self.num_bocks):
             residual = x
-            x = attention(x)
+            x = linear_attention(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
             x = nn.Dense(features=self.feed_forward_dim)(x)
             x = nn.gelu(x)
             x = nn.Dense(features=self.embedding_dim)(x)
+            x = nn.gelu(x)
+            x = nn.LayerNorm()(x + residual)
 
-        x = x[:, :-1, :] # Remove embedded noise variances token.
         x = nn.Dense(features=self.token_dim)(x)
+        x = x[:, :-1, :] # Remove embedded noise variances token.
         return x
 
 def train_step(state:TrainState, key:int, batch:jax.Array):
     noise_key, diffusion_time_key = jax.random.split(key)
-    diffusion_times = jax.random.uniform(diffusion_time_key, (batch.shape[0], 1, 1))
-    noise_rates, signal_rates = diffusion_schedule(diffusion_times, 0.01, 0.99)
-    noise = jax.random.normal(noise_key, batch.shape)
-    noisy_batch = batch * signal_rates + noise * noise_rates
 
     def loss_fn(params):
+        diffusion_times = jax.random.uniform(diffusion_time_key, (batch.shape[0], 1, 1))
+        noise_rates, signal_rates = diffusion_schedule(diffusion_times, 0.02, 0.95)
+        noise = jax.random.normal(noise_key, batch.shape)
+        noisy_batch = batch * signal_rates + noise * noise_rates
         x = (noisy_batch, noise_rates**2)
-        y = state.apply_fn({'params': params}, x)
-        return jnp.mean((y - batch)**2)
+        pred_noise = state.apply_fn({'params': params}, x)
+        return jnp.mean((pred_noise - noise)**2)
     
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grad = grad_fn(state.params)
@@ -106,37 +117,100 @@ def save_image(image, file_path):
     image = image / jnp.max(image)
     plt.imsave(file_path, image)
 
+def reverse_diffusion(
+    apply_fn, 
+    params,
+    num_images, 
+    diffusion_steps, 
+    context_length,
+    token_dim, 
+    diffusion_schedule_fn,
+    min_signal_rate,
+    max_signal_rate,
+    seed, 
+    initial_noise = None,
+):
+    if initial_noise == None:
+        initial_noise = jax.random.normal(
+            jax.random.PRNGKey(seed), 
+            shape=(num_images, context_length, token_dim)
+        )
+    step_size = 1.0 / diffusion_steps
+    
+    next_noisy_images = initial_noise
+    for step in range(diffusion_steps):
+        noisy_images = next_noisy_images
+        
+        diffusion_times = jnp.ones((num_images, 1, 1)) - step * step_size
+        noise_rates, signal_rates = diffusion_schedule_fn(
+            diffusion_times, min_signal_rate, max_signal_rate
+        )
+        pred_noises = jax.lax.stop_gradient(
+            apply_fn(
+                {'params': params}, 
+                [noisy_images, noise_rates**2], 
+            )
+        )
+        pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
+        
+        next_diffusion_times = diffusion_times - step_size
+        next_noise_rates, next_signal_rates = diffusion_schedule_fn(
+            next_diffusion_times, min_signal_rate, max_signal_rate
+        )
+        next_noisy_images = (next_signal_rates * pred_images + next_noise_rates * pred_noises)
+    return pred_images
+
+def load_dataset(path:str):
+    dataset_directory_list = os.listdir(path)
+    dataset = []
+    for file in dataset_directory_list:
+        if file.endswith('.npy'):
+            dataset.append(jnp.load(os.path.join(path, file)))
+    dataset = jnp.array(dataset, dtype=jnp.float32)
+    return dataset
+
 def main():
-    sequence_height = 10000
-    sequence_width = 64
-    sequence = jnp.arange(sequence_height) * jnp.pi / 16
-    sequence = jnp.sin(sequence)
-    sequence = jnp.repeat(jnp.expand_dims(sequence, axis=-1), sequence_width, axis=-1)
-    save_image(sequence, 'data/sequence.png')
-    sequence = jnp.expand_dims(sequence, axis=0)
+    dataset = load_dataset('data/approximation_field_small')
+    print('Dataset', dataset.shape)
 
     model = LinearTransformer(
-        attention_dim=64,
-        token_dim=sequence_width,
-        embedding_dim=64,
+        attention_dim=256,
+        token_dim=dataset.shape[-1],
+        embedding_dim=256,
         num_bocks=2,
         feed_forward_dim=256,
-        embedding_max_frequency=10.0,
-        context_length=sequence_height
+        embedding_max_frequency=1000.0,
+        context_length=dataset.shape[-2]
     )
+
     tx = optax.adam(1e-3)
     rng = jax.random.PRNGKey(0)
-    x = (jnp.ones(sequence.shape), jnp.ones((1, 1, 1)))
+    x = (jnp.ones((1, dataset.shape[-2], dataset.shape[-1])), jnp.ones((1, 1, 1)))
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    batch_size = 1
+    batch_size = 32
     train_steps = 100
     for step in range(train_steps):
         step_key = jax.random.PRNGKey(step)
-        batch = sequence
-        loss, state = train_step(state, step_key, batch)
+        train_key, batch_key = jax.random.split(step_key)
+        batch = jax.random.choice(batch_key, dataset, shape=(batch_size,), axis=0)
+        loss, state = train_step(state, train_key, batch)
         print('loss:', loss)
+
+    generation = reverse_diffusion(
+        state.apply_fn, 
+        state.params, 
+        num_images=1, 
+        diffusion_steps=20, 
+        context_length=dataset.shape[-2],
+        token_dim=dataset.shape[-1],
+        diffusion_schedule_fn=diffusion_schedule,
+        min_signal_rate=0.02,
+        max_signal_rate=0.95,
+        seed=2
+    )
+    save_image(generation[0], 'data/generation.png')
 
 if __name__ == '__main__':
     main()

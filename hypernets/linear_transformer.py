@@ -29,17 +29,22 @@ class LinearTransformer(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+        RematDense = nn.remat(nn.Dense)
+
         def linear_attention(x):
-            query = nn.Dense(features=self.attention_dim)(x)
-            key = nn.Dense(features=self.attention_dim)(x)
-            value = nn.Dense(features=self.attention_dim)(x)
-            feature_map = lambda x: nn.elu(x) + 1.0
-            Q = feature_map(query)
-            K = feature_map(key)
-            KV = jnp.einsum('nsh,nsh->nh', K, value)
-            Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
-            V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
-            x = nn.Dense(features=self.embedding_dim)(V)
+            query = RematDense(features=self.attention_dim)(x)
+            key = RematDense(features=self.attention_dim)(x)
+            value = RematDense(features=self.attention_dim)(x)
+            def attention(query, key, value):
+                feature_map = lambda x: nn.elu(x) + 1.0
+                Q = feature_map(query)
+                K = feature_map(key)
+                KV = jnp.einsum('nsh,nsh->nh', K, value)
+                Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
+                V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
+                return V
+            x = jax.remat(attention)(query, key, value)
+            x = RematDense(features=self.embedding_dim)(x)
             x = nn.gelu(x)
             return x
             
@@ -74,9 +79,9 @@ class LinearTransformer(nn.Module):
             x = linear_attention(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
-            x = nn.Dense(features=self.feed_forward_dim)(x)
+            x = RematDense(features=self.feed_forward_dim)(x)
             x = nn.gelu(x)
-            x = nn.Dense(features=self.embedding_dim)(x)
+            x = RematDense(features=self.embedding_dim)(x)
             x = nn.gelu(x)
             x = nn.LayerNorm()(x + residual)
 
@@ -183,7 +188,7 @@ def main():
     print('batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     #context_length = dummy_batch.shape[-2]
-    context_length = 60_000
+    context_length = 72_000
 
     model = LinearTransformer(
         attention_dim=256,

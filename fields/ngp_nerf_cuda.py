@@ -750,3 +750,6 @@ def main():
     )
     occupancy_grid_coordinates = occupancy_grid_coordinates / (grid_resolution - 1) * 2 - 1
     jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)
+
+if __name__ == '__main__':
+    main()

@@ -92,3 +92,6 @@ def main():
     draw_image(
         state, image.shape[0], image.shape[1], 'data/approximation_field/approximation.png'
     )
+
+if __name__ == '__main__':
+    main()

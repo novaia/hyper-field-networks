@@ -491,3 +491,6 @@ def main():
         state=state,
         file_name='rendered_image_2'
     )
+
+if __name__ == '__main__':
+    main()

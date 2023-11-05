@@ -857,9 +857,11 @@ def load_dataset(dataset_path:str, downscale_factor:int):
     dataset.fl_y = dataset.cy / jnp.tan(dataset.vertical_fov / 2)
     return dataset
 
-def main(dataset_path:str, downscale_factor:int):
+def main():
     print('GPU:', jax.devices('gpu'))
 
+    dataset_path = 'data/lego'
+    downscale_factor = 1
     num_hash_table_levels = 16
     max_hash_table_entries = 2**20
     hash_table_feature_dim = 2
@@ -964,3 +966,5 @@ def main(dataset_path:str, downscale_factor:int):
         file_name='instant_rendered_image_2'
     )
     
+if __name__ == '__main__':
+    main()

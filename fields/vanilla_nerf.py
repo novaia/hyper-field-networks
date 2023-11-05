@@ -523,3 +523,6 @@ def main():
         state=state,
         file_name='vanilla_rendered_image_2'
     )
+
+if __name__ == '__main__':
+    main()

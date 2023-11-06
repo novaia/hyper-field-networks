@@ -11,14 +11,13 @@ from functools import partial
 import optax
 import json
 from PIL import Image
-from fields import Dataset
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable
 import time
-from fields.common.nn import (
+from fields.common.nn import \
     TcnnMultiResolutionHashEncoding, FeedForward, fourth_order_sh_encoding, trunc_exp
-)
+from fields.common.dataset import NerfDataset, load_nerf_dataset, process_3x4_transform_matrix
 
 @dataclass
 class OccupancyGrid:
@@ -137,68 +136,6 @@ def create_train_state(
     ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
 
-def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
-    # Note that the translation component is not shifted.
-    # This is different than the implementation in ngp_nerf (non-cuda).
-    # The alt scale is just to debug the effects of the cameras being closer to or further away
-    # from the origin.
-    alt_scale = 2
-    new = jnp.array([
-        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale * alt_scale],
-        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale * alt_scale],
-        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale * alt_scale],
-    ])
-    return new
-
-def load_dataset(dataset_path:str, downscale_factor:int):
-    with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
-        transforms = json.load(f)
-
-    frame_data = transforms['frames']
-    first_file_path = frame_data[0]['file_path']
-    # Process file paths if they're in the original nerf format.
-    if not first_file_path.endswith('.png') and first_file_path.startswith('.'):
-        process_file_path = lambda path: path[2:] + '.png'
-    else:
-        process_file_path = lambda path: path
-
-    images = []
-    transform_matrices = []
-    for frame in transforms['frames']:
-        transform_matrix = jnp.array(frame['transform_matrix'])
-        transform_matrices.append(transform_matrix)
-        file_path = process_file_path(frame['file_path'])
-        image = Image.open(os.path.join(dataset_path, file_path))
-        image = image.resize(
-            (image.width // downscale_factor, image.height // downscale_factor),
-            resample=Image.NEAREST
-        )
-        images.append(jnp.array(image))
-
-    transform_matrices = jnp.array(transform_matrices)[:, :3, :]
-    mean_translation = jnp.mean(jnp.linalg.norm(transform_matrices[:, :, -1], axis=-1))
-    translation_scale = 1 / mean_translation
-    process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
-    transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
-    images = jnp.array(images, dtype=jnp.float32) / 255.0
-
-    dataset = Dataset(
-        horizontal_fov=transforms['camera_angle_x'],
-        vertical_fov=transforms['camera_angle_x'],
-        fl_x=1,
-        fl_y=1,
-        cx=images.shape[1]/2,
-        cy=images.shape[2]/2,
-        w=images.shape[1],
-        h=images.shape[2],
-        aabb_scale=1,
-        transform_matrices=transform_matrices,
-        images=images
-    )
-    dataset.fl_x = float(dataset.cx / jnp.tan(dataset.horizontal_fov / 2))
-    dataset.fl_y = float(dataset.cy / jnp.tan(dataset.vertical_fov / 2))
-    return dataset
-
 class NGPNerf(nn.Module):
     number_of_grid_levels: int # Corresponds to L in the paper.
     max_hash_table_entries: int # Corresponds to T in the paper.
@@ -280,7 +217,7 @@ def update_occupancy_grid(
 def train_loop(
     batch_size:int, 
     train_steps:int, 
-    dataset:Dataset, 
+    dataset:NerfDataset, 
     scene_bound:float, 
     diagonal_n_steps:int, 
     stepsize_portion:float,
@@ -486,7 +423,7 @@ def render_rays_inference(
 def render_scene(
     patch_size_x:int,
     patch_size_y:int,
-    dataset:Dataset, 
+    dataset:NerfDataset, 
     scene_bound:float,
     diagonal_n_steps:int,
     grid_cascades:int,
@@ -653,7 +590,7 @@ def main():
         update_interval=grid_update_interval, 
         warmup_steps=grid_warmup_steps
     )
-    dataset = load_dataset('data/lego', 1)
+    dataset = load_nerf_dataset('data/lego', 1)
     train_loop_with_args = partial(
         train_loop,
         batch_size=batch_size,

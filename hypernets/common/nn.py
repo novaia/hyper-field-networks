@@ -77,7 +77,7 @@ class LinearTransformer(nn.Module):
             x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
             x = nn.LayerNorm()(x + residual)
         return x
-    
+
 class VanillaTransformer(nn.Module):
     num_heads:int
     num_blocks:int
@@ -102,6 +102,7 @@ class VanillaTransformer(nn.Module):
                 qkv_features=self.attention_dim, 
                 output_dim=self.residual_dim
             )(x)
+            x = nn.gelu(x)
             x = nn.LayerNorm()(x + residual)
             residual = x
             x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)

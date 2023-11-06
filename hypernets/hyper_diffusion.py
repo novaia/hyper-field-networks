@@ -1,29 +1,13 @@
 import jax
 import jax.numpy as jnp
-from jax import lax
 import flax.linen as nn
 from flax.training.train_state import TrainState
 import optax
-from functools import partial
 import os
 import matplotlib.pyplot as plt
+from hypernets.common.nn import SinusoidalEmbedding, VanillaTransformer
+from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
 
-def sinusoidal_embedding(x, embedding_max_frequency, embedding_dims):
-    embedding_min_frequency = 1.0
-    frequencies = jnp.exp(
-        jnp.linspace(
-            jnp.log(embedding_min_frequency),
-            jnp.log(embedding_max_frequency),
-            embedding_dims // 2
-        )
-    )
-    angular_speeds = 2.0 * jnp.pi * frequencies
-    embeddings = jnp.concatenate(
-        [jnp.sin(angular_speeds * x), jnp.cos(angular_speeds * x)],
-        axis = -1
-    )
-    return embeddings
-    
 class HyperDiffusion(nn.Module):
     num_blocks: int
     feed_forward_dim: int
@@ -37,43 +21,26 @@ class HyperDiffusion(nn.Module):
     @nn.compact
     def __call__(self, x):
         x, noise_variances = x
-        embeded_noise_variances = sinusoidal_embedding(
-            noise_variances, self.embedding_max_frequency, self.token_dim
-        )
-        x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
+        e = SinusoidalEmbedding(self.embedding_max_frequency)(noise_variances)
+        x = jnp.concatenate([x, e], axis=-2)
         x = nn.Dense(features=self.embedded_token_dim)(x)
         positions = jnp.arange(self.context_length+1)
-        embedded_position = nn.Embed(
-            num_embeddings=self.context_length+1, features=self.embedded_token_dim
+        e = nn.Embed(
+            num_embeddings=self.context_length+1, 
+            features=self.embedded_token_dim
         )(positions)
-        x = x + embedded_position
-        for _ in range(self.num_blocks):
-            residual = x
-            x = nn.SelfAttention(
-                num_heads=self.attention_heads, 
-                qkv_features=self.attention_dim,
-                out_features=self.embedded_token_dim
-            )(x)
-            x = nn.LayerNorm()(x + residual)
-            residual = x
-            x = nn.Dense(features=self.feed_forward_dim)(x)
-            x = nn.activation.relu(x)
-            x = nn.Dense(features=self.embedded_token_dim)(x)
-            x = nn.activation.relu(x)
-            x = nn.LayerNorm()(x + residual)
+        x = x + e
+
+        x = VanillaTransformer(
+            num_heads=self.attention_heads,
+            num_blocks=self.num_blocks,
+            attention_dim=self.attention_dim,
+            residual_dim=self.embedded_token_dim,
+            feed_forward_dim=self.feed_forward_dim
+        )(x)
         x = nn.Dense(features=self.token_dim)(x)
         x = x[:, :-1, :] # Remove embedded noise variances token.
         return x
-    
-def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
-    start_angle = jnp.arccos(max_signal_rate)
-    end_angle = jnp.arccos(min_signal_rate)
-
-    diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
-
-    signal_rates = jnp.cos(diffusion_angles)
-    noise_rates = jnp.sin(diffusion_angles)
-    return noise_rates, signal_rates
 
 def create_train_state(model, rng, learning_rate, context_length, token_dim, steps_per_epoch):
     x = (jnp.ones([1, context_length, token_dim]), jnp.ones([1, 1, 1]))
@@ -134,50 +101,6 @@ def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
     grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
     state = state.apply_gradients(grads=grads)
     return loss, state
-
-def reverse_diffusion(
-    apply_fn, 
-    params,
-    num_images, 
-    diffusion_steps, 
-    context_length,
-    token_dim, 
-    diffusion_schedule_fn,
-    min_signal_rate,
-    max_signal_rate,
-    seed, 
-    initial_noise = None,
-):
-    if initial_noise == None:
-        initial_noise = jax.random.normal(
-            jax.random.PRNGKey(seed), 
-            shape=(num_images, context_length, token_dim)
-        )
-    step_size = 1.0 / diffusion_steps
-    
-    next_noisy_images = initial_noise
-    for step in range(diffusion_steps):
-        noisy_images = next_noisy_images
-        
-        diffusion_times = jnp.ones((num_images, 1, 1)) - step * step_size
-        noise_rates, signal_rates = diffusion_schedule_fn(
-            diffusion_times, min_signal_rate, max_signal_rate
-        )
-        pred_noises = lax.stop_gradient(
-            apply_fn(
-                {'params': params}, 
-                [noisy_images, noise_rates**2], 
-            )
-        )
-        pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
-        
-        next_diffusion_times = diffusion_times - step_size
-        next_noise_rates, next_signal_rates = diffusion_schedule_fn(
-            next_diffusion_times, min_signal_rate, max_signal_rate
-        )
-        next_noisy_images = (next_signal_rates * pred_images + next_noise_rates * pred_noises)
-
-    return pred_images
 
 def load_dataset(path:str):
     dataset_directory_list = os.listdir(path)

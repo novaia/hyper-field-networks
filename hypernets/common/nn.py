@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 
 class SinusoidalEmbedding(nn.Module):
+    embedding_dim:int
     embedding_max_frequency:float
     embedding_min_frequency:float = 1.0
 
@@ -11,7 +12,7 @@ class SinusoidalEmbedding(nn.Module):
             jnp.linspace(
                 jnp.log(self.embedding_min_frequency),
                 jnp.log(self.embedding_max_frequency),
-                self.token_dim // 2
+                self.embedding_dim // 2
             )
         )
         angular_speeds = 2.0 * jnp.pi * frequencies
@@ -38,4 +39,41 @@ class LinearAttention(nn.Module):
         V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
         x = nn.Dense(features=self.output_dim)(V)
         x = nn.gelu(x)
+        return x
+    
+class FeedForward(nn.Module):
+    hidden_dim:int
+    output_dim:int
+
+    @nn.compact
+    def __call__(self, x):
+        x = nn.Dense(features=self.hidden_dim)(x)
+        x = nn.gelu(x)
+        x = nn.Dense(features=self.output_dim)(x)
+        x = nn.gelu(x)
+        return x
+
+class LinearTransformer(nn.Module):
+    num_blocks:int
+    attention_dim:int
+    residual_dim:int
+    feed_forward_dim:int
+    remat:bool = True
+
+    @nn.compact
+    def __call__(self, x):
+        if self.remat:
+            CustomAttention = nn.remat(LinearAttention)
+            CustomFeedForward = nn.remat(FeedForward)
+        else:
+            CustomAttention = LinearAttention
+            CustomFeedForward = FeedForward
+        
+        for _ in range(self.num_blocks):
+            residual = x
+            x = CustomAttention(self.attention_dim, self.residual_dim)(x)
+            x = nn.LayerNorm()(x + residual)
+            residual = x
+            x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
+            x = nn.LayerNorm()(x + residual)
         return x

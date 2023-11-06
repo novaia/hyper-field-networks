@@ -8,22 +8,10 @@ import matplotlib.pyplot as plt
 import os
 import random
 from functools import partial
-from hypernets.common.nn import LinearAttention, SinusoidalEmbedding
+from hypernets.common.nn import SinusoidalEmbedding, LinearTransformer
 from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
 
-class FeedForward(nn.Module):
-    feed_forward_dim:int
-    output_dim:int
-
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(features=self.feed_forward_dim)(x)
-        x = nn.gelu(x)
-        x = nn.Dense(features=self.output_dim)(x)
-        x = nn.gelu(x)
-        return x
-
-class LinearTransformer(nn.Module):
+class LinearTransformerDDIM(nn.Module):
     attention_dim:int
     token_dim:int
     embedding_dim:int
@@ -34,27 +22,23 @@ class LinearTransformer(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        RematDense = nn.remat(nn.Dense)
-        RematLinearAttention = nn.remat(LinearAttention)
-        RematFeedForward = nn.remat(FeedForward)
-
         x, noise_variances = x
         e = SinusoidalEmbedding(self.embedding_max_frequency)(noise_variances)
         x = jnp.concatenate([x, e], axis=-2)
-        x = RematDense(features=self.embedding_dim)(x)
+        x = nn.remat(nn.Dense)(features=self.embedding_dim)(x)
         positions = jnp.arange(self.context_length+1)
         e = nn.Embed(
-            num_embeddings=self.context_length+1, features=self.embedding_dim
+            num_embeddings=self.context_length+1, 
+            features=self.embedding_dim
         )(positions)
         x = x + e
 
-        for _ in range(self.num_bocks):
-            residual = x
-            x = RematLinearAttention(self.attention_dim, self.embedding_dim)(x)
-            x = nn.LayerNorm()(x + residual)
-            residual = x
-            x = RematFeedForward(self.feed_forward_dim, self.embedding_dim)(x)
-            x = nn.LayerNorm()(x + residual)
+        x = LinearTransformer(
+            num_blocks=self.num_bocks, 
+            attention_dim=self.attention_dim, 
+            residual_dim=self.embedding_dim, 
+            feed_forward_dim=self.feed_forward_dim
+        )(x)
 
         x = nn.Dense(features=self.token_dim)(x)
         x = x[:, :-1, :] # Remove embedded noise variances token.
@@ -118,7 +102,7 @@ def main():
     #context_length = dummy_batch.shape[-2]
     context_length = 120_000
 
-    model = LinearTransformer(
+    model = LinearTransformerDDIM(
         attention_dim=256,
         token_dim=token_dim,
         embedding_dim=256,

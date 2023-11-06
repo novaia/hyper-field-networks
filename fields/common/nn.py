@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import flax.linen as nn
 import math
 from jaxtcnn import hashgrid_encode, HashGridMetadata
+from typing import Callable
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -139,6 +140,20 @@ class TcnnMultiResolutionHashEncoding(nn.Module):
             params=self.hash_table
         )
         return encoded_position.T
+    
+class FeedForward(nn.Module):
+    num_layers: int
+    hidden_dim: int
+    output_dim: int
+    activation: Callable
+
+    @nn.compact
+    def __call__(self, x):
+        for _ in range(self.num_layers):
+            x = nn.Dense(features=self.hidden_dim)(x)
+            x = self.activation(x)
+        x = nn.Dense(features=self.output_dim)(x)
+        return x
     
 # Calculates the fourth order spherical harmonic encoding for the given direction.
 # The order is always 4, so num_components is always 16 (order^2).

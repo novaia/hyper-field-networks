@@ -16,8 +16,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable
 import time
-from fields.common.nn import \
-    TcnnMultiResolutionHashEncoding, fourth_order_sh_encoding, trunc_exp
+from fields.common.nn import (
+    TcnnMultiResolutionHashEncoding, FeedForward, fourth_order_sh_encoding, trunc_exp
+)
 
 @dataclass
 class OccupancyGrid:
@@ -223,29 +224,29 @@ class NGPNerf(nn.Module):
         )(position)
         x = encoded_position
 
-        x = nn.Dense(self.density_mlp_width, kernel_init=nn.initializers.normal())(x)
-        x = nn.activation.relu(x)
-        x = nn.Dense(16, kernel_init=nn.initializers.normal())(x)
-        if self.exponential_density_activation:
-            density = trunc_exp(x[:, 0:1])
-        else:
-            density = nn.activation.relu(x[:, 0:1])
-        if direction is None:
-            return density
+        x = FeedForward(
+            num_layers=1, 
+            hidden_dim=self.density_mlp_width, 
+            output_dim=16, 
+            activation=nn.relu
+        )(x)
+        density = x[:, 0:1]
+        if self.exponential_density_activation: density = trunc_exp(density)
+        else: density = nn.relu(density)
+        if direction is None: return density
         density_feature = x
 
         encoded_direction = jax.vmap(fourth_order_sh_encoding, in_axes=0)(direction)
         x = jnp.concatenate([density_feature, encoded_direction], axis=-1)
-        x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
-        x = nn.activation.relu(x)
-        x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
-        x = nn.activation.relu(x)
-        x = nn.Dense(3)(x)
+        x = FeedForward(
+            num_layers=2, 
+            hidden_dim=self.color_mlp_width, 
+            output_dim=3, 
+            activation=nn.relu
+        )(x)
 
-        if self.high_dynamic_range:
-            color = jnp.exp(x)
-        else:
-            color = nn.activation.sigmoid(x)
+        if self.high_dynamic_range: color = jnp.exp(x)
+        else: color = nn.activation.sigmoid(x)
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
 

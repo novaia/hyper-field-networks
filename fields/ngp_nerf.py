@@ -1,23 +1,20 @@
 import os
+import time
+from functools import partial
+from typing import Optional, Callable
+from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
+import numpy as np
+import optax
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from volrendjax import integrate_rays, march_rays
-from volrendjax import morton3d_invert, packbits
-from volrendjax import make_near_far_from_bound
-from dataclasses import dataclass
-from functools import partial
-import optax
-import json
-from PIL import Image
-import matplotlib.pyplot as plt
-import numpy as np
-from typing import Optional, Callable
-import time
 from fields.common.nn import \
     TcnnMultiResolutionHashEncoding, FeedForward, fourth_order_sh_encoding, trunc_exp
 from fields.common.dataset import NerfDataset, load_nerf_dataset, process_3x4_transform_matrix
+from volrendjax import \
+    integrate_rays, march_rays, morton3d_invert, packbits, make_near_far_from_bound
+import matplotlib.pyplot as plt
 
 @dataclass
 class OccupancyGrid:

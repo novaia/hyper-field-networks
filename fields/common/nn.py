@@ -187,11 +187,18 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
     ])
     return components
 
-def frequency_encoding(x, min_deg, max_deg):
-    scales = jnp.array([2**i for i in range(min_deg, max_deg)])
-    xb = x * scales
-    four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
-    return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
+class FrequencyEncoding(nn.Module):
+    min_deg: int
+    max_deg: int
+
+    @nn.compact
+    def __call__(self, x):
+        def encode(x):
+            scales = jnp.array([2**i for i in range(self.min_deg, self.max_deg)])
+            xb = x * scales
+            four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
+            return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
+        return jax.vmap(encode, in_axes=(0, None, None))(x)
 
 # Exponential function except its gradient calculation uses a truncated input value.
 @jax.custom_vjp

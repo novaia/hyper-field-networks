@@ -10,7 +10,7 @@ import optax
 from PIL import Image
 from functools import partial
 import matplotlib.pyplot as plt
-from fields.common.nn import frequency_encoding, FeedForward
+from fields.common.nn import FrequencyEncoding, FeedForward
 
 class ImageField(nn.Module):
     mlp_depth:int
@@ -19,9 +19,7 @@ class ImageField(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        x = jax.vmap(frequency_encoding, in_axes=(0, None, None))(
-            jnp.expand_dims(x, axis=-1), 0, self.encoding_dim
-        )
+        x = FrequencyEncoding(0, self.encoding_dim)(jnp.expand_dims(x, axis=-1))
         x = FeedForward(
             num_layers=self.mlp_depth, hidden_dim=self.mlp_width, 
             output_dim=3, activation=nn.relu

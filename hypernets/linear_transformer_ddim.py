@@ -19,17 +19,24 @@ class LinearTransformerDDIM(nn.Module):
     feed_forward_dim:int
     embedding_max_frequency:float
     context_length:int
+    normal_dtype:Any
+    quantized_dtype:Any
 
     @nn.compact
     def __call__(self, x):
         x, noise_variances = x
-        e = SinusoidalEmbedding(self.embedding_max_frequency)(noise_variances)
+        e = SinusoidalEmbedding(
+            self.token_dim, 
+            self.embedding_max_frequency,
+            dtype=self.quantized_dtype
+        )(noise_variances)
         x = jnp.concatenate([x, e], axis=-2)
-        x = nn.remat(nn.Dense)(features=self.embedding_dim)(x)
+        x = nn.remat(nn.Dense)(features=self.embedding_dim, dtype=self.quantized_dtype)(x)
         positions = jnp.arange(self.context_length+1)
         e = nn.Embed(
             num_embeddings=self.context_length+1, 
-            features=self.embedding_dim
+            features=self.embedding_dim,
+            dtype=self.quantized_dtype
         )(positions)
         x = x + e
 
@@ -37,10 +44,12 @@ class LinearTransformerDDIM(nn.Module):
             num_blocks=self.num_bocks, 
             attention_dim=self.attention_dim, 
             residual_dim=self.embedding_dim, 
-            feed_forward_dim=self.feed_forward_dim
+            feed_forward_dim=self.feed_forward_dim,
+            quantized_dtype=self.quantized_dtype,
+            normal_dtype=self.normal_dtype
         )(x)
 
-        x = nn.Dense(features=self.token_dim)(x)
+        x = nn.Dense(features=self.token_dim, dtype=self.quantized_dtype)(x)
         x = x[:, :-1, :] # Remove embedded noise variances token.
         return x
 
@@ -58,6 +67,7 @@ def train_step(state:TrainState, key:int, batch:jax.Array):
     
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grad = grad_fn(state.params)
+    grad = jax.tree_util.tree_map(jnp.nan_to_num, grad)
     state = state.apply_gradients(grads=grad)
     return loss, state
 
@@ -66,25 +76,37 @@ def save_image(image, file_path):
     image = image / jnp.max(image)
     plt.imsave(file_path, image)
 
-def load_dataset(path:str):
-    dataset_directory_list = os.listdir(path)
-    dataset = []
-    for file in dataset_directory_list:
-        if file.endswith('.npy'):
-            dataset.append(jnp.load(os.path.join(path, file)))
-    dataset = jnp.array(dataset, dtype=jnp.float32)
-    return dataset
-
-def load_batch(sample_paths, batch_size):
+def load_batch(sample_paths, batch_size, dtype):
     random.shuffle(sample_paths)
     batch_paths = sample_paths[:batch_size]
     batch = []
     for path in batch_paths:
         batch.append(jnp.load(path))
-    batch = jnp.array(batch, dtype=jnp.float32)
+    batch = jnp.array(batch, dtype=dtype)
     return batch
 
+def tabulate(model, context_length, token_dim, dtype):
+    tabulation = model.tabulate(
+        jax.random.PRNGKey(0), 
+        (
+            jnp.ones((1, context_length, token_dim), dtype=dtype), 
+            jnp.ones((1, 1, 1), dtype=dtype)
+        )
+    )
+    print(tabulation)
+
+def inspect_intermediates(state, context_length, token_dim, dtype):
+    x = (
+        jnp.ones((1, context_length, token_dim), dtype=dtype), 
+        jnp.ones((1, 1, 1), dtype=dtype)
+    )
+    _, intermediates = state.apply_fn({'params': state.params}, x, capture_intermediates=True)
+    intermediates = intermediates['intermediates']
+    print(intermediates)
+
 def main():
+    normal_dtype = jnp.float32
+    quantized_dtype = jnp.float16
     batch_size = 1
     datast_path = 'data/synthetic_nerfs/packed_aliens'
     all_sample_paths = os.listdir(datast_path)
@@ -94,13 +116,18 @@ def main():
             full_path = os.path.join(datast_path, path)
             valid_sample_paths.append(full_path)
     del all_sample_paths
-    load_batch_fn = partial(load_batch, sample_paths=valid_sample_paths, batch_size=batch_size)
+    load_batch_fn = partial(
+        load_batch, 
+        sample_paths=valid_sample_paths, 
+        batch_size=batch_size,
+        dtype=quantized_dtype
+    )
 
     dummy_batch = load_batch_fn()
     print('batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     #context_length = dummy_batch.shape[-2]
-    context_length = 120_000
+    context_length = 140_000
 
     model = LinearTransformerDDIM(
         attention_dim=256,
@@ -109,8 +136,12 @@ def main():
         num_bocks=2,
         feed_forward_dim=256,
         embedding_max_frequency=1000.0,
-        context_length=context_length
+        context_length=context_length,
+        normal_dtype=normal_dtype,
+        quantized_dtype=quantized_dtype
     )
+    #tabulate(model, context_length, token_dim, quantized_dtype)
+    #exit(0)
 
     tx = optax.adam(1e-3)
     rng = jax.random.PRNGKey(0)

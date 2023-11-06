@@ -8,36 +8,9 @@ import matplotlib.pyplot as plt
 import os
 import random
 from functools import partial
+from hypernets.common.nn import LinearAttention, SinusoidalEmbedding
+from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
 
-def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
-    start_angle = jnp.arccos(max_signal_rate)
-    end_angle = jnp.arccos(min_signal_rate)
-
-    diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
-
-    signal_rates = jnp.cos(diffusion_angles)
-    noise_rates = jnp.sin(diffusion_angles)
-    return noise_rates, signal_rates
-
-class LinearAttention(nn.Module):
-    attention_dim:int
-    output_dim:int
-
-    @nn.compact
-    def __call__(self, x):
-        query = nn.Dense(features=self.attention_dim)(x)
-        key = nn.Dense(features=self.attention_dim)(x)
-        value = nn.Dense(features=self.attention_dim)(x)
-        feature_map = lambda x: nn.elu(x) + 1.0
-        Q = feature_map(query)
-        K = feature_map(key)
-        KV = jnp.einsum('nsh,nsh->nh', K, value)
-        Z = 1/(jnp.einsum("nlh,nh->nlh", Q, jnp.sum(K, axis=1))+1e-6)
-        V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
-        x = nn.Dense(features=self.output_dim)(V)
-        x = nn.gelu(x)
-        return x
-    
 class FeedForward(nn.Module):
     feed_forward_dim:int
     output_dim:int
@@ -64,32 +37,16 @@ class LinearTransformer(nn.Module):
         RematDense = nn.remat(nn.Dense)
         RematLinearAttention = nn.remat(LinearAttention)
         RematFeedForward = nn.remat(FeedForward)
-            
-        def sinusoidal_embedding(x):
-            embedding_min_frequency = 1.0
-            frequencies = jnp.exp(
-                jnp.linspace(
-                    jnp.log(embedding_min_frequency),
-                    jnp.log(self.embedding_max_frequency),
-                    self.token_dim // 2
-                )
-            )
-            angular_speeds = 2.0 * jnp.pi * frequencies
-            embeddings = jnp.concatenate(
-                [jnp.sin(angular_speeds * x), jnp.cos(angular_speeds * x)],
-                axis = -1
-            )
-            return embeddings
 
         x, noise_variances = x
-        embeded_noise_variances = sinusoidal_embedding(noise_variances)
-        x = jnp.concatenate([x, embeded_noise_variances], axis=-2)
+        e = SinusoidalEmbedding(self.embedding_max_frequency)(noise_variances)
+        x = jnp.concatenate([x, e], axis=-2)
         x = RematDense(features=self.embedding_dim)(x)
         positions = jnp.arange(self.context_length+1)
-        embedded_positions = nn.Embed(
+        e = nn.Embed(
             num_embeddings=self.context_length+1, features=self.embedding_dim
         )(positions)
-        x = x + embedded_positions
+        x = x + e
 
         for _ in range(self.num_bocks):
             residual = x
@@ -124,49 +81,6 @@ def save_image(image, file_path):
     image = image - jnp.min(image)
     image = image / jnp.max(image)
     plt.imsave(file_path, image)
-
-def reverse_diffusion(
-    apply_fn, 
-    params,
-    num_images, 
-    diffusion_steps, 
-    context_length,
-    token_dim, 
-    diffusion_schedule_fn,
-    min_signal_rate,
-    max_signal_rate,
-    seed, 
-    initial_noise = None,
-):
-    if initial_noise == None:
-        initial_noise = jax.random.normal(
-            jax.random.PRNGKey(seed), 
-            shape=(num_images, context_length, token_dim)
-        )
-    step_size = 1.0 / diffusion_steps
-    
-    next_noisy_images = initial_noise
-    for step in range(diffusion_steps):
-        noisy_images = next_noisy_images
-        
-        diffusion_times = jnp.ones((num_images, 1, 1)) - step * step_size
-        noise_rates, signal_rates = diffusion_schedule_fn(
-            diffusion_times, min_signal_rate, max_signal_rate
-        )
-        pred_noises = jax.lax.stop_gradient(
-            apply_fn(
-                {'params': params}, 
-                [noisy_images, noise_rates**2], 
-            )
-        )
-        pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
-        
-        next_diffusion_times = diffusion_times - step_size
-        next_noise_rates, next_signal_rates = diffusion_schedule_fn(
-            next_diffusion_times, min_signal_rate, max_signal_rate
-        )
-        next_noisy_images = (next_signal_rates * pred_images + next_noise_rates * pred_noises)
-    return pred_images
 
 def load_dataset(path:str):
     dataset_directory_list = os.listdir(path)

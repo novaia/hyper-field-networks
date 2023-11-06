@@ -3,7 +3,7 @@ import sys
 sys.path.append(os.getcwd())
 import jax
 import jax.numpy as jnp
-from fields import ngp_nerf_cuda, Dataset
+from fields import Dataset, ngp_nerf
 from fields.temp import make_near_far_from_bound
 from volrendjax import march_rays
 import argparse
@@ -16,8 +16,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=30000)
     args = parser.parse_args()
 
-    dataset = ngp_nerf_cuda.load_dataset('data/lego', 1)
-    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(128, 0, 0)
+    dataset = ngp_nerf.load_dataset('data/lego', 1)
+    occupancy_grid = ngp_nerf.create_occupancy_grid(128, 0, 0)
 
     if not args.frustum:
         width_indices = jnp.full((args.num_rays,), dataset.w//2)
@@ -42,7 +42,7 @@ if __name__ == '__main__':
     print('height_indices', height_indices.shape)
     print('image_indices', image_indices.shape)
 
-    get_rays = jax.vmap(ngp_nerf_cuda.get_ray, in_axes=(0, 0, 0, None, None, None, None))
+    get_rays = jax.vmap(ngp_nerf.get_ray, in_axes=(0, 0, 0, None, None, None, None))
     ray_origins, ray_directions = get_rays(
         width_indices, height_indices, transform_matrices, dataset.cx, dataset.cy, 
         dataset.fl_x, dataset.fl_y

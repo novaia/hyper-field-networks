@@ -7,7 +7,7 @@ import time
 import argparse
 import jax
 import jax.numpy as jnp
-from fields import ngp_nerf_cuda
+from fields import ngp_nerf
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_dir', type=str)
@@ -54,9 +54,9 @@ for dataset_name in dataset_list:
         continue
     print(f'Training NGP-NeRF for {dataset_name}...')
     start_time = time.time()
-    dataset = ngp_nerf_cuda.load_dataset(dataset_path, 1)
+    dataset = ngp_nerf.load_dataset(dataset_path, 1)
     
-    model = ngp_nerf_cuda.NGPNerf(
+    model = ngp_nerf.NGPNerf(
         number_of_grid_levels=num_hash_table_levels,
         max_hash_table_entries=max_hash_table_entries,
         hash_table_feature_dim=hash_table_feature_dim,
@@ -69,7 +69,7 @@ for dataset_name in dataset_list:
         scene_bound=scene_bound
     )
 
-    state = ngp_nerf_cuda.create_train_state(
+    state = ngp_nerf.create_train_state(
         model=model, 
         rng=state_init_key, 
         learning_rate=learning_rate,
@@ -77,13 +77,13 @@ for dataset_name in dataset_list:
         weight_decay_coefficient=weight_decay_coefficient
     )
 
-    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(
+    occupancy_grid = ngp_nerf.create_occupancy_grid(
         resolution=grid_resolution, 
         update_interval=grid_update_interval, 
         warmup_steps=grid_warmup_steps
     )
 
-    state, occupancy_grid, final_loss = ngp_nerf_cuda.train_loop(
+    state, occupancy_grid, final_loss = ngp_nerf.train_loop(
         batch_size=batch_size,
         train_steps=train_steps,
         dataset=dataset,

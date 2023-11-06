@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import math
 from hypernets.packing.ngp_nerf import unpack_weights
-from fields import ngp_nerf_cuda
+from fields import ngp_nerf
 from functools import partial
 import json
 
@@ -24,7 +24,7 @@ def render_with_weights(weights, file_name):
     diagonal_n_steps = 1024
     stepsize_portion = 1.0 / 256.0
     batch_size = 256 * 1024
-    model = ngp_nerf_cuda.NGPNerf(
+    model = ngp_nerf.NGPNerf(
         number_of_grid_levels=num_hash_table_levels,
         max_hash_table_entries=max_hash_table_entries,
         hash_table_feature_dim=hash_table_feature_dim,
@@ -36,13 +36,13 @@ def render_with_weights(weights, file_name):
         exponential_density_activation=exponential_density_activation,
         scene_bound=scene_bound
     )
-    occupancy_grid = ngp_nerf_cuda.create_occupancy_grid(grid_resolution, 0, scene_bound)
+    occupancy_grid = ngp_nerf.create_occupancy_grid(grid_resolution, 0, scene_bound)
     KEY = jax.random.PRNGKey(0)
-    state = ngp_nerf_cuda.create_train_state(model, KEY, 1, 1, 1)
+    state = ngp_nerf.create_train_state(model, KEY, 1, 1, 1)
     state = state.replace(params=weights)
-    dataset = ngp_nerf_cuda.load_dataset('data/synthetic_nerf_data/aliens/alien_0', 1)
+    dataset = ngp_nerf.load_dataset('data/synthetic_nerf_data/aliens/alien_0', 1)
     render_fn = partial(
-        ngp_nerf_cuda.render_scene,
+        ngp_nerf.render_scene,
         # Patch size has to be small otherwise not all rays will produce samples and the
         # resulting image will have artifacts. This can be fixed by switching to the 
         # inference version of the ray marching and ray integration functions.
@@ -58,11 +58,11 @@ def render_with_weights(weights, file_name):
         batch_size=batch_size,
         state=state
     )
-    occupancy_grid.densities = ngp_nerf_cuda.update_occupancy_grid_density(
+    occupancy_grid.densities = ngp_nerf.update_occupancy_grid_density(
         KEY, batch_size, occupancy_grid.densities, occupancy_grid.mask, 
         occupancy_grid.resolution, occupancy_grid.num_entries, scene_bound, state, False
     )
-    threshold_result = ngp_nerf_cuda.threshold_occupancy_grid(
+    threshold_result = ngp_nerf.threshold_occupancy_grid(
         diagonal_n_steps, scene_bound, occupancy_grid.densities
     )
     occupancy_grid.mask, occupancy_grid.bitfield = threshold_result

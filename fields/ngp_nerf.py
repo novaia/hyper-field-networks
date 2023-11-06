@@ -11,7 +11,7 @@ from functools import partial
 import optax
 import json
 from PIL import Image
-from fields import ngp_nerf, Dataset, trunc_exp
+from fields import Dataset, ngp_nerf, trunc_exp
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable

@@ -11,12 +11,13 @@ from functools import partial
 import optax
 import json
 from PIL import Image
-from fields import Dataset, ngp_nerf, trunc_exp
+from fields import Dataset
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Callable
 import time
-from fields.common.nn import TcnnMultiResolutionHashEncoding, fourth_order_sh_encoding
+from fields.common.nn import \
+    TcnnMultiResolutionHashEncoding, fourth_order_sh_encoding, trunc_exp
 
 @dataclass
 class OccupancyGrid:
@@ -233,7 +234,7 @@ class NGPNerf(nn.Module):
             return density
         density_feature = x
 
-        encoded_direction = jax.vmap(ngp_nerf.fourth_order_sh_encoding, in_axes=0)(direction)
+        encoded_direction = jax.vmap(fourth_order_sh_encoding, in_axes=0)(direction)
         x = jnp.concatenate([density_feature, encoded_direction], axis=-1)
         x = nn.Dense(self.color_mlp_width, kernel_init=nn.initializers.normal())(x)
         x = nn.activation.relu(x)

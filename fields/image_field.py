@@ -10,7 +10,7 @@ import optax
 from PIL import Image
 from functools import partial
 import matplotlib.pyplot as plt
-from fields import frequency_encoding
+from fields.common.nn import frequency_encoding
 
 class ImageField(nn.Module):
     mlp_depth:int

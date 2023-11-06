@@ -170,5 +170,23 @@ def fourth_order_sh_encoding(direction:jnp.ndarray):
         1.445305721320277 * z * (xx - yy),
         0.5900435899266435 * x * (xx - 3 * yy)
     ])
-
     return components
+
+def frequency_encoding(x, min_deg, max_deg):
+    scales = jnp.array([2**i for i in range(min_deg, max_deg)])
+    xb = x * scales
+    four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
+    return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
+
+# Exponential function except its gradient calculation uses a truncated input value.
+@jax.custom_vjp
+def trunc_exp(x):
+    return jnp.exp(x)
+def __fwd_trunc_exp(x):
+    y = trunc_exp(x)
+    aux = x
+    return y, aux
+def __bwd_trunc_exp(aux, grad_y):
+    grad_x = jnp.exp(jnp.clip(aux, -15, 15)) * grad_y
+    return (grad_x, )
+trunc_exp.defvjp(fwd=__fwd_trunc_exp, bwd=__bwd_trunc_exp)

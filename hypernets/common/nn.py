@@ -77,3 +77,33 @@ class LinearTransformer(nn.Module):
             x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
             x = nn.LayerNorm()(x + residual)
         return x
+    
+class VanillaTransformer(nn.Module):
+    num_heads:int
+    num_blocks:int
+    attention_dim:int
+    residual_dim:int
+    feed_forward_dim:int
+    remat:bool = False
+
+    @nn.compact
+    def __call__(self, x):
+        if self.remat:
+            CustomAttention = nn.remat(nn.SelfAttention)
+            CustomFeedForward = nn.remat(FeedForward)
+        else:
+            CustomAttention = LinearAttention
+            CustomFeedForward = FeedForward
+        
+        for _ in range(self.num_blocks):
+            residual = x
+            x = CustomAttention(
+                num_heads=self.num_heads,
+                qkv_features=self.attention_dim, 
+                output_dim=self.residual_dim
+            )(x)
+            x = nn.LayerNorm()(x + residual)
+            residual = x
+            x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
+            x = nn.LayerNorm()(x + residual)
+        return x

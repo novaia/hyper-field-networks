@@ -49,7 +49,7 @@ class LinearTransformerDDIM(nn.Module):
             normal_dtype=self.normal_dtype
         )(x)
 
-        x = nn.Dense(features=self.token_dim, dtype=self.quantized_dtype)(x)
+        x = nn.remat(nn.Dense)(features=self.token_dim, dtype=self.quantized_dtype)(x)
         x = x[:, :-1, :] # Remove embedded noise variances token.
         return x
 
@@ -127,7 +127,7 @@ def main():
     print('batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     #context_length = dummy_batch.shape[-2]
-    context_length = 140_000
+    context_length = 168_000
 
     model = LinearTransformerDDIM(
         attention_dim=256,

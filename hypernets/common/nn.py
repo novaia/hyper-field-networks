@@ -35,9 +35,11 @@ class LinearAttention(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        query = nn.Dense(features=self.attention_dim, dtype=self.quantized_dtype)(x)
-        key = nn.Dense(features=self.attention_dim, dtype=self.quantized_dtype)(x)
-        value = nn.Dense(features=self.attention_dim, dtype=self.quantized_dtype)(x)
+        def qkv_projection(x):
+            return nn.Dense(features=self.attention_dim, dtype=self.quantized_dtype)(x)
+        query = qkv_projection(x)
+        key = qkv_projection(x)
+        value = qkv_projection(x)
         feature_map = lambda x: nn.elu(x) + 1.0
         Q = feature_map(query)
         K = feature_map(key)

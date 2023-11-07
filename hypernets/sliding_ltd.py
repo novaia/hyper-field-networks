@@ -1,5 +1,5 @@
 # Sliding Window Linear Transform DDIM.
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Callable
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -56,6 +56,7 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
     final_shape = (batch_size, context_length, token_dim)
 
     if verbose:
+        print('Base sample shape:', base_sample.shape)
         print('Number of files:', num_files)
         print('Number of tokens per sample:', num_tokens)
         print('Token dim:', token_dim)
@@ -187,6 +188,53 @@ def train_step(state:TrainState, key:int, batch:jax.Array, context_indices:jax.A
     state = state.apply_gradients(grads=grad)
     return loss, state
 
+def sliding_reverse_diffusion(
+    apply_fn:Callable, 
+    params:Any,
+    dataset_info:DatasetInfo,
+    num_images:int, 
+    diffusion_steps:int, 
+    diffusion_schedule_fn:Callable,
+    min_signal_rate:float,
+    max_signal_rate:float,
+    seed:int, 
+    initial_noise:jax.Array = None,
+):
+    pred_weights = []
+    for i in range(dataset_info.num_contexts):
+        if initial_noise == None:
+            initial_noise = jax.random.normal(
+                jax.random.PRNGKey(seed), 
+                shape=(num_images, dataset_info.context_length, dataset_info.token_dim)
+            )
+        step_size = 1.0 / diffusion_steps
+        
+        next_noisy_images = initial_noise
+        for step in range(diffusion_steps):
+            noisy_images = next_noisy_images
+            
+            diffusion_times = jnp.ones((num_images, 1, 1)) - step * step_size
+            noise_rates, signal_rates = diffusion_schedule_fn(
+                diffusion_times, min_signal_rate, max_signal_rate
+            )
+            pred_noises = jax.lax.stop_gradient(
+                apply_fn(
+                    {'params': params}, 
+                    [noisy_images, noise_rates**2, jnp.full((num_images, 1, 1), i)], 
+                )
+            )
+            pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
+            
+            next_diffusion_times = diffusion_times - step_size
+            next_noise_rates, next_signal_rates = diffusion_schedule_fn(
+                next_diffusion_times, min_signal_rate, max_signal_rate
+            )
+            next_noisy_images = (next_signal_rates*pred_images + next_noise_rates*pred_noises)
+        pred_weights.append(pred_images)
+    pred_weights = jnp.concatenate(pred_weights, axis=1)
+    pred_weights = pred_weights[:, dataset_info.num_pad_tokens:, :]
+    return pred_weights
+
 def save_image(image, file_path):
     image = image - jnp.min(image)
     image = image / jnp.max(image)
@@ -197,16 +245,10 @@ def main():
     quantized_dtype = jnp.float16
     batch_size = 1
     datast_path = 'data/synthetic_nerfs/packed_aliens'
-    context_length = 168_000
+    context_length = 150_000
 
-    dataset = create_dataset_info(datast_path, 168_000, batch_size, verbose=True)
-    dummy_batch, context_index = load_batch(dataset, jax.random.PRNGKey(0), quantized_dtype)
-    print('Dummy batch shape:', dummy_batch.shape)
-    print('Dummy batch dtype:', dummy_batch.dtype)
-    print('Context index:', context_index[0])
-    token_dim = dummy_batch.shape[-1]
-    dummy_batch.delete()
-    context_index.delete()
+    dataset = create_dataset_info(datast_path, context_length, batch_size, verbose=True)
+    token_dim = dataset.token_dim
 
     model = SlidingLTD(
         attention_dim=256,
@@ -233,8 +275,21 @@ def main():
         batch, context_indices = load_batch(dataset, batch_key, quantized_dtype)
         loss, state = train_step(state, train_key, batch, context_indices)
         batch.delete()
-        print('loss:', loss)
+        print('Loss:', loss)
     print('Finished training')
+
+    pred_weights = sliding_reverse_diffusion(
+        apply_fn=state.apply_fn,
+        params=state.params,
+        dataset_info=dataset,
+        num_images=1,
+        diffusion_steps=20,
+        diffusion_schedule_fn=diffusion_schedule,
+        min_signal_rate=0.02,
+        max_signal_rate=0.95,
+        seed=0,
+    )
+    print('Pred weights:', pred_weights.shape)
 
 if __name__ == '__main__':
     main()

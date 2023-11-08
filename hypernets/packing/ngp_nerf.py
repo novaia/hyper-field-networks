@@ -1,81 +1,100 @@
 import jax.numpy as jnp
 
-def pack_weights(params, packed_width):
-    packed_height = 0
-    weight_map = []
-    packed_weights = []
-    for key in params.keys():
-        new_weight_map_entry = {'layer': key}
-        if key == 'MultiResolutionHashEncoding_0':
-            parameter = params[key]['hash_table']
-            new_weight_map_entry['num_entries'] = parameter.shape[0]
-            new_weight_map_entry['feature_dim'] = parameter.shape[1]
-            parameter = jnp.ravel(parameter)
-            parameter_shape = parameter.shape
-            packed_weights.append(jnp.reshape(
-                parameter, (parameter_shape[0] // packed_width, packed_width)
-            ))
-            new_weight_map_entry['table_height'] = packed_weights[-1].shape[0]
-            new_weight_map_entry['table_width'] = packed_weights[-1].shape[1]
-        for sub_key in params[key].keys():
-            parameter = params[key][sub_key]
-            parameter_shape = parameter.shape
-            if sub_key == 'bias':
-                new_weight_map_entry['bias_width'] = parameter_shape[0]
-                packed_weights.append(jnp.expand_dims(
-                    jnp.concatenate([
-                        parameter, jnp.zeros((packed_width - parameter_shape[0]))
-                    ], axis=-1),
-                    axis=0
-                ))
-                packed_height += 1
-            elif sub_key == 'kernel':
-                height_greater_than_width = parameter_shape[0] > parameter_shape[1]
-                height_equal_to_packed_width = parameter_shape[0] == packed_width
-                # The second operand is important because we don't want to transpose
-                # unless it will create a shape that can be concatenated with the other
-                # parameters along the height axis, i.e. (parameter_height, packed_width).
-                if height_greater_than_width and height_equal_to_packed_width:
-                    kernel_height = parameter_shape[1]
-                    kernel_width = parameter_shape[0]
-                    packed_weights.append(jnp.transpose(parameter))
-                    new_weight_map_entry['kernel_transposed'] = True
-                    packed_height += kernel_height
-                else:
-                    kernel_height = parameter_shape[0]
-                    kernel_width = parameter_shape[1]
-                    packed_weights.append(parameter)
-                    new_weight_map_entry['kernel_transposed'] = False
-                    packed_height += kernel_height
-                new_weight_map_entry['kernel_height'] = kernel_height
-                new_weight_map_entry['kernel_width'] = kernel_width
-        weight_map.append(new_weight_map_entry)
-    packed_weights = jnp.concatenate(packed_weights, axis=0)
-    return packed_weights, weight_map
+def _generate_leaf_map(leaf, leaf_name, packed_width):
+    leaf_map = {}
+    if leaf_name == 'hash_table':
+        leaf_map['num_entries'] = leaf.shape[0]
+        leaf_map['feature_dim'] = leaf.shape[1]
+        leaf_map['height'] = (leaf.shape[0] * leaf_map['feature_dim']) // packed_width
+        leaf_map['width'] = packed_width
+        return leaf_map
 
-def unpack_weights(packed_weights, weight_map):
-    unpacked_weights = {}
-    current_height = 0
-    for layer in weight_map:
-        layer_name = layer['layer']
-        if layer_name != 'MultiResolutionHashEncoding_0':
-            bias_width = layer['bias_width']
-            bias = packed_weights[current_height, :bias_width]
-            current_height += 1
-            kernel_height = layer['kernel_height']
-            kernel_width = layer['kernel_width']
-            kernel = packed_weights[current_height:current_height+kernel_height, :kernel_width]
-            current_height += kernel_height
-            if layer['kernel_transposed']:
-                kernel = jnp.transpose(kernel)
-            unpacked_weights[layer_name] = {'bias': bias, 'kernel': kernel}
+    # If the matrix is one-dimensional, then it is a bias vector.
+    if len(leaf.shape) == 1:
+        leaf_map['height'] = 1
+        leaf_map['width'] = leaf.shape[0]
+        leaf_map['transposed'] = False
+        return leaf_map
+    
+    height = leaf.shape[0]
+    width = leaf.shape[1]
+    height_greater_than_width = height > width
+    height_equal_to_packed_width = height == packed_width
+    # The second operand is important because we don't want to transpose
+    # unless it will create a shape that can be concatenated with the other
+    # parameters along the height axis, i.e. (parameter_height, packed_width).
+    if height_greater_than_width and height_equal_to_packed_width:
+        height = leaf.shape[1]
+        width = leaf.shape[0]
+        transposed = True
+    else:
+        transposed = False
+    leaf_map['height'] = height
+    leaf_map['width'] = width
+    leaf_map['transposed'] = transposed
+    return leaf_map
+
+def generate_weight_map(module, packed_width):
+    weight_map = {}
+    for key in module.keys():
+        sub_module = module[key]
+        if isinstance(sub_module, dict):
+            weight_map[key] = generate_weight_map(sub_module, packed_width)
         else:
-            table_height = layer['table_height']
-            table_width = layer['table_width']
-            num_entries = layer['num_entries']
-            feature_dim = layer['feature_dim']
-            hash_table = packed_weights[current_height:current_height+table_height, :table_width]
-            current_height += table_height
-            hash_table = jnp.reshape(jnp.ravel(hash_table), (num_entries, feature_dim))
-            unpacked_weights[layer_name] = {'hash_table': hash_table}
-    return unpacked_weights
+            weight_map[key] = _generate_leaf_map(sub_module, key, packed_width)
+            weight_map_with_name = weight_map[key].copy()
+            weight_map_with_name['layer'] = key
+    return weight_map
+
+def _pack_leaf(leaf, leaf_name, leaf_map, target_width):
+    if leaf_name == 'hash_table':
+        return jnp.reshape(jnp.ravel(leaf), (leaf_map['height'], leaf_map['width']))
+    packed_leaf = leaf
+    if leaf_map['transposed']:
+        packed_leaf = jnp.transpose(packed_leaf)
+    if len(packed_leaf.shape) == 1:
+        packed_leaf = jnp.expand_dims(packed_leaf, axis=0)
+    actual_width = leaf_map['width']
+    if actual_width < target_width:
+        packed_leaf = jnp.concatenate([
+            packed_leaf, jnp.zeros((packed_leaf.shape[0], target_width - actual_width))
+        ], axis=-1)
+    return packed_leaf
+
+def pack_weights(module, packed_width, weight_map):
+    packed_weights = []
+    for key in module.keys():
+        sub_module = module[key]
+        sub_module_map = weight_map[key]
+        if isinstance(sub_module, dict):
+            packed_weights.append(pack_weights(sub_module, packed_width, sub_module_map))
+        else:
+            packed_weights.append(_pack_leaf(sub_module, key, sub_module_map, packed_width))
+    return jnp.concatenate(packed_weights, axis=0)
+
+def _unpack_leaf(packed_leaf, leaf_name, leaf_map):
+    if leaf_name == 'hash_table':
+        hash_table_shape = (leaf_map['num_entries'], leaf_map['feature_dim'])
+        return jnp.reshape(jnp.ravel(packed_leaf), hash_table_shape)
+    unpacked_leaf = packed_leaf
+    if leaf_map['transposed']:
+        unpacked_leaf = jnp.transpose(unpacked_leaf)
+    if len(unpacked_leaf.shape) == 1:
+        unpacked_leaf = jnp.expand_dims(unpacked_leaf, axis=0)
+    return unpacked_leaf
+
+def unpack_weights(packed_weights, module_map, start_height=0):
+    end_height = start_height
+    for key in module_map.keys():
+        sub_module_map = module_map[key]
+        if 'height' not in sub_module_map.keys():
+            module_map[key], end_height = unpack_weights(
+                packed_weights, sub_module_map, start_height
+            )
+        else:
+            module_height = sub_module_map['height']
+            end_height += module_height
+            packed_leaf = packed_weights[start_height:end_height]
+            module_map[key] = _unpack_leaf(packed_leaf, key, sub_module_map)
+        start_height = end_height
+    return module_map, end_height

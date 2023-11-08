@@ -3,7 +3,6 @@ import argparse
 import glob
 import os
 import json
-import pprint
 
 def _generate_leaf_map(leaf, leaf_name, packed_width):
     leaf_map = {}

@@ -1,4 +1,9 @@
 import jax.numpy as jnp
+import argparse
+import glob
+import os
+import json
+import pprint
 
 def _generate_leaf_map(leaf, leaf_name, packed_width):
     leaf_map = {}
@@ -98,3 +103,53 @@ def unpack_weights(packed_weights, module_map, start_height=0):
             module_map[key] = _unpack_leaf(packed_leaf, key, sub_module_map)
         start_height = end_height
     return module_map, end_height
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_path', type=str, required=True)
+    parser.add_argument('--output_path', type=str, required=True)
+    help_text = 'If true, remove original files after packing.'
+    parser.add_argument('--rm', type=bool, default=False, help=help_text)
+    parser.add_argument('--packed_width', type=int, default=64)
+    parser.add_argument('--loss_threshold', type=float, default=1e-3)
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.output_path):
+        print(f'Creating output directory: {args.output_path}')
+        os.makedirs(args.output_path)
+
+    path_list = []
+    if os.path.isdir(args.input_path):
+        file_pattern = os.path.join(args.input_path, '**/*.npy')
+        path_list.extend(glob.glob(file_pattern, recursive=True))
+    elif os.path.isfile(args.input_path) and args.input_path.endswith('.npy'):
+        path_list.append(args.input_path)
+    else:
+        raise ValueError('Invalid input path: {}'.format(args.input_path))
+    print(f'Found {len(path_list)} file(s)')
+
+    first_module = jnp.load(path_list[0], allow_pickle=True).tolist()['params']
+    weight_map = generate_weight_map(first_module, args.packed_width)
+    print('Weight map:')
+    print(json.dumps(weight_map, indent=4))
+    with open(os.path.join(args.output_path, f'weight_map.json'), 'w') as f:
+        json.dump(weight_map, f, indent=4)
+
+    for path in path_list:
+        basename = os.path.basename(path)
+        nerf_dict = jnp.load(path, allow_pickle=True).tolist()
+        final_loss = nerf_dict['final_loss']
+        if final_loss > args.loss_threshold:
+            print(f'Skipping {basename} due to high loss: {final_loss}')
+            continue
+        print(f'Packing {basename}')
+        module = nerf_dict['params']
+        packed_weights = pack_weights(module, args.packed_width, weight_map)
+        jnp.save(os.path.join(args.output_path, basename), packed_weights)
+        print(f'Saved {basename} to {args.output_path}')
+        if args.rm:
+            os.remove(path)
+            print(f'Deleted {path}')
+
+if __name__ == '__main__':
+    main()

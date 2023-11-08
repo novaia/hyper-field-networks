@@ -1,5 +1,6 @@
 import os
 import time
+import json
 from functools import partial
 from typing import Optional, Callable
 from dataclasses import dataclass
@@ -539,63 +540,44 @@ def benchmark_training(train_loop_with_args:Callable):
     print('Training time:', end_time - start_time)
 
 def main():
-    num_hash_table_levels = 16
-    max_hash_table_entries = 2**20
-    hash_table_feature_dim = 2
-    coarsest_resolution = 16
-    finest_resolution = 2**19
-    density_mlp_width = 64
-    color_mlp_width = 64
-    high_dynamic_range = False
-    exponential_density_activation = True
-
-    learning_rate = 1e-2
-    epsilon = 1e-15
-    weight_decay_coefficient = 1e-6
-    batch_size = 256 * 1024
-    scene_bound = 1.0
-    grid_resolution = 128
-    grid_update_interval = 16
-    grid_warmup_steps = 256
-    diagonal_n_steps = 1024
-    train_steps = 1000
-    stepsize_portion = 1.0 / 256.0
+    with open('configs/ngp_nerf.json', 'r') as f:
+        config = json.load(f)
 
     model = NGPNerf(
-        number_of_grid_levels=num_hash_table_levels,
-        max_hash_table_entries=max_hash_table_entries,
-        hash_table_feature_dim=hash_table_feature_dim,
-        coarsest_resolution=coarsest_resolution,
-        finest_resolution=finest_resolution,
-        density_mlp_width=density_mlp_width,
-        color_mlp_width=color_mlp_width,
-        high_dynamic_range=high_dynamic_range,
-        exponential_density_activation=exponential_density_activation,
-        scene_bound=scene_bound
+        number_of_grid_levels=config['num_hash_table_levels'],
+        max_hash_table_entries=config['max_hash_table_entries'],
+        hash_table_feature_dim=config['hash_table_feature_dim'],
+        coarsest_resolution=config['coarsest_resolution'],
+        finest_resolution=config['finest_resolution'],
+        density_mlp_width=config['density_mlp_width'],
+        color_mlp_width=config['color_mlp_width'],
+        high_dynamic_range=config['high_dynamic_range'],
+        exponential_density_activation=config['exponential_density_activation'],
+        scene_bound=config['scene_bound']
     )
     KEY = jax.random.PRNGKey(0)
     KEY, state_init_key = jax.random.split(KEY, num=2)
     state = create_train_state(
         model=model, 
         rng=state_init_key, 
-        learning_rate=learning_rate,
-        epsilon=epsilon,
-        weight_decay_coefficient=weight_decay_coefficient
+        learning_rate=config['learning_rate'],
+        epsilon=config['epsilon'],
+        weight_decay_coefficient=config['weight_decay_coefficient']
     )
     occupancy_grid = create_occupancy_grid(
-        resolution=grid_resolution, 
-        update_interval=grid_update_interval, 
-        warmup_steps=grid_warmup_steps
+        resolution=config['grid_resolution'], 
+        update_interval=config['grid_update_interval'], 
+        warmup_steps=config['grid_warmup_steps']
     )
     dataset = load_nerf_dataset('data/lego', 1)
     train_loop_with_args = partial(
         train_loop,
-        batch_size=batch_size,
-        train_steps=train_steps,
+        batch_size=config['batch_size'],
+        train_steps=config['train_steps'],
         dataset=dataset,
-        scene_bound=scene_bound,
-        diagonal_n_steps=diagonal_n_steps,
-        stepsize_portion=stepsize_portion,
+        scene_bound=config['scene_bound'],
+        diagonal_n_steps=config['diagonal_n_steps'],
+        stepsize_portion=config['stepsize_portion'],
         occupancy_grid=occupancy_grid,
         state=state
     )
@@ -612,13 +594,13 @@ def main():
         patch_size_x=32,
         patch_size_y=32,
         dataset=dataset,
-        scene_bound=scene_bound,
-        diagonal_n_steps=diagonal_n_steps,
+        scene_bound=config['scene_bound'],
+        diagonal_n_steps=config['diagonal_n_steps'],
         grid_cascades=1,
-        grid_resolution=grid_resolution,
-        stepsize_portion=stepsize_portion,
+        grid_resolution=config['grid_resolution'],
+        stepsize_portion=config['stepsize_portion'],
         occupancy_bitfield=occupancy_grid.bitfield,
-        batch_size=batch_size,
+        batch_size=config['batch_size'],
         state=state
     )
     render_fn(
@@ -635,7 +617,7 @@ def main():
     occupancy_grid_coordinates = morton3d_invert(
         jnp.arange(occupancy_grid.mask.shape[0], dtype=jnp.uint32)
     )
-    occupancy_grid_coordinates = occupancy_grid_coordinates / (grid_resolution - 1) * 2 - 1
+    occupancy_grid_coordinates = occupancy_grid_coordinates / (config['grid_resolution'] - 1) * 2 - 1
     jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)
 
 if __name__ == '__main__':

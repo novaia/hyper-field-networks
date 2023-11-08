@@ -1,0 +1,21 @@
+{
+    "num_hash_table_levels": 16,
+    "max_hash_table_entries": 1048576,
+    "hash_table_feature_dim": 2,
+    "coarsest_resolution": 16,
+    "finest_resolution": 524288,
+    "density_mlp_width": 64,
+    "high_dynamic_range": true,
+    "exponential_density_activation": false,
+    "learning_rate": 0.01,
+    "epsilon": 0.000000000000001,
+    "weight_decay_coefficient": 0.000001,
+    "batch_size": 262144,
+    "scene_bound": 1.0,
+    "grid_resolution": 128,
+    "grid_update_interval": 16,
+    "grid_warmup_steps": 256,
+    "diagonal_n_steps": 1024,
+    "train_steps": 1000,
+    "stepsize_portion": 0.00390625
+}

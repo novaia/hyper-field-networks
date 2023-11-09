@@ -7,6 +7,11 @@ Generating NGP NeRFs from a directory of datasets:
 python3 scripts/generate_ngp_nerfs.py --dataset_dir data/synthetic_nerf_data --output_dir data/synthetic_nerfs
 ```
 
+Training Linear Transformer DDIM with high memory usage:
+```
+XLA_PYTHON_CLIENT_MEM_FRACTION=.97 python3 -m hypernets.sliding_ltd
+```
+
 ## Docker Environment
 
 Building image:

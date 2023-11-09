@@ -5,7 +5,7 @@ import os
 import sys
 print(os.getcwd())
 sys.path.append(os.getcwd())
-import synthdata as sd
+import synthdata.common as sd
 
 def generate():
     extrude = sd.global_mirror_offset_extrude

@@ -13,7 +13,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if not os.path.exists(args.save_directory):
-        print('here')
         os.makedirs(args.save_directory)
 
     command = [
@@ -21,7 +20,7 @@ if __name__ == '__main__':
         'blender',
         '--background',
         '-P',
-        f'synthetic_data_helper/blender_scripts/{args.script}',
+        f'synthdata/blender_scripts/{args.script}',
         '--',
         '--save_directory',
         args.save_directory,

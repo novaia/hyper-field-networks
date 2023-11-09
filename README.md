@@ -2,6 +2,11 @@
 
 ## Useful Commands
 
+Synthesizing NeRF datasets with a specified Blender script:
+```
+python3 -m synthdata --script alien.py --number 20 --save_directory data/renders/alien --num_renders 200
+```
+
 Generating NGP NeRFs from a directory of datasets:
 ```
 python3 scripts/generate_ngp_nerfs.py --dataset_dir data/synthetic_nerf_data --output_dir data/synthetic_nerfs

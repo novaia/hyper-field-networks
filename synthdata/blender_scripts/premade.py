@@ -3,7 +3,7 @@ import os
 import sys
 print(os.getcwd())
 sys.path.append(os.getcwd())
-import synthdata as sd
+import synthdata.common as sd
 
 def main():
     args = sd.get_arguments()

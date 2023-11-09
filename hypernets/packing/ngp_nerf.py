@@ -81,6 +81,8 @@ def _unpack_leaf(packed_leaf, leaf_name, leaf_map):
         hash_table_shape = (leaf_map['num_entries'], leaf_map['feature_dim'])
         return jnp.reshape(jnp.ravel(packed_leaf), hash_table_shape)
     unpacked_leaf = packed_leaf
+    if leaf_map['width'] < unpacked_leaf.shape[1]:
+        unpacked_leaf = unpacked_leaf[:, :leaf_map['width']]
     if leaf_map['transposed']:
         unpacked_leaf = jnp.transpose(unpacked_leaf)
     if leaf_name == 'bias':

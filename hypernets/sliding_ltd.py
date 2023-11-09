@@ -13,11 +13,10 @@ from functools import partial
 from operator import itemgetter
 from dataclasses import dataclass
 from hypernets.common.nn import SinusoidalEmbedding, LinearTransformer
-from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
-from hypernets.packing.ngp_nerf import unpack_weights, pack_weights, generate_weight_map
+from hypernets.common.diffusion import diffusion_schedule
+from hypernets.packing.ngp_nerf import unpack_weights
 from fields import ngp_nerf
-from fields.common.dataset import load_nerf_dataset
-
+from fields.common.dataset import NerfDataset
 @dataclass
 class DatasetInfo:
     file_paths: List[str]
@@ -244,88 +243,87 @@ def save_image(image, file_path):
     plt.imsave(file_path, image)
 
 def render_from_generated_weights(
-    sensor_dataset_path:str, param_map_path:str, packed_weights:jax.Array
+    sensor_dataset_path:str, weight_map_path:str, packed_weights:jax.Array
 ):
-    num_hash_table_levels = 16
-    max_hash_table_entries = 2**20
-    hash_table_feature_dim = 2
-    coarsest_resolution = 16
-    finest_resolution = 2**19
-    density_mlp_width = 64
-    color_mlp_width = 64
-    high_dynamic_range = False
-    exponential_density_activation = True
-
-    batch_size = 256 * 1024
-    scene_bound = 1.0
-    grid_resolution = 128
-    diagonal_n_steps = 1024
-    stepsize_portion = 1.0 / 256.0
+    with open('configs/ngp_nerf.json', 'r') as f:
+        model_config = json.load(f)
 
     model = ngp_nerf.NGPNerf(
-        number_of_grid_levels=num_hash_table_levels,
-        max_hash_table_entries=max_hash_table_entries,
-        hash_table_feature_dim=hash_table_feature_dim,
-        coarsest_resolution=coarsest_resolution,
-        finest_resolution=finest_resolution,
-        density_mlp_width=density_mlp_width,
-        color_mlp_width=color_mlp_width,
-        high_dynamic_range=high_dynamic_range,
-        exponential_density_activation=exponential_density_activation,
-        scene_bound=scene_bound
+        number_of_grid_levels=model_config['num_hash_table_levels'],
+        max_hash_table_entries=model_config['max_hash_table_entries'],
+        hash_table_feature_dim=model_config['hash_table_feature_dim'],
+        coarsest_resolution=model_config['coarsest_resolution'],
+        finest_resolution=model_config['finest_resolution'],
+        density_mlp_width=model_config['density_mlp_width'],
+        color_mlp_width=model_config['color_mlp_width'],
+        high_dynamic_range=model_config['high_dynamic_range'],
+        exponential_density_activation=model_config['exponential_density_activation'],
+        scene_bound=model_config['scene_bound']
     )
     KEY = jax.random.PRNGKey(0)
     KEY, state_init_key = jax.random.split(KEY)
     state = ngp_nerf.create_train_state(model, state_init_key, 1, 1, 1)
 
-    with open(param_map_path, 'r') as f:
-        param_map = json.load(f)
-    unpacked_weights = unpack_weights(packed_weights, param_map)
+    with open(weight_map_path, 'r') as f:
+        weight_map = json.load(f)
+    unpacked_weights = unpack_weights(packed_weights, weight_map)[0]
     state = state.replace(params=unpacked_weights)
     
     occupancy_grid = ngp_nerf.create_occupancy_grid(
-        resolution=grid_resolution, 
+        resolution=model_config['grid_resolution'], 
         update_interval=1, 
         warmup_steps=1
     )
     KEY, occupancy_update_key = jax.random.split(KEY)
     occupancy_grid.densities = ngp_nerf.update_occupancy_grid_density(
         KEY=occupancy_update_key,
-        batch_size=batch_size,
+        batch_size=model_config['batch_size'],
         densities=occupancy_grid.densities,
         occupancy_mask=occupancy_grid.mask,
         grid_resolution=occupancy_grid.resolution,
         num_grid_entries=occupancy_grid.num_entries,
-        scene_bound=scene_bound,
+        scene_bound=model_config['scene_bound'],
         state=state,
         warmup=True
     )
     occupancy_grid.mask, occupancy_grid.bitfield = ngp_nerf.threshold_occupancy_grid(
-        diagonal_n_steps=diagonal_n_steps,
-        scene_bound=scene_bound,
+        diagonal_n_steps=model_config['diagonal_n_steps'],
+        scene_bound=model_config['scene_bound'],
         densities=occupancy_grid.densities
     )
 
-    dataset = load_nerf_dataset(sensor_dataset_path, downscale_factor=1)
+    with open('configs/camera_intrinsics.json', 'r') as f:
+        camera_intrinsics = json.load(f)
+    dataset = NerfDataset(
+        horizontal_fov=camera_intrinsics['camera_angle_x'],
+        vertical_fov=camera_intrinsics['camera_angle_x'],
+        fl_x=camera_intrinsics['fl_x'],
+        fl_y=camera_intrinsics['fl_y'],
+        cx=camera_intrinsics['cx'],
+        cy=camera_intrinsics['cy'],
+        w=camera_intrinsics['w'],
+        h=camera_intrinsics['h']
+    )
+
     render_fn = partial(
         ngp_nerf.render_scene,
         patch_size_x=32,
         patch_size_y=32,
         dataset=dataset,
-        scene_bound=scene_bound,
-        diagonal_n_steps=diagonal_n_steps,
+        scene_bound=model_config['scene_bound'],
+        diagonal_n_steps=model_config['diagonal_n_steps'],
         grid_cascades=1,
-        grid_resolution=grid_resolution,
-        stepsize_portion=stepsize_portion,
+        grid_resolution=model_config['grid_resolution'],
+        stepsize_portion=model_config['stepsize_portion'],
         occupancy_bitfield=occupancy_grid.bitfield,
-        batch_size=batch_size,
+        batch_size=model_config['batch_size'],
         state=state
     )
     ngp_nerf.turntable_render(
         num_frames=3,
         camera_distance=2,
         render_fn=render_fn,
-        file_name='generated_render'
+        file_name='generations/generated_render'
     )
 
 def main():
@@ -378,9 +376,10 @@ def main():
         seed=0,
     )
     print('Pred weights:', pred_weights.shape)
+    print(pred_weights)
     render_from_generated_weights(
         sensor_dataset_path='data/synthetic_nerf_data/aliens/alien_2',
-        param_map_path=os.path.join(dataset_path, 'param_map.json'),
+        weight_map_path=os.path.join(dataset_path, 'weight_map.json'),
         packed_weights=pred_weights[0]
     )
 

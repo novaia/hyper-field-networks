@@ -5,7 +5,7 @@ import os
 import sys
 print(os.getcwd())
 sys.path.append(os.getcwd())
-import synthetic_data_helper as sdh
+import synthdata as sdh
 
 def generate():
     extrude = sdh.global_mirror_offset_extrude
@@ -39,8 +39,6 @@ def generate():
     
     color = (rng(0, 1), rng(0, 1), rng(0, 1), 1)
 
-    decimation_ratio = rng(0.01, 0.05)
-
     bpy.ops.mesh.primitive_plane_add(
         size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1)
     )
@@ -55,7 +53,7 @@ def generate():
     ops_obj.modifier_add(type='SUBSURF')
 
     ctx_obj = bpy.context.object
-    ctx_obj.modifiers['Skin'].use_smooth_shade = False
+    ctx_obj.modifiers['Skin'].use_smooth_shade = True
     ctx_obj.modifiers["Subdivision"].levels = 3
     ctx_obj.modifiers["Subdivision"].render_levels = 3
 
@@ -142,26 +140,15 @@ def generate():
     ops_obj.modifier_apply(modifier='Skin')
     ops_obj.modifier_apply(modifier='Subdivision')
 
-    ops_obj.modifier_add(type='DECIMATE')
-    ctx_obj.modifiers["Decimate"].ratio = decimation_ratio
-    ops_obj.modifier_apply(modifier='Decimate')
-
     return d_obj
-
-def add_sun():
-    bpy.ops.object.light_add(type='SUN', location=(0, 0, 0))
-    bpy.context.object.name = 'Sun'
-    bpy.data.lights['Sun'].energy = 10
-    bpy.data.lights['Sun'].color = (1.0, 0.655, 0.101)
 
 def main():
     args = sdh.get_arguments()
     sdh.delete_all_and_add_camera()
     d_obj = generate()
     sphere_radius = sdh.move_bounding_sphere_to_origin(d_obj)
-    add_sun()
     sdh.set_renderer_cycles_gpu()
-    sdh.set_background((0.7, 0.7, 0.7), 0.5)
+    sdh.set_background_white()
     sdh.set_general_render_settings()
     sdh.set_cycles_render_settings()
     camera = bpy.context.scene.objects['Camera']

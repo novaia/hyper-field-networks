@@ -3,7 +3,7 @@ import os
 import sys
 print(os.getcwd())
 sys.path.append(os.getcwd())
-import synthetic_data_helper as sdh
+import synthdata as sdh
 
 def main():
     args = sdh.get_arguments()

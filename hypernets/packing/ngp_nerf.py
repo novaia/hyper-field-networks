@@ -83,8 +83,8 @@ def _unpack_leaf(packed_leaf, leaf_name, leaf_map):
     unpacked_leaf = packed_leaf
     if leaf_map['transposed']:
         unpacked_leaf = jnp.transpose(unpacked_leaf)
-    if len(unpacked_leaf.shape) == 1:
-        unpacked_leaf = jnp.expand_dims(unpacked_leaf, axis=0)
+    if leaf_name == 'bias':
+        unpacked_leaf = jnp.squeeze(unpacked_leaf, axis=0)
     return unpacked_leaf
 
 def unpack_weights(packed_weights, module_map, start_height=0):

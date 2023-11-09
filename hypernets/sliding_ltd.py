@@ -328,10 +328,10 @@ def render_from_generated_weights(
 
 def main():
     normal_dtype = jnp.float32
-    quantized_dtype = jnp.float16
+    quantized_dtype = jnp.float32
     batch_size = 1
     dataset_path = 'data/synthetic_nerfs/packed_aliens'
-    context_length = 150_000
+    context_length = 120_000
 
     dataset = create_dataset_info(dataset_path, context_length, batch_size, verbose=True)
     token_dim = dataset.token_dim

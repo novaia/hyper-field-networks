@@ -1,3 +1,8 @@
+# The script isn't general and
+# there is a very specific hardcoded mapping. Dense_0 and Dense_1 now fall
+# under FeedForward_0, while Dense_2, Dense_3, and Dense_4 now fall under
+# FeedForward_1. Their indices are changed accordingly.
+
 import glob
 import os
 import jax.numpy as jnp

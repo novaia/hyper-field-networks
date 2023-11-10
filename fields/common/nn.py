@@ -93,6 +93,73 @@ class MultiResolutionHashEncoding(nn.Module):
         # Then ravel to get the entire encoding.
         return jnp.ravel(jnp.transpose(encoded_value))
 
+class MultiResolutionHashEncoding2D(nn.Module):
+    table_size: int
+    num_levels: int
+    min_resolution: int
+    max_resolution: int
+    feature_dim: int
+
+    def setup(self):
+        self.levels = jnp.arange(self.num_levels)
+        self.hash_offset = self.levels * self.table_size
+        self.spatial_dim = 2
+        if self.num_levels > 1:
+            self.growth_factor = jnp.exp(
+                (jnp.log(self.max_resolution) - jnp.log(self.min_resolution)) 
+                / (self.num_levels - 1)
+            )
+        else:
+            self.growth_factor = 1
+        self.scalings = jnp.floor(self.min_resolution * self.growth_factor**self.levels)
+        self.scalings = jnp.reshape(self.scalings, (self.scalings.shape[0], 1))
+        absolute_table_size = self.table_size * self.num_levels
+        # Feature dim comes first so features can be broadcast with point offset.
+        # Feature shape is (feature_dim, num_levels). 
+        # Point offset shape is (spatial_dim, num_levels).
+        self.hash_table = self.param(
+            'hash_table', 
+            nn.initializers.uniform(scale=10**-4), 
+            (self.feature_dim, absolute_table_size)
+        )
+
+    def hash_function(self, x:jnp.ndarray, table_size:int, hash_offset:jnp.ndarray):
+        pre_xor = x * jnp.array([1, 2654435761])
+        x = jnp.bitwise_xor(pre_xor[:, 0], pre_xor[:, 1])
+        x = x % table_size
+        x = x + hash_offset
+        return x
+    
+    def __call__(self, x:jnp.ndarray):
+        scaled = x * self.scalings
+        scaled_c = jnp.ceil(scaled).astype(jnp.int32)
+        scaled_f = jnp.floor(scaled).astype(jnp.int32)
+        point_offset = jnp.reshape(scaled - scaled_f, (self.spatial_dim, self.num_levels))
+        
+        vertex_0 = scaled_c
+        vertex_1 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2]], axis=-1)
+        vertex_2 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2]], axis=-1)
+        vertex_3 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2]], axis=-1)
+
+        hashed_0 = self.hash_function(vertex_0, self.table_size, self.hash_offset)
+        hashed_1 = self.hash_function(vertex_1, self.table_size, self.hash_offset)
+        hashed_2 = self.hash_function(vertex_2, self.table_size, self.hash_offset)
+        hashed_3 = self.hash_function(vertex_3, self.table_size, self.hash_offset)
+
+        f_0 = self.hash_table[:, hashed_0]
+        f_1 = self.hash_table[:, hashed_1]
+        f_2 = self.hash_table[:, hashed_2]
+        f_3 = self.hash_table[:, hashed_3]
+
+        # Linearly interpolate between all of the features.
+        f_03 = f_0 * point_offset[0:1, :] + f_3 * (1 - point_offset[0:1, :])
+        f_12 = f_1 * point_offset[0:1, :] + f_2 * (1 - point_offset[0:1, :])
+        encoded_value = f_03 * point_offset[1:2, :] + f_12 * (1 - point_offset[1:2, :])
+        # Transpose so that features are contiguous.
+        # i.e. [[f_0_x, f_0_y], [f_1_x, f_2_y], ...]
+        # Then ravel to get the entire encoding.
+        return jnp.ravel(jnp.transpose(encoded_value))
+
 class TcnnMultiResolutionHashEncoding(nn.Module):
     table_size: int
     num_levels: int

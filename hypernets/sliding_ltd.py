@@ -407,13 +407,13 @@ def main():
         quantized_dtype=quantized_dtype
     )
 
-    tx = optax.adam(1e-4)
+    tx = optax.adam(5e-4)
     rng = jax.random.PRNGKey(0)
     x = (jnp.ones((1, context_length, token_dim)), jnp.ones((1, 1, 1)), jnp.ones((1, 1, 1)))
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    train_steps = 1000
+    train_steps = 20_000
     for step in range(train_steps):
         step_key = jax.random.PRNGKey(step)
         train_key, batch_key = jax.random.split(step_key)
@@ -440,6 +440,7 @@ def main():
                 packed_weights=pred_weights,
                 file_name=f'generations/step_{step}'
             )
+            pred_weights.delete()
     print('Finished training')
 
     pred_weights = sliding_reverse_diffusion(

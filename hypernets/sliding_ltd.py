@@ -1,6 +1,7 @@
 # Sliding Window Linear Transform DDIM.
 from typing import Any, List, Tuple, Callable
 import jax
+from jax import lax
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.training.train_state import TrainState
@@ -17,6 +18,7 @@ from hypernets.common.diffusion import diffusion_schedule
 from hypernets.packing.ngp_nerf import unpack_weights
 from fields import ngp_nerf
 from fields.common.dataset import NerfDataset
+
 @dataclass
 class DatasetInfo:
     file_paths: List[str]
@@ -35,6 +37,7 @@ class DatasetInfo:
     context_indices: jax.Array
     context_start_positions: jax.Array
     context_end_positions: jax.Array
+    context_overlap: int
     file_indices: jax.Array
 
 def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bool):
@@ -99,6 +102,7 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
         context_indices=context_indices,
         context_start_positions=context_start_positions,
         context_end_positions=context_end_positions,
+        context_overlap=context_overlap,
         file_indices=file_indices,
         num_pad_tokens=pad_size
     )
@@ -211,6 +215,32 @@ def train_step(state:TrainState, key:int, batch:jax.Array, context_indices:jax.A
     state = state.apply_gradients(grads=grad)
     return loss, state
 
+def combine_weight_contexts(center_position, context_overlap, context_length, full_sequence):
+    left_overlap_start = center_position - context_overlap
+    right_overlap_end = center_position + context_overlap
+    left_overlap = lax.dynamic_slice_in_dim(full_sequence, left_overlap_start, context_overlap)
+    right_overlap = lax.dynamic_slice_in_dim(full_sequence, center_position, context_overlap)
+    combined_overlap = (left_overlap + right_overlap) / 2.0
+    non_overlap_length = context_length - (2 * context_overlap)
+    right_non_overlap = \
+        lax.dynamic_slice_in_dim(full_sequence, right_overlap_end, non_overlap_length)
+    final_context = jnp.concatenate([combined_overlap, right_non_overlap], axis=0)
+    return final_context
+
+def combine_all_weight_contexts(contexts, num_contexts, context_overlap, context_length):
+    first_non_overlap = contexts[:context_length-context_overlap]
+    last_overlap = contexts[-context_overlap:]
+    combine_fn = jax.vmap(combine_weight_contexts, in_axes=(0, None, None, None))
+    center_positions = (jnp.arange(num_contexts - 1) + 1) * context_length
+    combined_contexts = combine_fn(
+        center_positions, context_overlap, context_length, contexts
+    )
+    combined_contexts = jnp.concatenate(combined_contexts, axis=0)
+    combined_contexts = jnp.concatenate([
+        first_non_overlap, combined_contexts, last_overlap
+    ], axis=0)
+    return combined_contexts
+
 def sliding_reverse_diffusion(
     apply_fn:Callable, 
     params:Any,
@@ -254,8 +284,15 @@ def sliding_reverse_diffusion(
             )
             next_noisy_images = (next_signal_rates*pred_images + next_noise_rates*pred_noises)
         pred_weights.append(pred_images)
-    pred_weights = jnp.concatenate(pred_weights, axis=1)
-    pred_weights = pred_weights[:, dataset_info.num_pad_tokens:, :]
+
+    # TODO: vectorize this across num_images.
+    pred_weights = jnp.concatenate(pred_weights, axis=1)[0]
+    pred_weights = combine_all_weight_contexts(
+        pred_weights,
+        dataset_info.num_contexts,
+        dataset_info.context_overlap,
+        dataset_info.context_length
+    )
     return pred_weights
 
 def save_image(image, file_path):
@@ -400,7 +437,7 @@ def main():
             print(pred_weights)
             render_from_generated_weights(
                 weight_map_path=os.path.join(dataset_path, 'weight_map.json'),
-                packed_weights=pred_weights[0],
+                packed_weights=pred_weights,
                 file_name=f'generations/step_{step}'
             )
     print('Finished training')
@@ -416,7 +453,6 @@ def main():
         max_signal_rate=0.95,
         seed=0,
     )
-    pred_weights = pred_weights[0]
     print('Pred weights:', pred_weights.shape)
     print(pred_weights)
     render_from_generated_weights(

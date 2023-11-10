@@ -36,11 +36,14 @@ class NGPImage(nn.Module):
         x = nn.sigmoid(x)
         return x
 
-def train_loop(steps:int, state:TrainState, image:jax.Array, batch_size:int):
+def train_loop(
+    steps:int, state:TrainState, image:jax.Array, batch_size:int, return_final_loss:bool=False
+):
     for step in range(steps):
         step_key = jax.random.PRNGKey(step)
         loss, state = train_step(state, image, batch_size, step_key)
-        print(f'Step: {step}, Loss: {loss}')
+    if return_final_loss:
+        return state, loss
     return state
 
 @partial(jax.jit, static_argnames=('batch_size'))

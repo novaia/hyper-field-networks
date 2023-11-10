@@ -33,6 +33,8 @@ class DatasetInfo:
     num_pad_tokens: int # Number of padding tokens needed to split file into num_contexts.
     final_shape: Tuple[int, int, int] # Shape of final batch.
     context_indices: jax.Array
+    context_start_positions: jax.Array
+    context_end_positions: jax.Array
     file_indices: jax.Array
 
 def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bool):
@@ -46,14 +48,24 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
     base_sample = jnp.load(valid_file_paths[0])
     assert len(base_sample.shape) == 2, 'Samples arrays must be 2D'
     num_tokens = base_sample.shape[0]
+    sequence_length = base_sample.shape[0]
     token_dim = base_sample.shape[1]
-    num_pad_tokens = (context_length - (num_tokens % context_length)) % context_length
-    num_contexts = (num_tokens + num_pad_tokens) // context_length
+
+    naive_pad_size = (context_length - (sequence_length % context_length) % context_length)
+    naive_padded_sequence_length = sequence_length + naive_pad_size
+    num_contexts = naive_padded_sequence_length // context_length
+    context_overlap = naive_pad_size // (num_contexts - 1)
+    
     context_indices = jnp.arange(num_contexts)
+    context_start_positions = context_indices * (context_length - context_overlap)
+    context_end_positions = context_start_positions + context_length
+    padded_sequence_length = context_end_positions[-1]
+    pad_size = int(padded_sequence_length - sequence_length)
+
     file_indices = jnp.arange(num_files)
     files_to_load = math.ceil(batch_size / num_contexts)
     loaded_shape = (files_to_load, num_tokens, token_dim)
-    pad_shape = (files_to_load, num_pad_tokens, token_dim)
+    pad_shape = (files_to_load, pad_size, token_dim)
     samples_per_file = batch_size // files_to_load
     final_shape = (batch_size, context_length, token_dim)
 
@@ -68,6 +80,8 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
         print('Pad shape:', pad_shape)
         print('Files to load:', files_to_load)
         print('Batch size:', batch_size)
+        print('Context start positions:', context_start_positions)
+        print('Context end positions:', context_end_positions)
 
     dataset_info = DatasetInfo(
         file_paths=valid_file_paths,
@@ -83,8 +97,10 @@ def create_dataset_info(path:str, context_length:int, batch_size:int, verbose:bo
         batch_size=batch_size,
         context_length=context_length,
         context_indices=context_indices,
+        context_start_positions=context_start_positions,
+        context_end_positions=context_end_positions,
         file_indices=file_indices,
-        num_pad_tokens=num_pad_tokens
+        num_pad_tokens=pad_size
     )
     return dataset_info
 
@@ -111,16 +127,21 @@ def load_batch(dataset_info:DatasetInfo, key, dtype):
 
     # Pad the batch.
     batch = jnp.concatenate([jnp.zeros(dataset_info.pad_shape, dtype=dtype), batch], axis=1)
-    # Split the batch into multiple contexts.
-    batch = jnp.split(batch, dataset_info.num_contexts, axis=1)
-    batch = jnp.stack(batch, axis=1)
     # Select contexts for the batch.
     batch_context_indices = jax.random.choice(
         context_key, 
         dataset_info.context_indices, 
         shape=(dataset_info.samples_per_file,)
     )
-    batch = batch[:, batch_context_indices]
+    start_positions = dataset_info.context_start_positions[batch_context_indices]
+    select_slice = jax.vmap(
+        jax.vmap(
+            lambda start, size, source: jax.lax.dynamic_slice_in_dim(source, start, size), 
+            in_axes=(0, None, None)
+        ), 
+        in_axes=(None, None, 0)
+    )
+    batch = select_slice(start_positions, dataset_info.context_length, batch)
     batch = jnp.reshape(batch, dataset_info.final_shape)
     return batch, batch_context_indices
 
@@ -335,6 +356,7 @@ def main():
 
     dataset = create_dataset_info(dataset_path, context_length, batch_size, verbose=True)
     token_dim = dataset.token_dim
+    batch, context_indices = load_batch(dataset, jax.random.PRNGKey(0), quantized_dtype)
 
     model = SlidingLTD(
         attention_dim=256,
@@ -362,7 +384,7 @@ def main():
         loss, state = train_step(state, train_key, batch, context_indices)
         batch.delete()
         print('Step', step, 'Loss:', loss)
-        if step % 100 == 0:
+        if step % 100 == 0 and step > 0:
             pred_weights = sliding_reverse_diffusion(
                 apply_fn=state.apply_fn,
                 params=state.params,
@@ -394,11 +416,12 @@ def main():
         max_signal_rate=0.95,
         seed=0,
     )
+    pred_weights = pred_weights[0]
     print('Pred weights:', pred_weights.shape)
     print(pred_weights)
     render_from_generated_weights(
         weight_map_path=os.path.join(dataset_path, 'weight_map.json'),
-        packed_weights=pred_weights[0],
+        packed_weights=pred_weights,
         file_name=f'generations/generated'
     )
 

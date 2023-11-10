@@ -7,10 +7,18 @@ import json
 def _generate_leaf_map(leaf, leaf_name, packed_width):
     leaf_map = {}
     if leaf_name == 'hash_table':
-        leaf_map['num_entries'] = leaf.shape[0]
-        leaf_map['feature_dim'] = leaf.shape[1]
-        leaf_map['height'] = (leaf.shape[0] * leaf_map['feature_dim']) // packed_width
+        if leaf.shape[0] < leaf.shape[1]: 
+            transposed = True
+            leaf_map['num_entries'] = leaf.shape[1]
+            leaf_map['feature_dim'] = leaf.shape[0]
+        else:
+            transposed = False
+            leaf_map['num_entries'] = leaf.shape[0]
+            leaf_map['feature_dim'] = leaf.shape[1]
+        leaf_map['height'] = \
+            (leaf_map['num_entries'] * leaf_map['feature_dim']) // packed_width
         leaf_map['width'] = packed_width
+        leaf_map['transposed'] = transposed
         return leaf_map
 
     # If the matrix is one-dimensional, then it is a bias vector.
@@ -51,9 +59,11 @@ def generate_weight_map(module, packed_width):
     return weight_map
 
 def _pack_leaf(leaf, leaf_name, leaf_map, target_width):
-    if leaf_name == 'hash_table':
-        return jnp.reshape(jnp.ravel(leaf), (leaf_map['height'], leaf_map['width']))
     packed_leaf = leaf
+    if leaf_name == 'hash_table':
+        if leaf_map['transposed']:
+            packed_leaf = jnp.transpose(packed_leaf)
+        return jnp.reshape(jnp.ravel(packed_leaf), (leaf_map['height'], leaf_map['width']))
     if leaf_map['transposed']:
         packed_leaf = jnp.transpose(packed_leaf)
     if len(packed_leaf.shape) == 1:
@@ -79,7 +89,10 @@ def pack_weights(module, packed_width, weight_map):
 def _unpack_leaf(packed_leaf, leaf_name, leaf_map):
     if leaf_name == 'hash_table':
         hash_table_shape = (leaf_map['num_entries'], leaf_map['feature_dim'])
-        return jnp.reshape(jnp.ravel(packed_leaf), hash_table_shape)
+        packed_leaf = jnp.reshape(jnp.ravel(packed_leaf), hash_table_shape)
+        if leaf_map['transposed']:
+            packed_leaf = jnp.transpose(packed_leaf)
+        return packed_leaf
     unpacked_leaf = packed_leaf
     if leaf_map['width'] < unpacked_leaf.shape[1]:
         unpacked_leaf = unpacked_leaf[:, :leaf_map['width']]
@@ -101,7 +114,7 @@ def unpack_weights(packed_weights, module_map, start_height=0):
             module_height = sub_module_map['height']
             end_height += module_height
             packed_leaf = packed_weights[start_height:end_height]
-            module_map[key] = _unpack_leaf(packed_leaf, key, sub_module_map)
+            module_map[key] = _unpack_leaf(packed_leaf, key, sub_module_map) 
         start_height = end_height
     return module_map, end_height
 

@@ -15,7 +15,7 @@ from operator import itemgetter
 from dataclasses import dataclass
 from hypernets.common.nn import SinusoidalEmbedding, LinearTransformer
 from hypernets.common.diffusion import diffusion_schedule
-from hypernets.packing.ngp_nerf import unpack_weights
+from hypernets.packing.ngp import unpack_weights
 from fields import ngp_nerf
 from fields.common.dataset import NerfDataset
 
@@ -153,6 +153,7 @@ class SlidingLTD(nn.Module):
     attention_dim:int
     token_dim:int
     embedding_dim:int
+    num_attention_heads:int
     num_bocks:int
     feed_forward_dim:int
     embedding_max_frequency:float
@@ -186,6 +187,7 @@ class SlidingLTD(nn.Module):
         x = LinearTransformer(
             num_blocks=self.num_bocks, 
             attention_dim=self.attention_dim, 
+            num_attention_heads=self.num_attention_heads,
             residual_dim=self.embedding_dim, 
             feed_forward_dim=self.feed_forward_dim,
             quantized_dtype=self.quantized_dtype,
@@ -251,15 +253,16 @@ def sliding_reverse_diffusion(
     min_signal_rate:float,
     max_signal_rate:float,
     seed:int, 
-    initial_noise:jax.Array = None,
 ):
+    noise_key = jax.random.PRNGKey(seed)
+    total_initial_noise_shape = \
+        (num_images, dataset_info.context_end_positions[-1], dataset_info.token_dim)
+    total_initial_noise = jax.random.normal(noise_key, total_initial_noise_shape)
     pred_weights = []
     for i in range(dataset_info.num_contexts):
-        if initial_noise == None:
-            initial_noise = jax.random.normal(
-                jax.random.PRNGKey(seed), 
-                shape=(num_images, dataset_info.context_length, dataset_info.token_dim)
-            )
+        context_start_position = dataset_info.context_start_positions[i]
+        context_end_position = dataset_info.context_end_positions[i]
+        initial_noise = total_initial_noise[:, context_start_position:context_end_position, :]
         step_size = 1.0 / diffusion_steps
         
         next_noisy_images = initial_noise
@@ -397,6 +400,7 @@ def main():
 
     model = SlidingLTD(
         attention_dim=256,
+        num_attention_heads=1,
         token_dim=token_dim,
         embedding_dim=256,
         num_bocks=2,

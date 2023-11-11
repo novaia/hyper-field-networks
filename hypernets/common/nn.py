@@ -30,32 +30,38 @@ class SinusoidalEmbedding(nn.Module):
 class LinearAttention(nn.Module):
     attention_dim:int
     output_dim:int
+    num_heads:int
     normal_dtype:Any = jnp.float32
     quantized_dtype:Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
+        scaled_attention_dim = self.attention_dim // self.num_heads
         def qkv_projection(x):
-            return nn.Dense(features=self.attention_dim, dtype=self.quantized_dtype)(x)
-        query = qkv_projection(x)
-        key = qkv_projection(x)
-        value = qkv_projection(x)
-        feature_map = lambda x: nn.elu(x) + 1.0
-        Q = feature_map(query)
-        K = feature_map(key)
-        KV = jnp.einsum(
-            'nsh,nsh->nh', 
-            K.astype(self.normal_dtype), 
-            value.astype(self.normal_dtype),
-            precision='highest'
-        )
-        Z = 1/(jnp.einsum(
-            'nlh,nh->nlh', 
-            Q, jnp.sum(K, axis=1, dtype=self.quantized_dtype),
-            precision='highest'
-        ) + 1e-6)
-        V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
-        x = nn.Dense(features=self.output_dim, dtype=self.quantized_dtype)(V)
+            return nn.Dense(features=scaled_attention_dim, dtype=self.quantized_dtype)(x)
+        attention_head_outputs = []
+        for i in range(self.num_heads):
+            query = qkv_projection(x)
+            key = qkv_projection(x)
+            value = qkv_projection(x)
+            feature_map = lambda x: nn.elu(x) + 1.0
+            Q = feature_map(query)
+            K = feature_map(key)
+            KV = jnp.einsum(
+                'nsh,nsh->nh', 
+                K.astype(self.normal_dtype), 
+                value.astype(self.normal_dtype),
+                precision='highest'
+            )
+            Z = 1/(jnp.einsum(
+                'nlh,nh->nlh', 
+                Q, jnp.sum(K, axis=1, dtype=self.quantized_dtype),
+                precision='highest'
+            ) + 1e-6)
+            V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
+            attention_head_outputs.append(V)
+        x = jnp.concatenate(attention_head_outputs, axis=-1)
+        x = nn.Dense(features=self.output_dim, dtype=self.quantized_dtype)(x)
         x = nn.gelu(x)
         return x
     
@@ -75,6 +81,7 @@ class FeedForward(nn.Module):
 class LinearTransformer(nn.Module):
     num_blocks:int
     attention_dim:int
+    num_attention_heads:int
     residual_dim:int
     feed_forward_dim:int
     remat:bool = True
@@ -95,6 +102,7 @@ class LinearTransformer(nn.Module):
             x = CustomAttention(
                 attention_dim=self.attention_dim, 
                 output_dim=self.residual_dim,
+                num_heads=self.num_attention_heads,
                 normal_dtype=self.normal_dtype, 
                 quantized_dtype=self.quantized_dtype
             )(x)

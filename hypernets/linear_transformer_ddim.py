@@ -14,6 +14,7 @@ from hypernets.common.rendering import unpack_and_render_ngp_image
 
 class LinearTransformerDDIM(nn.Module):
     attention_dim:int
+    num_attention_heads:int
     token_dim:int
     embedding_dim:int
     num_bocks:int
@@ -44,6 +45,7 @@ class LinearTransformerDDIM(nn.Module):
         x = LinearTransformer(
             num_blocks=self.num_bocks, 
             attention_dim=self.attention_dim, 
+            num_attention_heads=self.num_attention_heads,
             residual_dim=self.embedding_dim, 
             feed_forward_dim=self.feed_forward_dim,
             quantized_dtype=self.quantized_dtype,
@@ -128,7 +130,8 @@ def main():
     print('context', context_length)
 
     model = LinearTransformerDDIM(
-        attention_dim=128,
+        attention_dim=512,
+        num_attention_heads=8,
         token_dim=token_dim,
         embedding_dim=128,
         num_bocks=2,
@@ -146,13 +149,13 @@ def main():
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    train_steps = 20_000
+    train_steps = 100_000
     for step in range(train_steps):
         step_key = jax.random.PRNGKey(step)
         batch = load_batch_fn()
         loss, state = train_step(state, step_key, batch)
         print('Step', step, 'Loss:', loss)
-        if step % 50 == 0 and step > 0:
+        if step % 1000 == 0 and step > 0:
             generated_weights = reverse_diffusion(
                 state.apply_fn, 
                 state.params, 

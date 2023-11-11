@@ -136,7 +136,7 @@ class VanillaTransformer(nn.Module):
             x = CustomAttention(
                 num_heads=self.num_heads,
                 qkv_features=self.attention_dim, 
-                output_dim=self.residual_dim
+                out_features=self.residual_dim
             )(x)
             x = nn.gelu(x)
             x = nn.LayerNorm()(x + residual)

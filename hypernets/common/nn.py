@@ -128,7 +128,7 @@ class VanillaTransformer(nn.Module):
             CustomAttention = nn.remat(nn.SelfAttention)
             CustomFeedForward = nn.remat(FeedForward)
         else:
-            CustomAttention = LinearAttention
+            CustomAttention = nn.SelfAttention
             CustomFeedForward = FeedForward
         
         for _ in range(self.num_blocks):

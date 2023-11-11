@@ -106,9 +106,9 @@ def inspect_intermediates(state, context_length, token_dim, dtype):
 def main():
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
-    batch_size = 1
+    batch_size = 64
     learning_rate = 5e-5
-    datast_path = 'data/packed_ngp_anime_faces'
+    datast_path = 'data/ngp_images/packed_ngp_anime_faces'
     all_sample_paths = os.listdir(datast_path)
     valid_sample_paths = []
     for path in all_sample_paths:
@@ -154,8 +154,8 @@ def main():
         step_key = jax.random.PRNGKey(step)
         batch = load_batch_fn()
         loss, state = train_step(state, step_key, batch)
-        print('Step', step, 'Loss:', loss)
         if step % 1000 == 0 and step > 0:
+            print('Step:', step, 'Loss:', loss)
             generated_weights = reverse_diffusion(
                 state.apply_fn, 
                 state.params, 
@@ -168,9 +168,12 @@ def main():
                 max_signal_rate=0.95,
                 seed=2
             )
+            print('Generated weights max:', jnp.max(generated_weights))
+            print('Generated weights min:', jnp.min(generated_weights))
+            generated_weights = jnp.clip(generated_weights, -2.0, 2.0)
             rendered_image = unpack_and_render_ngp_image(
                 config_path='configs/ngp_image.json',
-                weight_map_path='data/packed_ngp_anime_faces/weight_map.json',
+                weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',
                 packed_weights=generated_weights[0],
                 image_width=64,
                 image_height=64

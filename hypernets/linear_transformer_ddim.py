@@ -12,6 +12,7 @@ from hypernets.common.nn import SinusoidalEmbedding, LinearTransformer
 from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
 from hypernets.common.rendering import unpack_and_render_ngp_image
 import argparse
+import orbax.checkpoint as ocp
 
 class LinearTransformerDDIM(nn.Module):
     attention_dim:int
@@ -106,16 +107,15 @@ def inspect_intermediates(state, context_length, token_dim, dtype):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--load_checkpoint', type=bool, default=False)
-    parser.add_argument('--checkpoint_step', type=int)
+    parser.add_argument('--checkpoint_step', type=int, default=0)
     parser.add_argument('--render_only', type=bool, default=False)
+    parser.add_argument('--train_steps', type=int, default=1_000_000)
     args = parser.parse_args()
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
     batch_size = 64
     learning_rate = 5e-5
-    generated_weight_scale = 1.4
     datast_path = 'data/ngp_images/packed_ngp_anime_faces'
     all_sample_paths = os.listdir(datast_path)
     valid_sample_paths = []
@@ -157,12 +157,10 @@ def main():
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    if args.load_checkpoint:
-        loaded_params = jnp.load(
-            f'data/generations/params_step_{args.checkpoint_step}.npy', 
-            allow_pickle=True
-        ).tolist()
-        state = state.replace(params=loaded_params)
+    checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
+    if args.checkpoint_step > 0:
+        checkpoint_name = f'data/generations/checkpoint_step_{args.checkpoint_step}'
+        state = checkpointer.restore(checkpoint_name, item=state)
         print('Loaded checkpoint')
     if args.render_only:
         print('Render only mode')
@@ -180,8 +178,6 @@ def main():
         )
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
-        generated_weights = \
-            (generated_weights * generated_weight_scale) / jnp.max(generated_weights)
         rendered_image = unpack_and_render_ngp_image(
             config_path='configs/ngp_image.json',
             weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',
@@ -192,12 +188,11 @@ def main():
         plt.imsave(f'data/generations/render_only.png', rendered_image)
         exit(0)
 
-    train_steps = 100_000
-    for step in range(train_steps):
+    for step in range(args.checkpoint_step, args.train_steps+args.checkpoint_step):
         step_key = jax.random.PRNGKey(step)
         batch = load_batch_fn()
         loss, state = train_step(state, step_key, batch)
-        if step % 1000 == 0 and step > 0:
+        if step % 1000 == 0 and step > args.checkpoint_step:
             print('Step:', step, 'Loss:', loss)
             generated_weights = reverse_diffusion(
                 state.apply_fn, 
@@ -209,13 +204,11 @@ def main():
                 diffusion_schedule_fn=diffusion_schedule,
                 min_signal_rate=0.02,
                 max_signal_rate=0.95,
-                seed=2
+                seed=step
             )
-            jnp.save(f'data/generations/params_step_{step}.npy', state.params)
+            checkpointer.save(f'data/generations/checkpoint_step_{step}', state)
             print('Generated weights max:', jnp.max(generated_weights))
             print('Generated weights min:', jnp.min(generated_weights))
-            generated_weights = \
-                (generated_weights * generated_weight_scale) / jnp.max(generated_weights)
             rendered_image = unpack_and_render_ngp_image(
                 config_path='configs/ngp_image.json',
                 weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',

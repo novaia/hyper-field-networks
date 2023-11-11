@@ -11,6 +11,7 @@ from functools import partial
 from hypernets.common.nn import SinusoidalEmbedding, LinearTransformer
 from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
 from hypernets.common.rendering import unpack_and_render_ngp_image
+import argparse
 
 class LinearTransformerDDIM(nn.Module):
     attention_dim:int
@@ -104,13 +105,18 @@ def inspect_intermediates(state, context_length, token_dim, dtype):
     print(intermediates)
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--load_checkpoint', type=bool, default=False)
+    parser.add_argument('--checkpoint_step', type=int)
+    parser.add_argument('--render_only', type=bool, default=False)
+    args = parser.parse_args()
+
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
     batch_size = 64
     learning_rate = 5e-5
+    generated_weight_scale = 1.4
     datast_path = 'data/ngp_images/packed_ngp_anime_faces'
-    load_checkpoint = True
-    checkpoint_step = 2000
     all_sample_paths = os.listdir(datast_path)
     valid_sample_paths = []
     for path in all_sample_paths:
@@ -151,13 +157,40 @@ def main():
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    if load_checkpoint:
+    if args.load_checkpoint:
         loaded_params = jnp.load(
-            f'data/generations/params_step_{checkpoint_step}.npy', 
+            f'data/generations/params_step_{args.checkpoint_step}.npy', 
             allow_pickle=True
         ).tolist()
         state = state.replace(params=loaded_params)
         print('Loaded checkpoint')
+    if args.render_only:
+        print('Render only mode')
+        generated_weights = reverse_diffusion(
+            state.apply_fn, 
+            state.params, 
+            num_images=1, 
+            diffusion_steps=20, 
+            context_length=context_length,
+            token_dim=token_dim,
+            diffusion_schedule_fn=diffusion_schedule,
+            min_signal_rate=0.02,
+            max_signal_rate=0.95,
+            seed=2
+        )
+        print('Generated weights max:', jnp.max(generated_weights))
+        print('Generated weights min:', jnp.min(generated_weights))
+        generated_weights = \
+            (generated_weights * generated_weight_scale) / jnp.max(generated_weights)
+        rendered_image = unpack_and_render_ngp_image(
+            config_path='configs/ngp_image.json',
+            weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',
+            packed_weights=generated_weights[0],
+            image_width=64,
+            image_height=64
+        )
+        plt.imsave(f'data/generations/render_only.png', rendered_image)
+        exit(0)
 
     train_steps = 100_000
     for step in range(train_steps):
@@ -181,8 +214,8 @@ def main():
             jnp.save(f'data/generations/params_step_{step}.npy', state.params)
             print('Generated weights max:', jnp.max(generated_weights))
             print('Generated weights min:', jnp.min(generated_weights))
-            #generated_weights = jnp.clip(generated_weights, -2.0, 2.0)
-            generated_weights = (generated_weights * 1.4) / jnp.max(generated_weights)
+            generated_weights = \
+                (generated_weights * generated_weight_scale) / jnp.max(generated_weights)
             rendered_image = unpack_and_render_ngp_image(
                 config_path='configs/ngp_image.json',
                 weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',

@@ -109,6 +109,8 @@ def main():
     batch_size = 64
     learning_rate = 5e-5
     datast_path = 'data/ngp_images/packed_ngp_anime_faces'
+    load_checkpoint = True
+    checkpoint_step = 2000
     all_sample_paths = os.listdir(datast_path)
     valid_sample_paths = []
     for path in all_sample_paths:
@@ -134,7 +136,7 @@ def main():
         num_attention_heads=8,
         token_dim=token_dim,
         embedding_dim=128,
-        num_bocks=2,
+        num_bocks=4,
         feed_forward_dim=128,
         embedding_max_frequency=1000.0,
         context_length=context_length,
@@ -148,6 +150,14 @@ def main():
     x = (jnp.ones((1, context_length, token_dim)), jnp.ones((1, 1, 1)))
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+
+    if load_checkpoint:
+        loaded_params = jnp.load(
+            f'data/generations/params_step_{checkpoint_step}.npy', 
+            allow_pickle=True
+        ).tolist()
+        state = state.replace(params=loaded_params)
+        print('Loaded checkpoint')
 
     train_steps = 100_000
     for step in range(train_steps):
@@ -168,9 +178,11 @@ def main():
                 max_signal_rate=0.95,
                 seed=2
             )
+            jnp.save(f'data/generations/params_step_{step}.npy', state.params)
             print('Generated weights max:', jnp.max(generated_weights))
             print('Generated weights min:', jnp.min(generated_weights))
-            generated_weights = jnp.clip(generated_weights, -2.0, 2.0)
+            #generated_weights = jnp.clip(generated_weights, -2.0, 2.0)
+            generated_weights = (generated_weights * 1.4) / jnp.max(generated_weights)
             rendered_image = unpack_and_render_ngp_image(
                 config_path='configs/ngp_image.json',
                 weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',

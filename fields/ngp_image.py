@@ -94,7 +94,7 @@ def main():
         mlp_depth=config['mlp_depth']
     )
     state = create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
-    image = jnp.array(Image.open('data/anime_faces/1.png'))
+    image = jnp.array(Image.open('data/CIFAR10/testairplane0003.jpg'))
     image = image / 255.0
     print('Image shape', image.shape)
     state = train_loop(config['train_steps'], state, image, config['batch_size'])

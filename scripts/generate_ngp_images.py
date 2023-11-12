@@ -27,7 +27,7 @@ def main():
     input_path_list = os.listdir(args.input_path)
     state_init_key = jax.random.PRNGKey(0)
     for path in input_path_list:
-        if not path.endswith('.png'):
+        if not path.endswith('.png') and not path.endswith('.jpg'):
             continue
         print(f'Generating NGP image for {path}...')
         model = ngp_image.NGPImage(

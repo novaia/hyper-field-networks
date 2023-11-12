@@ -10,12 +10,14 @@ import jax.numpy as jnp
 from PIL import Image
 import optax
 from flax.training.train_state import TrainState
+import matplotlib.pyplot as plt
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True)
     parser.add_argument('--input_path', type=str, required=True)
     parser.add_argument('--output_path', type=str, required=True)
+    parser.add_argument('--render', type=bool, default=False)
     args = parser.parse_args()
 
     if not os.path.exists(args.output_path):
@@ -58,9 +60,7 @@ def main():
         print(f'Generating NGP image for {path}...')
         
         new_params = model.init(jax.random.PRNGKey(0), jnp.ones((1, 2)))['params']
-        tx = optax.adam(config['learning_rate'])
-        opt_state = tx.init(new_params)
-        state.replace(opt_state=opt_state, tx=tx, step=0, params=new_params)
+        state = state.replace(params=new_params)
         pil_image = Image.open(os.path.join(args.input_path, path))
         image = jnp.array(pil_image)
         image = jnp.array(image)/255.0
@@ -74,8 +74,12 @@ def main():
             output_dict,
             allow_pickle=True
         )
+        if args.render:
+            rendered_image = ngp_image.render_image(state, image.shape[0], image.shape[1])
+            plt.imsave(os.path.join(args.output_path, f'{path[:-4]}.png'), rendered_image)
+            rendered_image.delete()
         image.delete()
-        del new_params, output_dict, opt_state, tx
+        del new_params, output_dict
         pil_image.close()
 
 if __name__ == '__main__':

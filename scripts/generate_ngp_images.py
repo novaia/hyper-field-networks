@@ -8,6 +8,8 @@ import json
 import jax
 import jax.numpy as jnp
 from PIL import Image
+import optax
+from flax.training.train_state import TrainState
 
 def main():
     parser = argparse.ArgumentParser()
@@ -30,6 +32,22 @@ def main():
     input_path_list = os.listdir(args.input_path)
     state_init_key = jax.random.PRNGKey(0)
 
+    model = ngp_image.NGPImage(
+        number_of_grid_levels=config['num_hash_table_levels'],
+        max_hash_table_entries=config['max_hash_table_entries'],
+        hash_table_feature_dim=config['hash_table_feature_dim'],
+        coarsest_resolution=config['coarsest_resolution'],
+        finest_resolution=config['finest_resolution'],
+        mlp_width=config['mlp_width'],
+        mlp_depth=config['mlp_depth']
+    )
+    starting_params = model.init(jax.random.PRNGKey(0), jnp.ones((1, 2)))['params']
+    state = TrainState.create(
+        apply_fn=model.apply, 
+        params=starting_params, 
+        tx=optax.adam(config['learning_rate'])
+    )
+
     for path in input_path_list:
         if not path.endswith('.png') and not path.endswith('.jpg'):
             continue
@@ -38,16 +56,11 @@ def main():
             print(f'Input file {path} already exists in output as {output_name}, skipping...')
             continue
         print(f'Generating NGP image for {path}...')
-        model = ngp_image.NGPImage(
-            number_of_grid_levels=config['num_hash_table_levels'],
-            max_hash_table_entries=config['max_hash_table_entries'],
-            hash_table_feature_dim=config['hash_table_feature_dim'],
-            coarsest_resolution=config['coarsest_resolution'],
-            finest_resolution=config['finest_resolution'],
-            mlp_width=config['mlp_width'],
-            mlp_depth=config['mlp_depth']
-        )
-        state = ngp_image.create_train_state(model, config['learning_rate'], state_init_key)
+        
+        new_params = model.init(jax.random.PRNGKey(0), jnp.ones((1, 2)))['params']
+        tx = optax.adam(config['learning_rate'])
+        opt_state = tx.init(new_params)
+        state.replace(opt_state=opt_state, tx=tx, step=0, params=new_params)
         pil_image = Image.open(os.path.join(args.input_path, path))
         image = jnp.array(pil_image)
         image = jnp.array(image)/255.0
@@ -61,6 +74,8 @@ def main():
             output_dict,
             allow_pickle=True
         )
+        image.delete()
+        del new_params, output_dict, opt_state, tx
         pil_image.close()
 
 if __name__ == '__main__':

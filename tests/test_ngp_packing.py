@@ -4,141 +4,156 @@ sys.path.append(os.getcwd())
 import pytest
 import jax.numpy as jnp
 import hypernets.packing.ngp as ngp_packing
-import json
 
 @pytest.fixture
-def gt_weight_shapes():
-    packed_width = 64
-    hash_table_entries = 1536
-    hash_table_feature_dim = 2
+def hash_table_data():
+    num_entries = 32
+    feature_dim = 2
+    num_parameters = num_entries * feature_dim
+    width = 16
+    height = num_parameters // width
+    hash_table = jnp.arange(num_parameters).reshape(num_entries, feature_dim)
     return {
-        'packed_width': packed_width,
-        'bias_1_width': packed_width,
-        'kernel_1_height': 6,
-        'kernel_1_width': packed_width,
-        'bias_2_width': packed_width,
-        'kernel_2_height': packed_width,
-        'kernel_2_width': packed_width,
-        'bias_3_width': 3,
-        'kernel_3_height': packed_width,
-        'kernel_3_width': 3,
-        'hash_table_entries': hash_table_entries,
-        'hash_table_feature_dim': hash_table_feature_dim,
-        'hash_table_height': (hash_table_entries * hash_table_feature_dim) // packed_width,
-        'hash_table_width': packed_width
+        'num_entries': num_entries,
+        'feature_dim': feature_dim,
+        'width': width,
+        'height': height,
+        'hash_table': hash_table,
+        'num_parameters': num_parameters
     }
 
+def test_leaf_map_generation_for_hash_table(hash_table_data):
+    leaf_map = ngp_packing._generate_leaf_map(
+        hash_table_data['hash_table'], 
+        'hash_table', 
+        hash_table_data['width']
+    )
+    assert leaf_map['num_entries'] == hash_table_data['num_entries'], \
+        'Number of entries do not match'
+    assert leaf_map['feature_dim'] == hash_table_data['feature_dim'], \
+        'Feature dimensions do not match'
+    assert leaf_map['height'] == hash_table_data['height'], 'Heights do not match'
+    assert leaf_map['width'] == hash_table_data['width'], 'Widths do not match'
+    assert leaf_map['transposed'] == False, 'Hash table should not be transposed'
+
+def test_leaf_map_generation_for_transposed_hash_table(hash_table_data):
+    leaf_map = ngp_packing._generate_leaf_map(
+        hash_table_data['hash_table'].T, 
+        'hash_table', 
+        hash_table_data['width']
+    )
+    assert leaf_map['num_entries'] == hash_table_data['num_entries'], \
+        'Number of entries do not match'
+    assert leaf_map['feature_dim'] == hash_table_data['feature_dim'], \
+        'Feature dimensions do not match'
+    assert leaf_map['height'] == hash_table_data['height'], 'Heights do not match'
+    assert leaf_map['width'] == hash_table_data['width'], 'Widths do not match'
+    assert leaf_map['transposed'] == True, 'Hash table should be transposed'
+
+def test_leaf_map_generation_for_bias():
+    packed_width = 8
+    bias_width = packed_width
+    bias = jnp.arange(bias_width)
+    leaf_map = ngp_packing._generate_leaf_map(bias, 'bias', packed_width)
+    assert leaf_map['height'] == 1, 'Height should be 1'
+    assert leaf_map['width'] == bias_width, 'Widths do not match'
+    assert leaf_map['transposed'] == False, 'Bias should not be transposed'
+
+def test_leaf_map_generation_for_padded_bias():
+    packed_width = 8 
+    bias_width = 4
+    bias = jnp.arange(bias_width)
+    leaf_map = ngp_packing._generate_leaf_map(bias, 'bias', packed_width)
+    assert leaf_map['height'] == 1, 'Height should be 1'
+    assert leaf_map['width'] == bias_width, 'Widths do not match'
+    assert leaf_map['transposed'] == False, 'Bias should not be transposed'
+
+def test_leaf_map_generation_for_kernel():
+    packed_width = 8
+    kernel_width = packed_width
+    kernel_height = 4
+    kernel = jnp.arange(kernel_width*kernel_height).reshape(kernel_height, kernel_width)
+    leaf_map = ngp_packing._generate_leaf_map(kernel, 'kernel', packed_width)
+    assert leaf_map['height'] == kernel_height, 'Heights do not match'
+    assert leaf_map['width'] == kernel_width, 'Widths do not match'
+    assert leaf_map['transposed'] == False, 'Kernel should not be transposed'
+
+def test_leaf_map_generation_for_transposed_kernel():
+    packed_width = 8
+    kernel_width = 4
+    kernel_height = packed_width
+    kernel = jnp.arange(kernel_width*kernel_height).reshape(kernel_height, kernel_width)
+    leaf_map = ngp_packing._generate_leaf_map(kernel, 'kernel', packed_width)
+    assert leaf_map['height'] == kernel_width, 'Heights do not match'
+    assert leaf_map['width'] == kernel_height, 'Widths do not match'
+    assert leaf_map['transposed'] == True, 'Kernel should be transposed'
+
 @pytest.fixture
-def gt_weights(gt_weight_shapes):
-    def arange_kernel(height, width):
-        return jnp.arange(height * width).reshape(height, width)
-    def arange_bias(width):
-        return jnp.arange(width)
-    def arange_hash_table(num_entries, feature_dim):
-        return jnp.arange(num_entries * feature_dim).reshape(num_entries, feature_dim)
-    return {
-        'FeedForward': {
-            'Dense_0': {
-                'bias': arange_bias(gt_weight_shapes['bias_1_width']),
-                'kernel': arange_kernel(
-                    gt_weight_shapes['kernel_1_height'], 
-                    gt_weight_shapes['kernel_1_width']
-                )     
-            },
-            'Dense_1': {
-                'bias': arange_bias(gt_weight_shapes['bias_2_width']),
-                'kernel': arange_kernel(
-                    gt_weight_shapes['kernel_2_height'], 
-                    gt_weight_shapes['kernel_2_width']
-                )
-            },
-            'Dense_2': {
-                'bias': arange_bias(gt_weight_shapes['bias_3_width']),
-                'kernel': arange_kernel(
-                    gt_weight_shapes['kernel_3_height'], 
-                    gt_weight_shapes['kernel_3_width']
-                )
-            }
-        },
-        'MultiResolutionHashEncoding': {
-            'hash_table': arange_hash_table(
-                gt_weight_shapes['hash_table_entries'], 
-                gt_weight_shapes['hash_table_feature_dim']
-            )
-        }
+def packed_hash_table_data(hash_table_data):
+    packed_hash_table = jnp.reshape(
+        jnp.arange(hash_table_data['num_parameters']), 
+        (hash_table_data['height'], hash_table_data['width'])
+    )
+    hash_table_map = {
+        'num_entries': hash_table_data['num_entries'],
+        'feature_dim': hash_table_data['feature_dim'],
+        'height': hash_table_data['height'],
+        'width': hash_table_data['width'],
+        'transposed': False
     }
+    return packed_hash_table, hash_table_data['hash_table'], hash_table_map
 
-@pytest.fixture
-def gt_weight_map(gt_weight_shapes):
-    bias_height = 1
-    return {
-        'FeedForward': {
-            'Dense_0': {
-                'bias': {
-                    'height': bias_height,
-                    'width': gt_weight_shapes['bias_1_width'],
-                    'transposed': False
-                },
-                'kernel': {
-                    'height': gt_weight_shapes['kernel_1_height'],
-                    'width': gt_weight_shapes['kernel_1_width'],
-                    'transposed': False
-                }
-            },
-            'Dense_1': {
-                'bias': {
-                    'height': bias_height,
-                    'width': gt_weight_shapes['bias_2_width'],
-                    'transposed': False
-                },
-                'kernel': {
-                    'height': gt_weight_shapes['kernel_2_height'],
-                    'width': gt_weight_shapes['kernel_2_width'],
-                    'transposed': False
-                }
-            },
-            'Dense_2': {
-                'bias': {
-                    'height': bias_height,
-                    'width': gt_weight_shapes['bias_3_width'],
-                    'transposed': False
-                },
-                'kernel': {
-                    'height': gt_weight_shapes['kernel_3_width'],
-                    'width': gt_weight_shapes['kernel_3_height'],
-                    'transposed': True
-                }
-            }
-        },
-        'MultiResolutionHashEncoding': {
-            'hash_table': {
-                'num_entries': gt_weight_shapes['hash_table_entries'],
-                'feature_dim': gt_weight_shapes['hash_table_feature_dim'],
-                'height': gt_weight_shapes['hash_table_height'],
-                'width': gt_weight_shapes['hash_table_width'],
-                'transposed': False
-            }
-        }
-    }
+def test_leaf_unpacking_for_hash_table(packed_hash_table_data):
+    packed_hash_table, hash_table, hash_table_map = packed_hash_table_data
+    unpacked_hash_table = \
+        ngp_packing._unpack_leaf(packed_hash_table, 'hash_table', hash_table_map)
+    assert jnp.array_equal(unpacked_hash_table, hash_table), \
+        'Unpacked hash table does not match original hash table'
 
-@pytest.fixture
-def gt_packed_weights_shape(gt_weight_shapes):
-    height = \
-        gt_weight_shapes['kernel_1_height'] + gt_weight_shapes['kernel_2_height'] + \
-        gt_weight_shapes['kernel_3_width'] + gt_weight_shapes['hash_table_height'] + 3
-    width = gt_weight_shapes['packed_width']
-    return (height, width)
+def test_leaf_unpacking_for_transposed_hash_table(packed_hash_table_data):
+    packed_hash_table, hash_table, hash_table_map = packed_hash_table_data
+    hash_table_map['transposed'] = True
+    unpacked_hash_table = \
+        ngp_packing._unpack_leaf(packed_hash_table, 'hash_table', hash_table_map)
+    assert jnp.array_equal(unpacked_hash_table, hash_table.T), \
+        'Unpacked hash table does not match original hash table'
+    
+def test_leaf_unpacking_for_bias():
+    bias_width = 4
+    bias = jnp.arange(bias_width)
+    packed_bias = jnp.expand_dims(bias, axis=0)
+    bias_map = {'height': 1, 'width': bias_width, 'transposed': False}
+    unpacked_bias = ngp_packing._unpack_leaf(packed_bias, 'bias', bias_map)
+    assert jnp.array_equal(unpacked_bias, bias), \
+        'Unpacked bias does not match original bias'
 
-def test_ngp_weight_map_generation(gt_weights, gt_weight_shapes, gt_weight_map):
-    generated_weight_map = \
-        ngp_packing.generate_weight_map(gt_weights, gt_weight_shapes['packed_width'])
-    print(json.dumps(gt_weight_map, indent=4))
-    print(json.dumps(generated_weight_map, indent=4))
-    assert generated_weight_map == gt_weight_map
-
-def test_ngp_weight_packing(
-    gt_weights, gt_weight_shapes, gt_weight_map, gt_packed_weights_shape
-):
-    packed_weights = \
-        ngp_packing.pack_weights(gt_weights, gt_weight_shapes['packed_width'], gt_weight_map)
-    assert packed_weights.shape == gt_packed_weights_shape
+def test_leaf_unpacking_for_padded_bias():
+    packed_width = 8
+    bias_width = 4
+    bias = jnp.arange(bias_width)
+    packed_bias = jnp.expand_dims(
+        jnp.concatenate([bias, jnp.zeros((packed_width - bias_width))], axis=-1),
+        axis=0
+    )
+    bias_map = {'height': 1, 'width': bias_width, 'transposed': False}
+    unpacked_bias = ngp_packing._unpack_leaf(packed_bias, 'bias', bias_map)
+    assert jnp.array_equal(unpacked_bias, bias), \
+        'Unpacked bias does not match original bias'
+    
+def test_leaf_unpacking_for_kernel():
+    kernel_width = 8
+    kernel_height = 4
+    kernel = jnp.arange(kernel_width*kernel_height).reshape(kernel_height, kernel_width)
+    kernel_map = {'height': kernel_height, 'width': kernel_width, 'transposed': False}
+    unpacked_kernel = ngp_packing._unpack_leaf(kernel, 'kernel', kernel_map)
+    assert jnp.array_equal(unpacked_kernel, kernel), \
+        'Unpacked kernel does not match original kernel'
+    
+def test_leaf_unpacking_for_transposed_kernel():
+    kernel_width = 4
+    kernel_height = 8
+    kernel = jnp.arange(kernel_width*kernel_height).reshape(kernel_height, kernel_width)
+    kernel_map = {'height': kernel_width, 'width': kernel_height, 'transposed': True}
+    unpacked_kernel = ngp_packing._unpack_leaf(kernel.T, 'kernel', kernel_map)
+    assert jnp.array_equal(unpacked_kernel, kernel), \
+        'Unpacked kernel does not match original kernel'

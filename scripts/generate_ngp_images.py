@@ -18,6 +18,9 @@ def main():
 
     if not os.path.exists(args.output_path):
         os.makedirs(args.output_path)
+        output_path_list = []
+    else:
+        output_path_list = os.listdir(args.output_path)
 
     assert args.config.endswith('.json'), 'Config file must be a JSON file'
     assert os.path.isfile(args.config), f'Config file {args.config} does not exist'
@@ -26,8 +29,13 @@ def main():
 
     input_path_list = os.listdir(args.input_path)
     state_init_key = jax.random.PRNGKey(0)
+
     for path in input_path_list:
         if not path.endswith('.png') and not path.endswith('.jpg'):
+            continue
+        output_name = f'{path[:-4]}.npy'
+        if output_name in output_path_list:
+            print(f'Input file {path} already exists in output as {output_name}, skipping...')
             continue
         print(f'Generating NGP image for {path}...')
         model = ngp_image.NGPImage(
@@ -40,7 +48,8 @@ def main():
             mlp_depth=config['mlp_depth']
         )
         state = ngp_image.create_train_state(model, config['learning_rate'], state_init_key)
-        image = jnp.array(Image.open(os.path.join(args.input_path, path)))
+        pil_image = Image.open(os.path.join(args.input_path, path))
+        image = jnp.array(pil_image)
         image = jnp.array(image)/255.0
         state, final_loss = ngp_image.train_loop(
             config['train_steps'], state, image, config['batch_size'], True
@@ -48,10 +57,11 @@ def main():
         print(f'Final loss: {final_loss}')
         output_dict = {'final_loss': final_loss, 'params': dict(state.params)}
         jnp.save(
-            os.path.join(args.output_path, f'{path[:-4]}.npy'), 
+            os.path.join(args.output_path, output_name), 
             output_dict,
             allow_pickle=True
         )
+        pil_image.close()
 
 if __name__ == '__main__':
     main()

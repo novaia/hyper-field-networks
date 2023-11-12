@@ -114,14 +114,14 @@ def main():
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
-    batch_size = 64
+    batch_size = 32
     learning_rate = 5e-5
-    datast_path = 'data/ngp_images/packed_ngp_anime_faces'
-    all_sample_paths = os.listdir(datast_path)
+    dataset_path = 'data/ngp_images/packed_ngp_cifar10'
+    all_sample_paths = os.listdir(dataset_path)
     valid_sample_paths = []
     for path in all_sample_paths:
         if path.endswith('.npy'):
-            full_path = os.path.join(datast_path, path)
+            full_path = os.path.join(dataset_path, path)
             valid_sample_paths.append(full_path)
     del all_sample_paths
     load_batch_fn = partial(
@@ -180,10 +180,10 @@ def main():
         print('Generated weights min:', jnp.min(generated_weights))
         rendered_image = unpack_and_render_ngp_image(
             config_path='configs/ngp_image.json',
-            weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',
+            weight_map_path='data/ngp_images/packed_ngp_cifar10/weight_map.json',
             packed_weights=generated_weights[0],
-            image_width=64,
-            image_height=64
+            image_width=32,
+            image_height=32
         )
         plt.imsave(f'data/generations/render_only.png', rendered_image)
         exit(0)
@@ -192,7 +192,7 @@ def main():
         step_key = jax.random.PRNGKey(step)
         batch = load_batch_fn()
         loss, state = train_step(state, step_key, batch)
-        if step % 1000 == 0 and step > args.checkpoint_step:
+        if step % 10_000 == 0 and step > args.checkpoint_step:
             print('Step:', step, 'Loss:', loss)
             generated_weights = reverse_diffusion(
                 state.apply_fn, 
@@ -211,10 +211,10 @@ def main():
             print('Generated weights min:', jnp.min(generated_weights))
             rendered_image = unpack_and_render_ngp_image(
                 config_path='configs/ngp_image.json',
-                weight_map_path='data/ngp_images/packed_ngp_anime_faces/weight_map.json',
+                weight_map_path='data/ngp_images/packed_ngp_cifar10/weight_map.json',
                 packed_weights=generated_weights[0],
-                image_width=64,
-                image_height=64
+                image_width=32,
+                image_height=32
             )
             plt.imsave(f'data/generations/ngp_image_step_{step}.png', rendered_image)
     print('Finished training')

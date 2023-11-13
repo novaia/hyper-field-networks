@@ -34,3 +34,5 @@ One line build configuration:
 yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-10 CC=/usr/bin/gcc-10 TF_NEED_ROCM=0 TF_NEED_CUDA=1 TF_CUDA_CLANG=0 ./configure
 
 bazel build --test_output=all --spawn_strategy=sandboxed //xla/...
+
+bazel build --sandbox_base=/dev/shm --config=monolithic

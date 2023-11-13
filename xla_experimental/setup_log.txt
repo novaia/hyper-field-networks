@@ -1,0 +1,33 @@
+bazelisk readme: https://github.com/bazelbuild/bazelisk#readme
+xla build from source guide: https://github.com/openxla/xla/blob/main/docs/build_from_source.md
+
+run all commands from this directory
+
+commands used to setup environment (will be transferred to dockerfile later):
+
+wget https://github.com/bazelbuild/bazelisk/releases/download/v1.18.0/bazelisk-linux-amd64
+
+chmod +x bazelisk-linux-amd64
+
+mv bazelisk-linux-amd64 /usr/local/bin/bazel
+
+apt-get update && apt-get install git && apt-get clean \ && rm -rf /var/lib/apt/lists/*
+
+git clone https://github.com/openxla/xla.git
+
+cd xla
+
+./configure
+skip Python
+no ROCm
+yes CUDA
+8.6 compute capability
+no clang
+skip gcc
+skip optimization flags
+
+yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-11 CC=/usr/bin/gcc-11 TF_NEED_ROCM=0 TF_NEED_CUDA=1 TF_CUDA_CLANG=0 ./configure
+
+alias python=python3
+
+bazel build --test_output=all --spawn_strategy=sandboxed //xla/...

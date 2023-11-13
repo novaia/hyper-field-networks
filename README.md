@@ -17,6 +17,12 @@ Training Linear Transformer DDIM with high memory usage:
 XLA_PYTHON_CLIENT_MEM_FRACTION=.97 python3 -m hypernets.sliding_ltd
 ```
 
+## Running Tests
+Use PyTest to run the tests in the tests directory:
+```
+pytest tests
+```
+
 ## Docker Environment
 
 Building image:

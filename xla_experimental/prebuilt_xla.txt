@@ -1,9 +1,0 @@
-instructions for setup with prebuilt xla
-
-reason for this: xla takes too long to compile
-
-wget https://github.com/elixir-nx/xla/releases/download/v0.6.0/xla_extension-x86_64-linux-gnu-cuda120.tar.gz
-
-tar -xvzf ./xla_extension-x86_64-linux-gnu-cuda120.tar.gz
-
-rm ./xla_extension-x86_64-linux-gnu-cuda120.tar.gz

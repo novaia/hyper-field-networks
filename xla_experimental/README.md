@@ -18,3 +18,13 @@ Delete the archive file:
 ```
 rm ./xla_extension-x86_64-linux-gnu-cuda120.tar.gz
 ```
+
+## Compiling execute_hlo.cpp
+
+```
+cmake . -B build
+```
+
+```
+make -C build
+```

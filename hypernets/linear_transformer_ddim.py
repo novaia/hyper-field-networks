@@ -132,10 +132,30 @@ def main():
     )
 
     dummy_batch = load_batch_fn()
-    print('batch shape', dummy_batch.shape)
+    print('Batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     context_length = dummy_batch.shape[-2]
-    print('context', context_length)
+    print('Context length', context_length)
+    sample = dummy_batch[0]
+    hash_table_height = 48
+    hash_table_part = sample[:hash_table_height]
+    network_part = sample[hash_table_height:]
+    cutoff = 0.5
+    hash_table_cutoff_count = \
+        jnp.count_nonzero(jnp.where(hash_table_part > cutoff, hash_table_part, 0)) + \
+        jnp.count_nonzero(jnp.where(hash_table_part < -cutoff, hash_table_part, 0))
+    network_cutoff_count = \
+        jnp.count_nonzero(jnp.where(network_part > cutoff, network_part, 0)) + \
+        jnp.count_nonzero(jnp.where(network_part < -cutoff, network_part, 0))
+    print('Total std', jnp.std(sample))
+    print('Hash table std', jnp.std(hash_table_part))
+    print('Network std', jnp.std(network_part))
+    print('Hash table cutoff count', hash_table_cutoff_count)
+    print('Network cutoff count', network_cutoff_count)
+    print('Hash table max', jnp.max(hash_table_part))
+    print('Hash table min', jnp.min(hash_table_part))
+    print('Network max', jnp.max(network_part))
+    print('Network min', jnp.min(network_part))
 
     model = LinearTransformerDDIM(
         attention_dim=512,

@@ -15,7 +15,7 @@ int main(int argc, char** argv)
     std::string hlo_code = buffer.str();
     std::string format = "hlo";
     
-    struct PJRT_Program pjrt_program;
+    PJRT_Program pjrt_program;
     pjrt_program.code = (char*)hlo_code.c_str();
     pjrt_program.code_size = (size_t)hlo_code.size();
     pjrt_program.format = format.c_str();

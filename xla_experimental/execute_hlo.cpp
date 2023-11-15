@@ -9,7 +9,7 @@
 
 int main(int argc, char** argv) 
 {
-    std::ifstream t("hlo_comp.txt");
+    std::ifstream t("hlo_comp_proto.txt");
     std::stringstream buffer;
     buffer << t.rdbuf();
     std::string hlo_code = buffer.str();
@@ -21,7 +21,7 @@ int main(int argc, char** argv)
     pjrt_program.format = format.c_str();
     pjrt_program.format_size = (size_t)format.size();
 
-    std::cout << "HLO Code:\n\n" << pjrt_program.code;
+    std::cout << "HLO Code:\n\n" << pjrt_program.code << "\n\n";
     std::cout << "Code size: " << pjrt_program.code_size << "\n";
     std::cout << "Format: " << pjrt_program.format << "\n";
     std::cout << "Format size: " << pjrt_program.format_size << "\n";

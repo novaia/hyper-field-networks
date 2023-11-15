@@ -19,7 +19,7 @@ Delete the archive file:
 rm ./xla_extension-x86_64-linux-gnu-cuda120.tar.gz
 ```
 
-Compile execute_hlo.cpp
+Compile execute_hlo.cpp:
 
 ```
 cmake . -B build
@@ -67,4 +67,17 @@ yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-10 CC=/usr/bin/gcc-10 TF_NEED_ROCM=
 Build PJRT runtime:
 ```
 bazel build --strip=never //xla/pjrt/c:pjrt_c_api_cpu
+```
+
+Compile execute_hlo.cpp
+```
+cmake . -B build
+```
+```
+make -C build
+```
+
+Run execute_hlo:
+```
+./build/execute_hlo
 ```

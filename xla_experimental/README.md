@@ -81,3 +81,8 @@ Run execute_hlo:
 ```
 ./build/execute_hlo
 ```
+
+Single command to compile and run (assumes build files have already been written):
+```
+make -C build && ./build/execute_hlo
+```

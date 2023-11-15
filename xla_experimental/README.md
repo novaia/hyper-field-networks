@@ -66,5 +66,5 @@ yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-10 CC=/usr/bin/gcc-10 TF_NEED_ROCM=
 
 Build PJRT runtime:
 ```
-bazel build --config=cuda --sandbox_base=/dev/shm //xla/pjrt:*
+bazel build --config=cuda --sandbox_base=/dev/shm --strip=never //xla/pjrt/c:pjrt_c_api_cpu
 ```

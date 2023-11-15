@@ -46,7 +46,7 @@ ln -s /usr/bin/python3 /usr/bin/python
 
 Install git, gcc-10, and g++-10:
 ```
-apt-get update && apt-get install git gcc-10 g++-10 && apt-get clean \ && rm -rf /var/lib/apt/lists/*
+apt-get update && apt-get install -y git gcc-10 g++-10 && apt-get clean \ && rm -rf /var/lib/apt/lists/*
 ```
 
 Clone XLA repository:
@@ -66,5 +66,5 @@ yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-10 CC=/usr/bin/gcc-10 TF_NEED_ROCM=
 
 Build PJRT runtime:
 ```
-bazel build --config=cuda --sandbox_base=/dev/shm //xla/pjrt:pjrt_lib
+bazel build --config=cuda --sandbox_base=/dev/shm //xla/pjrt:*
 ```

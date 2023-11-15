@@ -2,35 +2,7 @@
 
 The purpose of this directory is to experiment with calling JAX generated XLA HLO from C++ in order to cut out Python overhead and speedup loops.
 
-## XLA Extension
-
-Download pre-compiled XLA extension:
-```
-wget https://github.com/elixir-nx/xla/releases/download/v0.6.0/xla_extension-x86_64-linux-gnu-cuda120.tar.gz
-```
-
-Extract it:
-```
-tar -xvzf ./xla_extension-x86_64-linux-gnu-cuda120.tar.gz
-```
-
-Delete the archive file:
-```
-rm ./xla_extension-x86_64-linux-gnu-cuda120.tar.gz
-```
-
-Compile execute_hlo.cpp:
-
-```
-cmake . -B build
-```
-```
-make -C build
-```
-
-## PJRT Runtime
-
-The XLA extension process defined above didn't work, so I'm going to try building the PJRT runtime from the main XLA repository.
+## Executing HLO with PJRT Runtime
 
 Install Bazelisk:
 ```
@@ -54,37 +26,12 @@ Clone XLA repository:
 git clone https://github.com/openxla/xla.git
 ```
 
-Change into XLA directory:
+Build execute_hlo with XLA dependencies:
 ```
-cd xla
-```
-
-Configure build:
-```
-yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-10 CC=/usr/bin/gcc-10 TF_NEED_ROCM=0 TF_NEED_CUDA=1 TF_CUDA_CLANG=0 ./configure
-```
-
-Build PJRT runtime:
-```
-bazel build --strip=never /bazel-xla:literal //xla:literal_util //xla:shape_util //xla:status //xla:statusor //xla/pjrt:pjrt_client //xla/pjrt:tfrt_cpu_pjrt_client //xla/service:hlo_proto_cc //xla/tools:hlo_module_loader
-```
-
-//tsl/platform:logging //tsl/platform:platform_port
-
-Compile execute_hlo.cpp
-```
-cmake . -B build
-```
-```
-make -C build
+bazel build //:execute_hlo
 ```
 
 Run execute_hlo:
 ```
-./build/execute_hlo
-```
-
-Single command to compile and run (assumes build files have already been written):
-```
-make -C build && ./build/execute_hlo
+bazel-bin/execute_hlo
 ```

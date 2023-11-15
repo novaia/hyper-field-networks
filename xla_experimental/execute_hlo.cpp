@@ -5,7 +5,14 @@
 #include <streambuf>
 #include <sstream> 
 #include <iostream>
-#include "xla/pjrt/c/pjrt_c_api.h"
+
+#include "xla/literal.h"
+#include "xla/literal_util.h"
+#include "xla/pjrt/pjrt_client.h"
+#include "xla/pjrt/tfrt_cpu_pjrt_client.h"
+#include "xla/status.h"
+#include "xla/statusor.h"
+#include "xla/tools/hlo_module_loader.h"
 
 int main(int argc, char** argv) 
 {
@@ -14,16 +21,6 @@ int main(int argc, char** argv)
     buffer << t.rdbuf();
     std::string hlo_code = buffer.str();
     std::string format = "hlo";
-    
-    PJRT_Program pjrt_program;
-    pjrt_program.code = (char*)hlo_code.c_str();
-    pjrt_program.code_size = (size_t)hlo_code.size();
-    pjrt_program.format = format.c_str();
-    pjrt_program.format_size = (size_t)format.size();
-
-    std::cout << "HLO Code:\n\n" << pjrt_program.code << "\n\n";
-    std::cout << "Code size: " << pjrt_program.code_size << "\n";
-    std::cout << "Format: " << pjrt_program.format << "\n";
-    std::cout << "Format size: " << pjrt_program.format_size << "\n";
+    std::cout << hlo_code << "\n";
     return 0;
 }

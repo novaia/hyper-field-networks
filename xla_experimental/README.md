@@ -66,8 +66,10 @@ yes '' | GCC_HOST_COMPILER_PATH=/usr/bin/gcc-10 CC=/usr/bin/gcc-10 TF_NEED_ROCM=
 
 Build PJRT runtime:
 ```
-bazel build --strip=never //xla/pjrt/c:pjrt_c_api_cpu
+bazel build --strip=never /bazel-xla:literal //xla:literal_util //xla:shape_util //xla:status //xla:statusor //xla/pjrt:pjrt_client //xla/pjrt:tfrt_cpu_pjrt_client //xla/service:hlo_proto_cc //xla/tools:hlo_module_loader
 ```
+
+//tsl/platform:logging //tsl/platform:platform_port
 
 Compile execute_hlo.cpp
 ```

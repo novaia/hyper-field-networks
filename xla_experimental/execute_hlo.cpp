@@ -30,8 +30,7 @@ int main(int argc, char** argv)
     // Run it using JAX C++ Runtime (PJRT).
 
     // Get a CPU client.
-    std::unique_ptr<xla::PjRtClient> client =
-        xla::GetTfrtCpuClient(/*asynchronous=*/true).value();
+    std::unique_ptr<xla::PjRtClient> client = xla::GetTfrtCpuClient(true).value();
 
     // Compile XlaComputation to PjRtExecutable.
     xla::XlaComputation xla_computation(test_module_proto);
@@ -39,20 +38,25 @@ int main(int argc, char** argv)
     std::unique_ptr<xla::PjRtLoadedExecutable> executable =
         client->Compile(xla_computation, compile_options).value();
 
-    // Prepare input.
-    xla::Literal literal_x =
-        xla::LiteralUtil::CreateR2<float>({{2.0f}});
-    std::unique_ptr<xla::PjRtBuffer> param_x =
-        client->BufferFromHostLiteral(literal_x, client->addressable_devices()[0]).value();
-
-    // Execute on CPU.
+    // Input.
+    xla::Literal literal_x;
+    std::unique_ptr<xla::PjRtBuffer> param_x;
+    // Output.
+    std::vector<std::vector<std::unique_ptr<xla::PjRtBuffer>>> results;
+    std::shared_ptr<xla::Literal> result_literal;
     xla::ExecuteOptions execute_options;
-    // One vector<buffer> for each device.
-    std::vector<std::vector<std::unique_ptr<xla::PjRtBuffer>>> results =
-        executable->Execute({{param_x.get()}}, execute_options).value();
 
-    // Get result.
-    std::shared_ptr<xla::Literal> result_literal = results[0][0]->ToLiteralSync().value();
-    std::cout << "Result = " << *result_literal << "\n";
+    for(int i = 0; i < 1000; i++)
+    {
+        literal_x = xla::LiteralUtil::CreateR2<float>({{0.1f * (float)i}});
+        param_x = client->BufferFromHostLiteral(
+            literal_x, client->addressable_devices()[0]
+        ).value();
+
+        results = executable->Execute({{param_x.get()}}, execute_options).value();
+        result_literal = results[0][0]->ToLiteralSync().value();
+        std::cout << "Result " << i << " = " << *result_literal << "\n";
+    }
+    
     return 0;
 }

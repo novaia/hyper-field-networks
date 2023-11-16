@@ -17,6 +17,11 @@ Training Linear Transformer DDIM with high memory usage:
 XLA_PYTHON_CLIENT_MEM_FRACTION=.97 python3 -m hypernets.sliding_ltd
 ```
 
+Generating dataset of CIFAR10 NGP Images:
+```
+python3 -m fields.train_multiple.ngp_image --config_path configs/ngp_image.json --input_path data/CIFAR10 --output_path data/ngp_images/ngp_cifar10
+```
+
 ## Running Tests
 Use PyTest to run the tests in the tests directory:
 ```

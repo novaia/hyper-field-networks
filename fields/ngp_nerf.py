@@ -81,17 +81,12 @@ def update_occupancy_grid_density(
     # Get random points inside grid cells.
     KEY, key = jax.random.split(KEY, 2)
     coordinates = coordinates + jax.random.uniform(
-        key,
-        coordinates.shape,
-        coordinates.dtype,
-        minval=-half_cell_width,
-        maxval=half_cell_width,
+        key, coordinates.shape, coordinates.dtype, 
+        minval=-half_cell_width, maxval=half_cell_width,
     )
     
     # [num_updated_entries,]
-    updated_densities = jnp.ravel(
-        state.apply_fn({'params': state.params}, (coordinates, None))
-    )
+    updated_densities = jnp.ravel(state.apply_fn({'params': state.params}, (coordinates,None)))
     updated_densities = jnp.maximum(decayed_densities[updated_indices], updated_densities)
     # [num_grid_entries,]
     updated_densities = decayed_densities.at[updated_indices].set(updated_densities)
@@ -107,18 +102,11 @@ def threshold_occupancy_grid(diagonal_n_steps:int, scene_bound:float, densities:
         jnp.mean(densities)
     )
 
-    occupancy_mask, occupancy_bitfield = packbits(
-        density_threshold=density_threshold,
-        density_grid=densities
-    )
+    occupancy_mask, occupancy_bitfield = packbits(density_threshold, densities)
     return occupancy_mask, occupancy_bitfield
 
 def create_train_state(
-    model:nn.Module, 
-    rng,
-    learning_rate:float, 
-    epsilon:float, 
-    weight_decay_coefficient:float
+    model:nn.Module, rng, learning_rate:float, epsilon:float, weight_decay_coefficient:float
 ):
     x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
     variables = model.init(rng, x)
@@ -161,10 +149,7 @@ class NGPNerf(nn.Module):
         x = encoded_position
 
         x = FeedForward(
-            num_layers=1, 
-            hidden_dim=self.density_mlp_width, 
-            output_dim=16, 
-            activation=nn.relu
+            num_layers=1, hidden_dim=self.density_mlp_width, output_dim=16, activation=nn.relu
         )(x)
         density = x[:, 0:1]
         if self.exponential_density_activation: density = trunc_exp(density)
@@ -175,10 +160,7 @@ class NGPNerf(nn.Module):
         encoded_direction = jax.vmap(fourth_order_sh_encoding, in_axes=0)(direction)
         x = jnp.concatenate([density_feature, encoded_direction], axis=-1)
         x = FeedForward(
-            num_layers=2, 
-            hidden_dim=self.color_mlp_width, 
-            output_dim=3, 
-            activation=nn.relu
+            num_layers=2, hidden_dim=self.color_mlp_width, output_dim=3, activation=nn.relu
         )(x)
 
         if self.high_dynamic_range: color = jnp.exp(x)
@@ -214,19 +196,13 @@ def update_occupancy_grid(
     return occupancy_grid
 
 def train_loop(
-    batch_size:int, 
-    train_steps:int, 
-    dataset:NerfDataset, 
-    scene_bound:float, 
-    diagonal_n_steps:int, 
-    stepsize_portion:float,
-    occupancy_grid:OccupancyGrid,
-    state:TrainState,
-    return_final_loss:bool=False
+    batch_size:int, train_steps:int, dataset:NerfDataset, scene_bound:float, 
+    diagonal_n_steps:int, stepsize_portion:float, occupancy_grid:OccupancyGrid,
+    state:TrainState, return_final_loss:bool=False
 ):
     num_images = dataset.images.shape[0]
     for step in range(train_steps):
-        loss, state, n_rays = train_step(
+        loss, state = train_step(
             KEY=jax.random.PRNGKey(step),
             batch_size=batch_size,
             image_width=dataset.w,
@@ -245,9 +221,7 @@ def train_loop(
             diagonal_n_steps=diagonal_n_steps,
             stepsize_portion=stepsize_portion
         )
-        #print('Step', step, 'Loss', loss, 'N Rays', n_rays)
         if step % occupancy_grid.update_interval == 0 and step > 0:
-            #print('Updating occupancy grid...')
             occupancy_grid = update_occupancy_grid(
                 batch_size=batch_size,
                 diagonal_n_steps=diagonal_n_steps,
@@ -300,11 +274,10 @@ def train_step(
     )
 
     t_starts, t_ends = make_near_far_from_bound(scene_bound, ray_origins, ray_directions)
-    noises = jax.random.uniform(
-        noise_key, (batch_size,), dtype=t_starts.dtype, minval=0.0, maxval=1.0
-    )
+    noises = jax.random.uniform(noise_key, (batch_size,), t_starts.dtype, minval=0., maxval=1.)
 
-    ray_march_result = march_rays(
+    _, ray_is_valid, rays_n_samples, rays_sample_start_idx, \
+    _, positions, directions, dss, z_vals = march_rays(
         total_samples=batch_size,
         diagonal_n_steps=diagonal_n_steps,
         K=1,
@@ -318,20 +291,12 @@ def train_step(
         noises=noises,
         occupancy_bitfield=occupancy_bitfield
     )
-
-    _, ray_is_valid, rays_n_samples, rays_sample_start_idx, \
-    _, positions, directions, dss, z_vals = ray_march_result
     num_valid_rays = jnp.sum(ray_is_valid)
 
-    def compute_sample(params, ray_sample, direction):
-        return state.apply_fn({'params': params}, (ray_sample, direction))
-    #compute_batch = jax.vmap(compute_sample, in_axes=(None, 0, 0))
-    compute_batch = compute_sample
-
     def loss_fn(params):
-        drgbs = compute_batch(params, positions, directions)
+        drgbs = state.apply_fn({'params': params}, (positions, directions))
         background_colors = jax.random.uniform(random_bg_key, (batch_size, 3))
-        integration_result = integrate_rays(
+        _, final_rgbds, _ = integrate_rays(
             near_distance=0.3,
             rays_sample_startidx=rays_sample_start_idx,
             rays_n_samples=rays_n_samples,
@@ -340,7 +305,6 @@ def train_step(
             z_vals=z_vals,
             drgbs=drgbs,
         )
-        _, final_rgbds, _ = integration_result
         pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
         target_pixels = images[image_indices, height_indices, width_indices]
         target_rgbs = target_pixels[:, :3]
@@ -356,21 +320,12 @@ def train_step(
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
-    return loss, state, num_valid_rays
-
+    return loss, state
 
 @partial(jax.jit, static_argnames=(
-    'principal_point_x',
-    'principal_point_y',
-    'focal_length_x',
-    'focal_length_y',
-    'scene_bound',
-    'diagonal_n_steps',
-    'grid_cascades',
-    'grid_resolution',
-    'stepsize_portion',
-    'total_ray_samples',
-    'max_num_rays'
+    'principal_point_x', 'principal_point_y', 'focal_length_x', 'focal_length_y', 
+    'scene_bound', 'diagonal_n_steps', 'grid_cascades', 'grid_resolution', 'stepsize_portion',
+    'total_ray_samples', 'max_num_rays'
 ))
 def render_rays_inference(
     width_indices:jax.Array, height_indices:jax.Array, transform_matrix:jax.Array, 
@@ -420,19 +375,10 @@ def render_rays_inference(
     return pred_rgbs, pred_depths
 
 def render_scene(
-    patch_size_x:int,
-    patch_size_y:int,
-    dataset:NerfDataset, 
-    scene_bound:float,
-    diagonal_n_steps:int,
-    grid_cascades:int,
-    grid_resolution:int,
-    stepsize_portion:float,
-    occupancy_bitfield:jax.Array,
-    transform_matrix:jnp.ndarray, 
-    batch_size:int,
-    state:TrainState,
-    file_name:Optional[str]='rendered_image'
+    patch_size_x:int, patch_size_y:int, dataset:NerfDataset, scene_bound:float,
+    diagonal_n_steps:int, grid_cascades:int, grid_resolution:int, stepsize_portion:float,
+    occupancy_bitfield:jax.Array, transform_matrix:jnp.ndarray, batch_size:int, 
+    state:TrainState, file_name:Optional[str]='rendered_image'
 ):    
     num_patches_x = dataset.w // patch_size_x
     num_patches_y = dataset.h // patch_size_y
@@ -491,21 +437,12 @@ def render_scene(
     plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
 
 def turntable_render(
-    num_frames:int, 
-    camera_distance:float, 
-    render_fn:Callable,
-    file_name:str='turntable_render'
+    num_frames:int, camera_distance:float, render_fn:Callable, file_name:str='turntable_render'
 ):
     angle_delta = 2 * jnp.pi / num_frames
     for i in range(num_frames):
         camera_matrix = get_z_axis_camera_orbit_matrix(i * angle_delta, camera_distance)
         render_fn(transform_matrix=camera_matrix, file_name=file_name + f'_frame_{i}')
-
-def benchmark_training(train_loop_with_args:Callable):
-    start_time = time.time()
-    state, occupancy_grid = train_loop_with_args()
-    end_time = time.time()
-    print('Training time:', end_time - start_time)
 
 def main():
     with open('configs/ngp_nerf.json', 'r') as f:
@@ -549,8 +486,6 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
-    #benchmark_training(train_loop_with_args)
-    #exit(0)
     
     state, occupancy_grid = train_loop_with_args()
 
@@ -571,22 +506,16 @@ def main():
         batch_size=config['batch_size'],
         state=state
     )
-    #render_fn(
-    #    transform_matrix=dataset.transform_matrices[3],
-    #    file_name='ngp_nerf_cuda_rendered_image'
-    #)
+    render_fn(
+        transform_matrix=dataset.transform_matrices[3],
+        file_name='ngp_nerf_cuda_rendered_image'
+    )
     turntable_render(
         num_frames=60*3,
         camera_distance=1,
         render_fn=render_fn,
         file_name='ngp_nerf_cuda_turntable_render'
     )
-    #jnp.save('data/occupancy_grid_density.npy', occupancy_grid.mask.astype(jnp.float32))
-    #occupancy_grid_coordinates = morton3d_invert(
-    #    jnp.arange(occupancy_grid.mask.shape[0], dtype=jnp.uint32)
-    #)
-    #occupancy_grid_coordinates = occupancy_grid_coordinates / (config['grid_resolution'] - 1) * 2 - 1
-    #jnp.save('data/occupancy_grid_coordinates.npy', occupancy_grid_coordinates)
 
 if __name__ == '__main__':
     main()

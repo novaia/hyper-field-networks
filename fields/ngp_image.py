@@ -8,6 +8,7 @@ import json
 import optax
 from PIL import Image
 import matplotlib.pyplot as plt
+from typing import Tuple, Union
 
 class NGPImage(nn.Module):
     number_of_grid_levels: int # Corresponds to L in the paper.
@@ -38,7 +39,7 @@ class NGPImage(nn.Module):
 
 def train_loop(
     steps:int, state:TrainState, image:jax.Array, batch_size:int, return_final_loss:bool=False
-):
+) -> Union[TrainState, Tuple[TrainState, float]]:
     for step in range(steps):
         step_key = jax.random.PRNGKey(step)
         loss, state = train_step(state, image, batch_size, step_key)
@@ -47,7 +48,9 @@ def train_loop(
     return state
 
 @partial(jax.jit, static_argnames=('batch_size'))
-def train_step(state:TrainState, image:jax.Array, batch_size:int, KEY):
+def train_step(
+    state:TrainState, image:jax.Array, batch_size:int, KEY
+) -> Tuple[float, TrainState]:
     image_height = image.shape[0]
     image_width = image.shape[1]
     height_key, width_key = jax.random.split(KEY)
@@ -65,11 +68,11 @@ def train_step(state:TrainState, image:jax.Array, batch_size:int, KEY):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
-def create_train_state(model:nn.Module, learning_rate:float, KEY):
+def create_train_state(model:nn.Module, learning_rate:float, KEY) -> TrainState:
     params = model.init(KEY, jnp.ones((1, 2)))['params']
     return TrainState.create(apply_fn=model.apply, params=params, tx=optax.adam(learning_rate))
 
-def render_image(state:TrainState, image_height:int, image_width:int):
+def render_image(state:TrainState, image_height:int, image_width:int) -> jax.Array:
     height_indices, width_indices = jnp.meshgrid(
         jnp.arange(image_height)/image_height, 
         jnp.arange(image_width)/image_width

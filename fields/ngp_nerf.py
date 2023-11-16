@@ -2,7 +2,7 @@ import os
 import time
 import json
 from functools import partial
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple, Union
 from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
@@ -28,7 +28,9 @@ class OccupancyGrid:
     mask: jax.Array # Non-compact boolean representation of occupancy.
     bitfield: jax.Array # Compact occupancy bitfield.
 
-def create_occupancy_grid(resolution:int, update_interval:int, warmup_steps:int):
+def create_occupancy_grid(
+    resolution:int, update_interval:int, warmup_steps:int
+) -> OccupancyGrid:
     num_entries = resolution**3
     # Each bit is an occupancy value, and uint8 is 8 bytes, so divide num_entries by 8.
     # This gives one entry per bit.
@@ -41,9 +43,9 @@ def create_occupancy_grid(resolution:int, update_interval:int, warmup_steps:int)
     )
 
 def update_occupancy_grid_density(
-    KEY, batch_size:int, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
+    KEY, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
     num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
-):
+) -> jax.Array:
     decayed_densities = densities * .95
     all_indices = jnp.arange(num_grid_entries)
     if warmup:
@@ -93,7 +95,9 @@ def update_occupancy_grid_density(
     return updated_densities
 
 @jax.jit
-def threshold_occupancy_grid(diagonal_n_steps:int, scene_bound:float, densities:jax.Array):
+def threshold_occupancy_grid(
+    diagonal_n_steps:int, scene_bound:float, densities:jax.Array
+) -> Tuple[jax.Array, jax.Array]:
     def density_threshold_from_min_step_size(diagonal_n_steps, scene_bound) -> float:
         return .01 * diagonal_n_steps / (2 * jnp.minimum(scene_bound, 1) * 3**.5)
     
@@ -107,7 +111,7 @@ def threshold_occupancy_grid(diagonal_n_steps:int, scene_bound:float, densities:
 
 def create_train_state(
     model:nn.Module, rng, learning_rate:float, epsilon:float, weight_decay_coefficient:float
-):
+) -> TrainState:
     x = (jnp.ones([1, 3]) / 3, jnp.ones([1, 3]) / 3)
     variables = model.init(rng, x)
     params = variables['params']
@@ -171,7 +175,7 @@ class NGPNerf(nn.Module):
 def update_occupancy_grid(
     batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
     state:TrainState, occupancy_grid:OccupancyGrid
-):
+) -> OccupancyGrid:
     warmup = step < occupancy_grid.warmup_steps
     occupancy_grid.densities = jax.lax.stop_gradient(
         update_occupancy_grid_density(
@@ -199,7 +203,7 @@ def train_loop(
     batch_size:int, train_steps:int, dataset:NerfDataset, scene_bound:float, 
     diagonal_n_steps:int, stepsize_portion:float, occupancy_grid:OccupancyGrid,
     state:TrainState, return_final_loss:bool=False
-):
+) -> Union[Tuple[TrainState, OccupancyGrid], Tuple[TrainState, OccupancyGrid, float]]:
     num_images = dataset.images.shape[0]
     for step in range(train_steps):
         loss, state = train_step(
@@ -260,7 +264,7 @@ def train_step(
     grid_resolution:int, principal_point_x:float, principal_point_y:float, 
     focal_length_x:float, focal_length_y:float, scene_bound:float, diagonal_n_steps:int,
     stepsize_portion:float
-):
+) -> Tuple[float, TrainState]:
     pixel_sample_key, random_bg_key, noise_key = jax.random.split(KEY, 3)
     image_indices, width_indices, height_indices = sample_pixels(
         key=pixel_sample_key, num_samples=batch_size, image_width=image_width,
@@ -333,7 +337,7 @@ def render_rays_inference(
     scene_bound:float, diagonal_n_steps:int, grid_cascades:int, grid_resolution:int, 
     stepsize_portion:float, total_ray_samples:int, occupancy_bitfield:jax.Array, 
     state:TrainState, max_num_rays:int
-):
+) -> Tuple[jax.Array, jax.Array]:
     get_ray_vmap = jax.vmap(get_ray, in_axes=(0, 0, None, None, None, None, None))
     ray_origins, ray_directions = get_ray_vmap(
         width_indices, height_indices, transform_matrix, 

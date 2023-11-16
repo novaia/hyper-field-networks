@@ -48,7 +48,7 @@ def update_occupancy_grid(
 ) -> OccupancyGrid:
     warmup = step < occupancy_grid.warmup_steps
     occupancy_grid.densities = jax.lax.stop_gradient(
-        update_occupancy_grid_density(
+        update_occupancy_grid_densities(
             KEY=jax.random.PRNGKey(step),
             batch_size=batch_size,
             densities=occupancy_grid.densities,
@@ -69,7 +69,7 @@ def update_occupancy_grid(
     )
     return occupancy_grid
 
-def update_occupancy_grid_density(
+def update_occupancy_grid_densities(
     KEY, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
     num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
 ) -> jax.Array:

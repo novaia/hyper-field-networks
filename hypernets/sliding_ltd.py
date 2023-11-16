@@ -336,7 +336,7 @@ def render_from_generated_weights(
         warmup_steps=1
     )
     KEY, occupancy_update_key = jax.random.split(KEY)
-    occupancy_grid.densities = ngp_nerf.update_occupancy_grid_density(
+    occupancy_grid.densities = ngp_nerf.update_occupancy_grid_densities(
         KEY=occupancy_update_key,
         batch_size=model_config['batch_size'],
         densities=occupancy_grid.densities,

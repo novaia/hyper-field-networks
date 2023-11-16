@@ -23,11 +23,14 @@ class LinearTransformerDDIM(nn.Module):
     feed_forward_dim:int
     embedding_max_frequency:float
     context_length:int
+    hash_table_height:int
     normal_dtype:Any
     quantized_dtype:Any
+    remat:bool
 
     @nn.compact
     def __call__(self, x):
+        CustomDense = nn.remat(nn.Dense) if self.remat else nn.Dense
         x, noise_variances = x
         e = SinusoidalEmbedding(
             self.token_dim, 
@@ -35,7 +38,7 @@ class LinearTransformerDDIM(nn.Module):
             dtype=self.quantized_dtype
         )(noise_variances)
         x = jnp.concatenate([x, e], axis=-2)
-        x = nn.remat(nn.Dense)(features=self.embedding_dim, dtype=self.quantized_dtype)(x)
+        x = CustomDense(features=self.embedding_dim, dtype=self.quantized_dtype)(x)
         positions = jnp.arange(self.context_length+1)
         e = nn.Embed(
             num_embeddings=self.context_length+1, 
@@ -45,17 +48,53 @@ class LinearTransformerDDIM(nn.Module):
         x = x + e
 
         x = LinearTransformer(
-            num_blocks=self.num_bocks, 
+            num_blocks=self.num_bocks//2, 
             attention_dim=self.attention_dim, 
             num_attention_heads=self.num_attention_heads,
             residual_dim=self.embedding_dim, 
             feed_forward_dim=self.feed_forward_dim,
             quantized_dtype=self.quantized_dtype,
-            normal_dtype=self.normal_dtype
+            normal_dtype=self.normal_dtype,
+            remat=self.remat
         )(x)
+        noise_variance_token = x[:, -1:, :]
+        hash_table = x[:, :self.hash_table_height, :]
+        hash_table = jnp.concatenate([hash_table, noise_variance_token], axis=-2)
+        hash_table = LinearTransformer(
+            num_blocks=self.num_bocks//2, 
+            attention_dim=self.attention_dim, 
+            num_attention_heads=self.num_attention_heads,
+            residual_dim=self.embedding_dim, 
+            feed_forward_dim=self.feed_forward_dim,
+            quantized_dtype=self.quantized_dtype,
+            normal_dtype=self.normal_dtype,
+            remat=self.remat
+        )(hash_table)
+        hash_table = hash_table[:, :-1, :]
+        hash_table = CustomDense(
+            features=self.token_dim, dtype=self.quantized_dtype,
+            kernel_init=nn.initializers.zeros_init()
+        )(hash_table)
 
-        x = nn.remat(nn.Dense)(features=self.token_dim, dtype=self.quantized_dtype)(x)
-        x = x[:, :-1, :] # Remove embedded noise variances token.
+        network = x[:, self.hash_table_height:-1, :]
+        network = jnp.concatenate([network, noise_variance_token], axis=-2) 
+        network = LinearTransformer(
+            num_blocks=self.num_bocks//2, 
+            attention_dim=self.attention_dim, 
+            num_attention_heads=self.num_attention_heads,
+            residual_dim=self.embedding_dim, 
+            feed_forward_dim=self.feed_forward_dim,
+            quantized_dtype=self.quantized_dtype,
+            normal_dtype=self.normal_dtype,
+            remat=self.remat
+        )(network)
+        network = network[:, :-1, :]
+        network = CustomDense(
+            features=self.token_dim, dtype=self.quantized_dtype, 
+            kernel_init=nn.initializers.zeros_init()
+        )(network)
+
+        x = jnp.concatenate([hash_table, network], axis=-2)
         return x
 
 @jax.jit
@@ -114,22 +153,24 @@ def main():
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
-    batch_size = 32
-    learning_rate = 5e-5
+    batch_size = 16
+    learning_rate = 1e-5
     diffusion_steps = 20
     image_width = 32
     image_height = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
-    steps_between_checkpoints = 10_000
+    steps_between_checkpoints = 1_000
     attention_dim = 512
     num_attention_heads = 8
     embedding_dim = 128
     num_blocks = 4
     feed_forward_dim = 128
     embedding_max_frequency = 1000.0
+    hash_table_height = 48
+    remat = False
 
-    checkpoint_path = 'data/cifar10_training1'
+    checkpoint_path = 'data/cifar10_training2'
     dataset_path = 'data/ngp_images/packed_ngp_cifar10'
     config_path = 'configs/ngp_image.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
@@ -151,7 +192,7 @@ def main():
     print('Batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     context_length = dummy_batch.shape[-2]
-    
+
     model = LinearTransformerDDIM(
         attention_dim=attention_dim,
         num_attention_heads=num_attention_heads,
@@ -161,8 +202,10 @@ def main():
         feed_forward_dim=feed_forward_dim,
         embedding_max_frequency=embedding_max_frequency,
         context_length=context_length,
+        hash_table_height=hash_table_height,
         normal_dtype=normal_dtype,
-        quantized_dtype=quantized_dtype
+        quantized_dtype=quantized_dtype,
+        remat=remat
     )
     #tabulate(model, context_length, token_dim, quantized_dtype)
 

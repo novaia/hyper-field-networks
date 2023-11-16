@@ -9,6 +9,8 @@ import optax
 from PIL import Image
 import matplotlib.pyplot as plt
 from typing import Tuple, Union
+import argparse
+import os
 
 class NGPImage(nn.Module):
     number_of_grid_levels: int # Corresponds to L in the paper.
@@ -83,10 +85,7 @@ def render_image(state:TrainState, image_height:int, image_width:int) -> jax.Arr
     rendered_image = jnp.transpose(rendered_image, (1, 0, 2))
     return rendered_image
 
-def main():
-    with open('configs/ngp_image.json') as f:
-        config = json.load(f)
-
+def create_model_from_config(config:dict) -> NGPImage:
     model = NGPImage(
         number_of_grid_levels=config['num_hash_table_levels'],
         max_hash_table_entries=config['max_hash_table_entries'],
@@ -96,6 +95,17 @@ def main():
         mlp_width=config['mlp_width'],
         mlp_depth=config['mlp_depth']
     )
+    return model
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default='configs/ngp_image.json')
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        config = json.load(f)
+
+    model = create_model_from_config(config)
     state = create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
     image = jnp.array(Image.open('data/CIFAR10/testairplane0003.jpg'))
     image = image / 255.0

@@ -42,6 +42,33 @@ def create_occupancy_grid(
         warmup_steps, densities, mask, bitfield
     )
 
+def update_occupancy_grid(
+    batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
+    state:TrainState, occupancy_grid:OccupancyGrid
+) -> OccupancyGrid:
+    warmup = step < occupancy_grid.warmup_steps
+    occupancy_grid.densities = jax.lax.stop_gradient(
+        update_occupancy_grid_density(
+            KEY=jax.random.PRNGKey(step),
+            batch_size=batch_size,
+            densities=occupancy_grid.densities,
+            occupancy_mask=occupancy_grid.mask,
+            grid_resolution=occupancy_grid.resolution,
+            num_grid_entries=occupancy_grid.num_entries,
+            scene_bound=scene_bound,
+            state=state,
+            warmup=warmup
+        )
+    )
+    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
+        threshold_occupancy_grid(
+            diagonal_n_steps=diagonal_n_steps,
+            scene_bound=scene_bound,
+            densities=occupancy_grid.densities
+        )
+    )
+    return occupancy_grid
+
 def update_occupancy_grid_density(
     KEY, densities:jax.Array, occupancy_mask:jax.Array, grid_resolution: int, 
     num_grid_entries:int, scene_bound:float, state:TrainState, warmup:bool
@@ -171,33 +198,6 @@ class NGPNerf(nn.Module):
         else: color = nn.activation.sigmoid(x)
         drgbs = jnp.concatenate([density, color], axis=-1)
         return drgbs
-
-def update_occupancy_grid(
-    batch_size:int, diagonal_n_steps:int, scene_bound:float, step:int,
-    state:TrainState, occupancy_grid:OccupancyGrid
-) -> OccupancyGrid:
-    warmup = step < occupancy_grid.warmup_steps
-    occupancy_grid.densities = jax.lax.stop_gradient(
-        update_occupancy_grid_density(
-            KEY=jax.random.PRNGKey(step),
-            batch_size=batch_size,
-            densities=occupancy_grid.densities,
-            occupancy_mask=occupancy_grid.mask,
-            grid_resolution=occupancy_grid.resolution,
-            num_grid_entries=occupancy_grid.num_entries,
-            scene_bound=scene_bound,
-            state=state,
-            warmup=warmup
-        )
-    )
-    occupancy_grid.mask, occupancy_grid.bitfield = jax.lax.stop_gradient(
-        threshold_occupancy_grid(
-            diagonal_n_steps=diagonal_n_steps,
-            scene_bound=scene_bound,
-            densities=occupancy_grid.densities
-        )
-    )
-    return occupancy_grid
 
 def train_loop(
     batch_size:int, train_steps:int, dataset:NerfDataset, scene_bound:float, 

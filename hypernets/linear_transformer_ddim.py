@@ -116,7 +116,23 @@ def main():
     quantized_dtype = jnp.float32
     batch_size = 32
     learning_rate = 5e-5
+    diffusion_steps = 20
+    image_width = 32
+    image_height = 32
+    min_signal_rate = 0.02
+    max_signal_rate = 0.95
+    steps_between_checkpoints = 10_000
+    attention_dim = 512
+    num_attention_heads = 8
+    embedding_dim = 128
+    num_blocks = 4
+    feed_forward_dim = 128
+    embedding_max_frequency = 1000.0
+
+    checkpoint_path = 'data/cifar10_training1'
     dataset_path = 'data/ngp_images/packed_ngp_cifar10'
+    config_path = 'configs/ngp_image.json'
+    weight_map_path = os.path.join(dataset_path, 'weight_map.json')
     all_sample_paths = os.listdir(dataset_path)
     valid_sample_paths = []
     for path in all_sample_paths:
@@ -135,36 +151,15 @@ def main():
     print('Batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     context_length = dummy_batch.shape[-2]
-    print('Context length', context_length)
-    sample = dummy_batch[0]
-    hash_table_height = 48
-    hash_table_part = sample[:hash_table_height]
-    network_part = sample[hash_table_height:]
-    cutoff = 0.5
-    hash_table_cutoff_count = \
-        jnp.count_nonzero(jnp.where(hash_table_part > cutoff, hash_table_part, 0)) + \
-        jnp.count_nonzero(jnp.where(hash_table_part < -cutoff, hash_table_part, 0))
-    network_cutoff_count = \
-        jnp.count_nonzero(jnp.where(network_part > cutoff, network_part, 0)) + \
-        jnp.count_nonzero(jnp.where(network_part < -cutoff, network_part, 0))
-    print('Total std', jnp.std(sample))
-    print('Hash table std', jnp.std(hash_table_part))
-    print('Network std', jnp.std(network_part))
-    print('Hash table cutoff count', hash_table_cutoff_count)
-    print('Network cutoff count', network_cutoff_count)
-    print('Hash table max', jnp.max(hash_table_part))
-    print('Hash table min', jnp.min(hash_table_part))
-    print('Network max', jnp.max(network_part))
-    print('Network min', jnp.min(network_part))
-
+    
     model = LinearTransformerDDIM(
-        attention_dim=512,
-        num_attention_heads=8,
+        attention_dim=attention_dim,
+        num_attention_heads=num_attention_heads,
         token_dim=token_dim,
-        embedding_dim=128,
-        num_bocks=4,
-        feed_forward_dim=128,
-        embedding_max_frequency=1000.0,
+        embedding_dim=embedding_dim,
+        num_bocks=num_blocks,
+        feed_forward_dim=feed_forward_dim,
+        embedding_max_frequency=embedding_max_frequency,
         context_length=context_length,
         normal_dtype=normal_dtype,
         quantized_dtype=quantized_dtype
@@ -179,8 +174,8 @@ def main():
 
     checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     if args.checkpoint_step > 0:
-        checkpoint_name = f'data/generations/checkpoint_step_{args.checkpoint_step}'
-        state = checkpointer.restore(checkpoint_name, item=state)
+        checkpoint_name = f'checkpoint_step_{args.checkpoint_step}'
+        state = checkpointer.restore(os.path.join(checkpoint_path, checkpoint_name), item=state)
         print('Loaded checkpoint')
     if args.render_only:
         print('Render only mode')
@@ -188,55 +183,58 @@ def main():
             state.apply_fn, 
             state.params, 
             num_images=1, 
-            diffusion_steps=20, 
+            diffusion_steps=diffusion_steps, 
             context_length=context_length,
             token_dim=token_dim,
             diffusion_schedule_fn=diffusion_schedule,
-            min_signal_rate=0.02,
-            max_signal_rate=0.95,
+            min_signal_rate=min_signal_rate,
+            max_signal_rate=max_signal_rate,
             seed=2
         )
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
         rendered_image = unpack_and_render_ngp_image(
-            config_path='configs/ngp_image.json',
-            weight_map_path='data/ngp_images/packed_ngp_cifar10/weight_map.json',
+            config_path=config_path,
+            weight_map_path=weight_map_path,
             packed_weights=generated_weights[0],
-            image_width=32,
-            image_height=32
+            image_width=image_width,
+            image_height=image_height
         )
-        plt.imsave(f'data/generations/render_only.png', rendered_image)
+        plt.imsave(os.path.join(checkpoint_path, 'render_only.png', rendered_image))
         exit(0)
 
     for step in range(args.checkpoint_step, args.train_steps+args.checkpoint_step):
         step_key = jax.random.PRNGKey(step)
         batch = load_batch_fn()
         loss, state = train_step(state, step_key, batch)
-        if step % 10_000 == 0 and step > args.checkpoint_step:
+        if step % steps_between_checkpoints == 0 and step > args.checkpoint_step:
             print('Step:', step, 'Loss:', loss)
             generated_weights = reverse_diffusion(
                 state.apply_fn, 
                 state.params, 
                 num_images=1, 
-                diffusion_steps=20, 
+                diffusion_steps=diffusion_steps, 
                 context_length=context_length,
                 token_dim=token_dim,
                 diffusion_schedule_fn=diffusion_schedule,
-                min_signal_rate=0.02,
-                max_signal_rate=0.95,
+                min_signal_rate=min_signal_rate,
+                max_signal_rate=max_signal_rate,
                 seed=step
             )
-            checkpointer.save(f'data/generations/checkpoint_step_{step}', state)
+            checkpointer.save(os.path.join(checkpoint_path, f'checkpoint_step_{step}'), state)
             print('Generated weights max:', jnp.max(generated_weights))
             print('Generated weights min:', jnp.min(generated_weights))
             rendered_image = unpack_and_render_ngp_image(
-                config_path='configs/ngp_image.json',
-                weight_map_path='data/ngp_images/packed_ngp_cifar10/weight_map.json',
+                config_path=config_path,
+                weight_map_path=weight_map_path,
                 packed_weights=generated_weights[0],
-                image_width=32,
-                image_height=32
+                image_width=image_width,
+                image_height=image_height
             )
-            plt.imsave(f'data/generations/ngp_image_step_{step}.png', rendered_image)
+            plt.imsave(
+                os.path.join(checkpoint_path, f'ngp_image_step_{step}.png'), 
+                rendered_image
+            )
     print('Finished training')
 
 if __name__ == '__main__':

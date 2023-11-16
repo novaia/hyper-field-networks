@@ -5,6 +5,7 @@ from typing import Optional
 from dataclasses import dataclass
 import jax.numpy as jnp
 import jax
+from fields.common.matrices import process_3x4_transformation_matrix
 
 @dataclass
 class NerfDataset:
@@ -23,15 +24,6 @@ class NerfDataset:
     aabb_scale: Optional[int] = None # Scale of scene bounding box.
     transform_matrices: Optional[jnp.ndarray] = None
     images: Optional[jnp.ndarray] = None
-
-def process_3x4_transform_matrix(original:jnp.ndarray, scale:float):
-    # Note that the translation component is not shifted.
-    new = jnp.array([
-        [original[1, 0], -original[1, 1], -original[1, 2], original[1, 3] * scale],
-        [original[2, 0], -original[2, 1], -original[2, 2], original[2, 3] * scale],
-        [original[0, 0], -original[0, 1], -original[0, 2], original[0, 3] * scale],
-    ])
-    return new
 
 def load_nerf_dataset(dataset_path:str, downscale_factor:int):
     with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
@@ -61,7 +53,7 @@ def load_nerf_dataset(dataset_path:str, downscale_factor:int):
     transform_matrices = jnp.array(transform_matrices)[:, :3, :]
     mean_translation = jnp.mean(jnp.linalg.norm(transform_matrices[:, :, -1], axis=-1))
     translation_scale = (1 / mean_translation) * 2
-    process_transform_matrices_vmap = jax.vmap(process_3x4_transform_matrix, in_axes=(0, None))
+    process_transform_matrices_vmap = jax.vmap(process_3x4_transformation_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
     images = jnp.array(images, dtype=jnp.float32) / 255.0
 

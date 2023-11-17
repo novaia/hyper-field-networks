@@ -156,7 +156,7 @@ def inspect_intermediates(state, context_length, token_dim, dtype):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint_epoch', type=int, default=0)
+    parser.add_argument('--checkpoint_epoch', type=int, default=-1)
     parser.add_argument('--render_only', type=bool, default=False)
     parser.add_argument('--train_epochs', type=int, default=1000)
     args = parser.parse_args()
@@ -214,7 +214,7 @@ def main():
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
-    if args.checkpoint_epoch > 0:
+    if args.checkpoint_epoch > -1:
         checkpoint_name = f'checkpoint_epoch_{args.checkpoint_epoch}'
         state = checkpointer.restore(os.path.join(checkpoint_path, checkpoint_name), item=state)
         print(f'Loaded checkpoint {checkpoint_name}')
@@ -246,7 +246,7 @@ def main():
         exit(0)
 
     gpu = jax.devices('gpu')[0]
-    for epoch in range(args.checkpoint_epoch, args.checkpoint_epoch + args.train_epochs):
+    for epoch in range(args.checkpoint_epoch+1, args.checkpoint_epoch+args.train_epochs+1):
         losses_this_epoch = []
         for step, batch in enumerate(data_iterator):
             step_key = jax.random.PRNGKey(state.step)

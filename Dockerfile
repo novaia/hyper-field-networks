@@ -73,6 +73,7 @@ RUN cd /project/dependencies/tiny-cuda-nn \
 
 FROM tiny-cuda-nn-build AS final
 ARG JAX_PACKAGE_URL="https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+ARG DALI_PACKAGE_URL="https://developer.download.nvidia.com/compute/redist "
 ARG NO_CACHE="--no-cache-dir"
 COPY requirements.txt requirements.txt
 RUN python3 -m pip install $NO_CACHE --upgrade pip \
@@ -84,7 +85,11 @@ RUN python3 -m pip install $NO_CACHE --upgrade pip \
     # Compile/install volume-rendering-jax and jax-tcnn.
     && python3 -m pip install $NO_CACHE \
         /project/dependencies/volume-rendering-jax \
-        /project/dependencies/jax-tcnn
+        /project/dependencies/jax-tcnn \
+    # Install DALI for data loading.
+    && python3 -m pip install $NO_CACHE \
+        --extra-index-url $DALI_PACKAGE_URL \
+        --upgrade nvidia-dali-cuda120
 
 WORKDIR project
 EXPOSE 7070

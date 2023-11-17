@@ -50,7 +50,7 @@ class LinearTransformerDDIM(nn.Module):
         x = x + e
 
         x = LinearTransformer(
-            num_blocks=self.num_bocks//2, 
+            num_blocks=self.num_bocks, 
             attention_dim=self.attention_dim, 
             num_attention_heads=self.num_attention_heads,
             residual_dim=self.embedding_dim, 
@@ -59,6 +59,12 @@ class LinearTransformerDDIM(nn.Module):
             normal_dtype=self.normal_dtype,
             remat=self.remat
         )(x)
+        x = x[:, :-1, :]
+        x = CustomDense(
+            features=self.token_dim, dtype=self.quantized_dtype, 
+            kernel_init=nn.initializers.zeros_init()
+        )(x)
+        '''
         noise_variance_token = x[:, -1:, :]
         hash_table = x[:, :self.hash_table_height, :]
         hash_table = jnp.concatenate([hash_table, noise_variance_token], axis=-2)
@@ -95,8 +101,9 @@ class LinearTransformerDDIM(nn.Module):
             features=self.token_dim, dtype=self.quantized_dtype, 
             kernel_init=nn.initializers.zeros_init()
         )(network)
+        '''
 
-        x = jnp.concatenate([hash_table, network], axis=-2)
+        #x = jnp.concatenate([hash_table, network], axis=-2)
         return x
 
 @jax.jit
@@ -118,15 +125,6 @@ def train_step(state:TrainState, key:int, batch:jax.Array):
     state = state.apply_gradients(grads=grad)
     return loss, state
 
-def load_batch(sample_paths, batch_size, dtype):
-    random.shuffle(sample_paths)
-    batch_paths = sample_paths[:batch_size]
-    batch = []
-    for path in batch_paths:
-        batch.append(jnp.load(path))
-    batch = jnp.array(batch, dtype=dtype)
-    return batch
-
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
     @pipeline_def
     def my_pipeline_def():
@@ -134,7 +132,7 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
             device='cpu', 
             file_root=dataset_path, 
             file_filter='*.npy', 
-            random_shuffle=True,
+            shuffle_after_epoch=True,
             name='weight_reader'
         )
         return data
@@ -163,25 +161,26 @@ def main():
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
-    batch_size = 16
-    learning_rate = 5e-5
+    batch_size = 128
+    learning_rate = 1e-4
     diffusion_steps = 20
     image_width = 32
     image_height = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
-    attention_dim = 512
+    attention_dim = 128
     num_attention_heads = 8
     embedding_dim = 128
-    num_blocks = 4
-    feed_forward_dim = 128
+    num_blocks = 8
+    feed_forward_dim = 256
     embedding_max_frequency = 1000.0
     hash_table_height = 48
     remat = False
     num_render_only_images = 5
     num_train_preview_images = 5
+    epochs_between_checkpoints = 5
 
-    checkpoint_path = 'data/cifar10_training4'
+    checkpoint_path = 'data/cifar10_training7'
     dataset_path = 'data/ngp_images/packed_ngp_cifar10'
     config_path = 'configs/ngp_image.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
@@ -256,6 +255,10 @@ def main():
 
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print('Epoch:', epoch, 'Loss:', average_loss)
+        
+        if epoch % epochs_between_checkpoints != 0 or epoch == 0:
+            continue
+
         checkpointer.save(os.path.join(checkpoint_path, f'checkpoint_epoch_{epoch}'), state)
         generated_weights = reverse_diffusion(
             state.apply_fn, 

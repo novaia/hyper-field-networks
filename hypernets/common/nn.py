@@ -144,3 +144,55 @@ class VanillaTransformer(nn.Module):
             x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
             x = nn.LayerNorm()(x + residual)
         return x
+
+# Linear Attention Diffusion Transformer = LADiT.
+class LinearAttentionDiffusionTransformer(nn.Module):
+    attention_dim:int
+    num_attention_heads:int
+    token_dim:int
+    embedding_dim:int
+    num_bocks:int
+    feed_forward_dim:int
+    embedding_max_frequency:float
+    context_length:int
+    hash_table_height:int
+    normal_dtype:Any
+    quantized_dtype:Any
+    remat:bool
+
+    @nn.compact
+    def __call__(self, x):
+        CustomDense = nn.remat(nn.Dense) if self.remat else nn.Dense
+        x, noise_variances = x
+        e = SinusoidalEmbedding(
+            self.token_dim, 
+            self.embedding_max_frequency,
+            dtype=self.quantized_dtype
+        )(noise_variances)
+        x = jnp.concatenate([x, e], axis=-2)
+        x = CustomDense(features=self.embedding_dim, dtype=self.quantized_dtype)(x)
+        positions = jnp.arange(self.context_length+1)
+        e = nn.Embed(
+            num_embeddings=self.context_length+1, 
+            features=self.embedding_dim,
+            dtype=self.quantized_dtype
+        )(positions)
+        x = x + e
+
+        x = LinearTransformer(
+            num_blocks=self.num_bocks, 
+            attention_dim=self.attention_dim, 
+            num_attention_heads=self.num_attention_heads,
+            residual_dim=self.embedding_dim, 
+            feed_forward_dim=self.feed_forward_dim,
+            quantized_dtype=self.quantized_dtype,
+            normal_dtype=self.normal_dtype,
+            remat=self.remat
+        )(x)
+        x = x[:, :-1, :]
+        x = CustomDense(
+            features=self.token_dim, dtype=self.quantized_dtype, 
+            kernel_init=nn.initializers.zeros_init()
+        )(x)
+        return x
+Ladit = LinearAttentionDiffusionTransformer

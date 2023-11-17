@@ -178,6 +178,7 @@ def main():
     embedding_max_frequency = 1000.0
     hash_table_height = 48
     remat = False
+    num_render_only_images = 5
 
     checkpoint_path = 'data/cifar10_training3'
     dataset_path = 'data/ngp_images/packed_ngp_cifar10'
@@ -213,7 +214,7 @@ def main():
 
     checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     if args.checkpoint_epoch > 0:
-        checkpoint_name = f'checkpoint_epoch_{args.checkpoint_step}'
+        checkpoint_name = f'checkpoint_epoch_{args.checkpoint_epoch}'
         state = checkpointer.restore(os.path.join(checkpoint_path, checkpoint_name), item=state)
         print(f'Loaded checkpoint {checkpoint_name}')
     if args.render_only:
@@ -221,7 +222,7 @@ def main():
         generated_weights = reverse_diffusion(
             state.apply_fn, 
             state.params, 
-            num_images=1, 
+            num_images=num_render_only_images, 
             diffusion_steps=diffusion_steps, 
             context_length=context_length,
             token_dim=token_dim,
@@ -232,14 +233,15 @@ def main():
         )
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
-        rendered_image = unpack_and_render_ngp_image(
-            config_path=config_path,
-            weight_map_path=weight_map_path,
-            packed_weights=generated_weights[0],
-            image_width=image_width,
-            image_height=image_height
-        )
-        plt.imsave(os.path.join(checkpoint_path, 'render_only.png', rendered_image))
+        for i in range(num_render_only_images):
+            rendered_image = unpack_and_render_ngp_image(
+                config_path=config_path,
+                weight_map_path=weight_map_path,
+                packed_weights=generated_weights[i],
+                image_width=image_width,
+                image_height=image_height
+            )
+            plt.imsave(os.path.join(checkpoint_path, f'render_only{i}.png'), rendered_image)
         exit(0)
 
     gpu = jax.devices('gpu')[0]

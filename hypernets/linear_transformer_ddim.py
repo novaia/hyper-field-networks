@@ -179,8 +179,9 @@ def main():
     hash_table_height = 48
     remat = False
     num_render_only_images = 5
+    num_train_preview_images = 5
 
-    checkpoint_path = 'data/cifar10_training3'
+    checkpoint_path = 'data/cifar10_training4'
     dataset_path = 'data/ngp_images/packed_ngp_cifar10'
     config_path = 'configs/ngp_image.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
@@ -255,10 +256,11 @@ def main():
 
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print('Epoch:', epoch, 'Loss:', average_loss)
+        checkpointer.save(os.path.join(checkpoint_path, f'checkpoint_epoch_{epoch}'), state)
         generated_weights = reverse_diffusion(
             state.apply_fn, 
             state.params, 
-            num_images=1, 
+            num_images=num_train_preview_images, 
             diffusion_steps=diffusion_steps, 
             context_length=context_length,
             token_dim=token_dim,
@@ -267,20 +269,21 @@ def main():
             max_signal_rate=max_signal_rate,
             seed=step
         )
-        checkpointer.save(os.path.join(checkpoint_path, f'checkpoint_epoch_{epoch}'), state)
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
-        rendered_image = unpack_and_render_ngp_image(
-            config_path=config_path,
-            weight_map_path=weight_map_path,
-            packed_weights=generated_weights[0],
-            image_width=image_width,
-            image_height=image_height
-        )
-        plt.imsave(
-            os.path.join(checkpoint_path, f'ngp_image_epoch_{epoch}.png'), 
-            rendered_image
-        )
+        
+        for i in range(num_train_preview_images):
+            rendered_image = unpack_and_render_ngp_image(
+                config_path=config_path,
+                weight_map_path=weight_map_path,
+                packed_weights=generated_weights[0],
+                image_width=image_width,
+                image_height=image_height
+            )
+            plt.imsave(
+                os.path.join(checkpoint_path, f'image_{i}_epoch_{epoch}.png'), 
+                rendered_image
+            )
     print('Finished training')
 
 if __name__ == '__main__':

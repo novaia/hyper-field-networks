@@ -267,7 +267,7 @@ def main():
             diffusion_schedule_fn=diffusion_schedule,
             min_signal_rate=min_signal_rate,
             max_signal_rate=max_signal_rate,
-            seed=step
+            seed=0
         )
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
@@ -276,7 +276,7 @@ def main():
             rendered_image = unpack_and_render_ngp_image(
                 config_path=config_path,
                 weight_map_path=weight_map_path,
-                packed_weights=generated_weights[0],
+                packed_weights=generated_weights[i],
                 image_width=image_width,
                 image_height=image_height
             )

@@ -265,7 +265,7 @@ class FrequencyEncoding(nn.Module):
             xb = x * scales
             four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
             return jnp.ravel(jnp.concatenate([x] + [four_feat], axis=-1))
-        return jax.vmap(encode, in_axes=(0, None, None))(x)
+        return jax.vmap(encode, in_axes=0)(x)
 
 # Exponential function except its gradient calculation uses a truncated input value.
 @jax.custom_vjp

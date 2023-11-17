@@ -13,6 +13,8 @@ from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
 from hypernets.common.rendering import unpack_and_render_ngp_image
 import argparse
 import orbax.checkpoint as ocp
+from nvidia.dali import pipeline_def, fn
+from nvidia.dali.plugin.jax import DALIGenericIterator
 
 class LinearTransformerDDIM(nn.Module):
     attention_dim:int
@@ -125,15 +127,23 @@ def load_batch(sample_paths, batch_size, dtype):
     batch = jnp.array(batch, dtype=dtype)
     return batch
 
-def tabulate(model, context_length, token_dim, dtype):
-    tabulation = model.tabulate(
-        jax.random.PRNGKey(0), 
-        (
-            jnp.ones((1, context_length, token_dim), dtype=dtype), 
-            jnp.ones((1, 1, 1), dtype=dtype)
+def get_data_iterator(dataset_path, batch_size, num_threads=3):
+    @pipeline_def
+    def my_pipeline_def():
+        data = fn.readers.numpy(
+            device='cpu', 
+            file_root=dataset_path, 
+            file_filter='*.npy', 
+            random_shuffle=True,
+            name='weight_reader'
         )
+        return data
+
+    my_pipeline = my_pipeline_def(batch_size=batch_size, num_threads=num_threads, device_id=0)
+    iterator = DALIGenericIterator(
+        pipelines=[my_pipeline], output_map=['x'], reader_name='weight_reader'
     )
-    print(tabulation)
+    return iterator
 
 def inspect_intermediates(state, context_length, token_dim, dtype):
     x = (
@@ -146,21 +156,20 @@ def inspect_intermediates(state, context_length, token_dim, dtype):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint_step', type=int, default=0)
+    parser.add_argument('--checkpoint_epoch', type=int, default=0)
     parser.add_argument('--render_only', type=bool, default=False)
-    parser.add_argument('--train_steps', type=int, default=1_000_000)
+    parser.add_argument('--train_epochs', type=int, default=1000)
     args = parser.parse_args()
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
     batch_size = 16
-    learning_rate = 1e-5
+    learning_rate = 5e-5
     diffusion_steps = 20
     image_width = 32
     image_height = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
-    steps_between_checkpoints = 1_000
     attention_dim = 512
     num_attention_heads = 8
     embedding_dim = 128
@@ -170,25 +179,13 @@ def main():
     hash_table_height = 48
     remat = False
 
-    checkpoint_path = 'data/cifar10_training2'
+    checkpoint_path = 'data/cifar10_training3'
     dataset_path = 'data/ngp_images/packed_ngp_cifar10'
     config_path = 'configs/ngp_image.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
-    all_sample_paths = os.listdir(dataset_path)
-    valid_sample_paths = []
-    for path in all_sample_paths:
-        if path.endswith('.npy'):
-            full_path = os.path.join(dataset_path, path)
-            valid_sample_paths.append(full_path)
-    del all_sample_paths
-    load_batch_fn = partial(
-        load_batch, 
-        sample_paths=valid_sample_paths, 
-        batch_size=batch_size,
-        dtype=quantized_dtype
-    )
 
-    dummy_batch = load_batch_fn()
+    data_iterator = get_data_iterator(dataset_path, batch_size)
+    dummy_batch = data_iterator.next()['x']
     print('Batch shape', dummy_batch.shape)
     token_dim = dummy_batch.shape[-1]
     context_length = dummy_batch.shape[-2]
@@ -207,7 +204,6 @@ def main():
         quantized_dtype=quantized_dtype,
         remat=remat
     )
-    #tabulate(model, context_length, token_dim, quantized_dtype)
 
     tx = optax.adam(learning_rate)
     rng = jax.random.PRNGKey(0)
@@ -216,10 +212,10 @@ def main():
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
-    if args.checkpoint_step > 0:
-        checkpoint_name = f'checkpoint_step_{args.checkpoint_step}'
+    if args.checkpoint_epoch > 0:
+        checkpoint_name = f'checkpoint_epoch_{args.checkpoint_step}'
         state = checkpointer.restore(os.path.join(checkpoint_path, checkpoint_name), item=state)
-        print('Loaded checkpoint')
+        print(f'Loaded checkpoint {checkpoint_name}')
     if args.render_only:
         print('Render only mode')
         generated_weights = reverse_diffusion(
@@ -246,38 +242,43 @@ def main():
         plt.imsave(os.path.join(checkpoint_path, 'render_only.png', rendered_image))
         exit(0)
 
-    for step in range(args.checkpoint_step, args.train_steps+args.checkpoint_step):
-        step_key = jax.random.PRNGKey(step)
-        batch = load_batch_fn()
-        loss, state = train_step(state, step_key, batch)
-        if step % steps_between_checkpoints == 0 and step > args.checkpoint_step:
-            print('Step:', step, 'Loss:', loss)
-            generated_weights = reverse_diffusion(
-                state.apply_fn, 
-                state.params, 
-                num_images=1, 
-                diffusion_steps=diffusion_steps, 
-                context_length=context_length,
-                token_dim=token_dim,
-                diffusion_schedule_fn=diffusion_schedule,
-                min_signal_rate=min_signal_rate,
-                max_signal_rate=max_signal_rate,
-                seed=step
-            )
-            checkpointer.save(os.path.join(checkpoint_path, f'checkpoint_step_{step}'), state)
-            print('Generated weights max:', jnp.max(generated_weights))
-            print('Generated weights min:', jnp.min(generated_weights))
-            rendered_image = unpack_and_render_ngp_image(
-                config_path=config_path,
-                weight_map_path=weight_map_path,
-                packed_weights=generated_weights[0],
-                image_width=image_width,
-                image_height=image_height
-            )
-            plt.imsave(
-                os.path.join(checkpoint_path, f'ngp_image_step_{step}.png'), 
-                rendered_image
-            )
+    gpu = jax.devices('gpu')[0]
+    for epoch in range(args.checkpoint_epoch, args.checkpoint_epoch + args.train_epochs):
+        losses_this_epoch = []
+        for step, batch in enumerate(data_iterator):
+            step_key = jax.random.PRNGKey(state.step)
+            batch = jax.device_put(batch['x'], gpu)
+            loss, state = train_step(state, step_key, batch)
+            losses_this_epoch.append(loss)
+
+        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
+        print('Epoch:', epoch, 'Loss:', average_loss)
+        generated_weights = reverse_diffusion(
+            state.apply_fn, 
+            state.params, 
+            num_images=1, 
+            diffusion_steps=diffusion_steps, 
+            context_length=context_length,
+            token_dim=token_dim,
+            diffusion_schedule_fn=diffusion_schedule,
+            min_signal_rate=min_signal_rate,
+            max_signal_rate=max_signal_rate,
+            seed=step
+        )
+        checkpointer.save(os.path.join(checkpoint_path, f'checkpoint_epoch_{epoch}'), state)
+        print('Generated weights max:', jnp.max(generated_weights))
+        print('Generated weights min:', jnp.min(generated_weights))
+        rendered_image = unpack_and_render_ngp_image(
+            config_path=config_path,
+            weight_map_path=weight_map_path,
+            packed_weights=generated_weights[0],
+            image_width=image_width,
+            image_height=image_height
+        )
+        plt.imsave(
+            os.path.join(checkpoint_path, f'ngp_image_epoch_{epoch}.png'), 
+            rendered_image
+        )
     print('Finished training')
 
 if __name__ == '__main__':

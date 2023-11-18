@@ -14,6 +14,7 @@ import orbax.checkpoint as ocp
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 from functools import partial
+import json
     
 @jax.jit
 def train_step(state:TrainState, key:int, batch:jax.Array):
@@ -65,37 +66,25 @@ def main():
     parser.add_argument('--train_epochs', type=int, default=1000)
     args = parser.parse_args()
 
-    normal_dtype = jnp.float32
-    quantized_dtype = jnp.float32
-    batch_size = 256
-    learning_rate = 1e-3
-    diffusion_steps = 20
+    with open('configs/image_field_ladit.json', 'r') as f:
+        config = json.load(f)
+
     image_width = 32
     image_height = 32
-    min_signal_rate = 0.02
-    max_signal_rate = 0.95
-    attention_dim = 256
-    num_attention_heads = 16
-    embedding_dim = 256
-    num_blocks = 4
-    feed_forward_dim = 256
-    embedding_max_frequency = 1000.0
-    remat = False
     num_render_only_images = 5
     num_train_preview_images = 5
     epochs_between_checkpoints = 5
-    token_dim = 2
 
-    checkpoint_path = 'data/cifar10_image_field_training8'
+    checkpoint_path = 'data/cifar10_image_field_training9'
     dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
 
-    data_iterator = get_data_iterator(dataset_path, batch_size)
+    data_iterator = get_data_iterator(dataset_path, config['batch_size'])
     dummy_batch = data_iterator.next()['x']
     original_batch_width = dummy_batch.shape[-1]
     original_batch_height = dummy_batch.shape[-2]
-    tokenize_batch_fn = partial(tokenize_batch, token_dim=token_dim)
+    tokenize_batch_fn = partial(tokenize_batch, token_dim=config['token_dim'])
     detokenize_batch_fn = partial(
         detokenize_batch, 
         original_height=original_batch_height, 
@@ -106,22 +95,22 @@ def main():
     print('Batch shape', dummy_batch.shape)
 
     model = Ladit(
-        attention_dim=attention_dim,
-        num_attention_heads=num_attention_heads,
-        token_dim=token_dim,
-        embedding_dim=embedding_dim,
-        num_bocks=num_blocks,
-        feed_forward_dim=feed_forward_dim,
-        embedding_max_frequency=embedding_max_frequency,
+        attention_dim=config['attention_dim'],
+        num_attention_heads=config['num_attention_heads'],
+        token_dim=config['token_dim'],
+        embedding_dim=config['embedding_dim'],
+        num_bocks=config['num_blocks'],
+        feed_forward_dim=config['feed_forward_dim'],
+        embedding_max_frequency=config['embedding_max_frequency'],
         context_length=context_length,
-        normal_dtype=normal_dtype,
-        quantized_dtype=quantized_dtype,
-        remat=remat
+        normal_dtype=jnp.dtype(config['normal_dtype']),
+        quantized_dtype=jnp.dtype(config['quantized_dtype']),
+        remat=config['remat']
     )
 
-    tx = optax.adam(learning_rate)
+    tx = optax.adam(config['learning_rate'])
     rng = jax.random.PRNGKey(0)
-    x = (jnp.ones((1, context_length, token_dim)), jnp.ones((1, 1, 1)))
+    x = (jnp.ones((1, context_length, config['token_dim'])), jnp.ones((1, 1, 1)))
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
@@ -136,12 +125,12 @@ def main():
             state.apply_fn, 
             state.params, 
             num_images=num_render_only_images, 
-            diffusion_steps=diffusion_steps, 
+            diffusion_steps=config['diffusion_steps'], 
             context_length=context_length,
-            token_dim=token_dim,
+            token_dim=config['token_dim'],
             diffusion_schedule_fn=diffusion_schedule,
-            min_signal_rate=min_signal_rate,
-            max_signal_rate=max_signal_rate,
+            min_signal_rate=config['min_signal_rate'],
+            max_signal_rate=config['max_signal_rate'],
             seed=2
         )
         generated_weights = detokenize_batch_fn(batch=generated_weights)
@@ -179,12 +168,12 @@ def main():
             state.apply_fn, 
             state.params, 
             num_images=num_train_preview_images, 
-            diffusion_steps=diffusion_steps, 
+            diffusion_steps=config['diffusion_steps'], 
             context_length=context_length,
-            token_dim=token_dim,
+            token_dim=config['token_dim'],
             diffusion_schedule_fn=diffusion_schedule,
-            min_signal_rate=min_signal_rate,
-            max_signal_rate=max_signal_rate,
+            min_signal_rate=config['min_signal_rate'],
+            max_signal_rate=config['max_signal_rate'],
             seed=0
         )
         generated_weights = detokenize_batch_fn(batch=generated_weights)

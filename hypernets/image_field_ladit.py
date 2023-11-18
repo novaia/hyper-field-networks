@@ -1,15 +1,14 @@
 # LADiT = Linear Attention Diffusion Transformer.
 # The purpose of this script is to train a LADiT model on vanilla image fields.
-from typing import Any
 import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
 import optax
 import matplotlib.pyplot as plt
 import os
-from hypernets.common.nn import LinearAttentionDiffusionTransformer, Ladit
+from hypernets.common.nn import Ladit
 from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
-from hypernets.common.rendering import unpack_and_render_ngp_image
+from hypernets.common.rendering import unpack_and_render_image_field
 import argparse
 import orbax.checkpoint as ocp
 from nvidia.dali import pipeline_def, fn
@@ -129,7 +128,7 @@ def main():
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
         for i in range(num_render_only_images):
-            rendered_image = unpack_and_render_ngp_image(
+            rendered_image = unpack_and_render_image_field(
                 config_path=config_path,
                 weight_map_path=weight_map_path,
                 packed_weights=generated_weights[i],
@@ -171,7 +170,7 @@ def main():
         print('Generated weights min:', jnp.min(generated_weights))
         
         for i in range(num_train_preview_images):
-            rendered_image = unpack_and_render_ngp_image(
+            rendered_image = unpack_and_render_image_field(
                 config_path=config_path,
                 weight_map_path=weight_map_path,
                 packed_weights=generated_weights[i],

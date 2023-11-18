@@ -13,15 +13,7 @@ def unpack_and_render_ngp_image(
 
     with open(config_path, 'r') as f:
         config = json.load(f)
-    model = ngp_image.NGPImage(
-        number_of_grid_levels=config['num_hash_table_levels'],
-        max_hash_table_entries=config['max_hash_table_entries'],
-        hash_table_feature_dim=config['hash_table_feature_dim'],
-        coarsest_resolution=config['coarsest_resolution'],
-        finest_resolution=config['finest_resolution'],
-        mlp_width=config['mlp_width'],
-        mlp_depth=config['mlp_depth']
-    )
+    model = ngp_image.create_model_from_config(config)
     state = ngp_image.create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
     state = state.replace(params=unpacked_weights)
     rendered_image = ngp_image.render_image(state, image_height, image_width)

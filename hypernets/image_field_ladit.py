@@ -58,7 +58,7 @@ def main():
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
     batch_size = 128
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     diffusion_steps = 20
     image_width = 32
     image_height = 32
@@ -76,7 +76,7 @@ def main():
     epochs_between_checkpoints = 5
 
     checkpoint_path = 'data/cifar10_image_field_training1'
-    dataset_path = 'data/ngp_images/cifar10_image_fields'
+    dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
 

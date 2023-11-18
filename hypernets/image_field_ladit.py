@@ -13,6 +13,7 @@ import argparse
 import orbax.checkpoint as ocp
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
+from functools import partial
     
 @jax.jit
 def train_step(state:TrainState, key:int, batch:jax.Array):
@@ -48,6 +49,15 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
     iterator = DALIGenericIterator(pipelines=[my_pipeline], output_map=['x'], reader_name='r')
     return iterator
 
+def tokenize_batch(token_dim, batch):
+    context_length = int(jnp.ceil((batch.shape[1] * batch.shape[2]) / token_dim))
+    batch = jnp.resize(batch, (batch.shape[0], context_length, token_dim))
+    return batch
+
+def detokenize_batch(original_height, original_width, batch):
+    batch = jnp.resize(batch, (batch.shape[0], original_height, original_width))
+    return batch
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint_epoch', type=int, default=-1)
@@ -57,34 +67,43 @@ def main():
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
-    batch_size = 128
+    batch_size = 32
     learning_rate = 1e-3
     diffusion_steps = 20
     image_width = 32
     image_height = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
-    attention_dim = 128
+    attention_dim = 32
     num_attention_heads = 8
-    embedding_dim = 128
-    num_blocks = 8
-    feed_forward_dim = 256
+    embedding_dim = 8
+    num_blocks = 4
+    feed_forward_dim = 16
     embedding_max_frequency = 1000.0
     remat = False
     num_render_only_images = 5
     num_train_preview_images = 5
-    epochs_between_checkpoints = 5
+    epochs_between_checkpoints = 10
+    token_dim = 4
 
-    checkpoint_path = 'data/cifar10_image_field_training1'
+    checkpoint_path = 'data/cifar10_image_field_training2'
     dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
 
     data_iterator = get_data_iterator(dataset_path, batch_size)
     dummy_batch = data_iterator.next()['x']
-    print('Batch shape', dummy_batch.shape)
-    token_dim = dummy_batch.shape[-1]
+    original_batch_width = dummy_batch.shape[-1]
+    original_batch_height = dummy_batch.shape[-2]
+    tokenize_batch_fn = partial(tokenize_batch, token_dim=token_dim)
+    detokenize_batch_fn = partial(
+        detokenize_batch, 
+        original_height=original_batch_height, 
+        original_width=original_batch_width
+    )
+    dummy_batch = tokenize_batch_fn(batch=dummy_batch)
     context_length = dummy_batch.shape[-2]
+    print('Batch shape', dummy_batch.shape)
 
     model = Ladit(
         attention_dim=attention_dim,
@@ -125,6 +144,7 @@ def main():
             max_signal_rate=max_signal_rate,
             seed=2
         )
+        generated_weights = detokenize_batch_fn(batch=generated_weights)
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
         for i in range(num_render_only_images):
@@ -144,6 +164,7 @@ def main():
         for step, batch in enumerate(data_iterator):
             step_key = jax.random.PRNGKey(state.step)
             batch = jax.device_put(batch['x'], gpu)
+            batch = tokenize_batch_fn(batch=batch)
             loss, state = train_step(state, step_key, batch)
             losses_this_epoch.append(loss)
 
@@ -166,6 +187,7 @@ def main():
             max_signal_rate=max_signal_rate,
             seed=0
         )
+        generated_weights = detokenize_batch_fn(batch=generated_weights)
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
         

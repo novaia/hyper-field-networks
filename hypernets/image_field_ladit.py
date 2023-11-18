@@ -67,18 +67,18 @@ def main():
 
     normal_dtype = jnp.float32
     quantized_dtype = jnp.float32
-    batch_size = 32
+    batch_size = 256
     learning_rate = 1e-3
     diffusion_steps = 20
     image_width = 32
     image_height = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
-    attention_dim = 32
+    attention_dim = 128
     num_attention_heads = 8
-    embedding_dim = 8
+    embedding_dim = 128
     num_blocks = 4
-    feed_forward_dim = 16
+    feed_forward_dim = 128
     embedding_max_frequency = 1000.0
     remat = False
     num_render_only_images = 5
@@ -86,7 +86,7 @@ def main():
     epochs_between_checkpoints = 10
     token_dim = 4
 
-    checkpoint_path = 'data/cifar10_image_field_training2'
+    checkpoint_path = 'data/cifar10_image_field_training4'
     dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')

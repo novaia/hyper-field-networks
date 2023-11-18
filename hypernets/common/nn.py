@@ -155,7 +155,6 @@ class LinearAttentionDiffusionTransformer(nn.Module):
     feed_forward_dim:int
     embedding_max_frequency:float
     context_length:int
-    hash_table_height:int
     normal_dtype:Any
     quantized_dtype:Any
     remat:bool

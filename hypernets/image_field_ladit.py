@@ -74,19 +74,19 @@ def main():
     image_height = 32
     min_signal_rate = 0.02
     max_signal_rate = 0.95
-    attention_dim = 128
-    num_attention_heads = 8
-    embedding_dim = 128
+    attention_dim = 256
+    num_attention_heads = 16
+    embedding_dim = 256
     num_blocks = 4
-    feed_forward_dim = 128
+    feed_forward_dim = 256
     embedding_max_frequency = 1000.0
     remat = False
     num_render_only_images = 5
     num_train_preview_images = 5
-    epochs_between_checkpoints = 10
-    token_dim = 4
+    epochs_between_checkpoints = 5
+    token_dim = 2
 
-    checkpoint_path = 'data/cifar10_image_field_training4'
+    checkpoint_path = 'data/cifar10_image_field_training8'
     dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')

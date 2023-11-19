@@ -44,6 +44,3 @@ venv.bak/
 
 # Dali
 cufile.log
-
-# Wandb
-wandb

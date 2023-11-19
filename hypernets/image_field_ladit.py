@@ -15,7 +15,6 @@ from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 from functools import partial
 import json
-import wandb
     
 @jax.jit
 def train_step(state:TrainState, key:int, batch:jax.Array):
@@ -71,18 +70,28 @@ def main():
         config = json.load(f)
 
     config['dataset'] = 'packed_cifar10_image_fields'
-    wandb.init(project="image-field-ladit", config=config)
+    experiment_id = 0
+    experiment_name = f'experiment_{experiment_id}'
+    project_name = 'image_field_latid_cifar10'
+    project_path = os.path.join('data', project_name)
+    checkpoint_path = os.path.join(project_path, 'checkpoints', experiment_name)
+    image_path = os.path.join(project_path, 'images', experiment_name)
+    dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
+    config_path = 'configs/image_field.json'
+    weight_map_path = os.path.join(dataset_path, 'weight_map.json')
+
+    if not os.path.exists(project_path): os.makedirs(project_path)
+    if not os.path.exists(checkpoint_path): os.makedirs(checkpoint_path)
+    if not os.path.exists(image_path): os.makedirs(image_path)
+
+    with open(os.path.join(project_path, f'{experiment_name}.json'), 'w') as f:
+        json.dump(config, f, indent=4)
 
     image_width = 32
     image_height = 32
     num_render_only_images = 5
     num_train_preview_images = 5
-    epochs_between_checkpoints = 5
-
-    checkpoint_path = 'data/cifar10_image_field_training10'
-    dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
-    config_path = 'configs/image_field.json'
-    weight_map_path = os.path.join(dataset_path, 'weight_map.json')
+    epochs_between_checkpoints = 1
 
     data_iterator = get_data_iterator(dataset_path, config['batch_size'])
     dummy_batch = data_iterator.next()['x']
@@ -120,7 +129,7 @@ def main():
 
     checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     if args.checkpoint_epoch > -1:
-        checkpoint_name = f'checkpoint_epoch_{args.checkpoint_epoch}'
+        checkpoint_name = f'epoch_{args.checkpoint_epoch}'
         state = checkpointer.restore(os.path.join(checkpoint_path, checkpoint_name), item=state)
         print(f'Loaded checkpoint {checkpoint_name}')
     if args.render_only:
@@ -148,7 +157,7 @@ def main():
                 image_width=image_width,
                 image_height=image_height
             )
-            plt.imsave(os.path.join(checkpoint_path, f'render_only{i}.png'), rendered_image)
+            plt.imsave(os.path.join(image_path, f'render_only_{i}.png'), rendered_image)
         exit(0)
 
     gpu = jax.devices('gpu')[0]
@@ -164,8 +173,6 @@ def main():
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print('Epoch:', epoch, 'Loss:', average_loss)
         
-        log_entry = {'loss': average_loss}
-        wandb.log(log_entry, step=state.step)
         if epoch % epochs_between_checkpoints != 0 or epoch == 0:
             continue
 
@@ -194,7 +201,7 @@ def main():
                 image_width=image_width,
                 image_height=image_height
             )
-            image_save_path = os.path.join(checkpoint_path, f'image_{i}_epoch_{epoch}.png')
+            image_save_path = os.path.join(image_path, f'image_{i}_epoch_{epoch}.png')
             plt.imsave(image_save_path, rendered_image)
     print('Finished training')
 

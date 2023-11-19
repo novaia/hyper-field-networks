@@ -15,6 +15,7 @@ from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 from functools import partial
 import json
+import wandb
     
 @jax.jit
 def train_step(state:TrainState, key:int, batch:jax.Array):
@@ -69,13 +70,16 @@ def main():
     with open('configs/image_field_ladit.json', 'r') as f:
         config = json.load(f)
 
+    config['dataset'] = 'packed_cifar10_image_fields'
+    wandb.init(project="image-field-ladit", config=config)
+
     image_width = 32
     image_height = 32
     num_render_only_images = 5
     num_train_preview_images = 5
     epochs_between_checkpoints = 5
 
-    checkpoint_path = 'data/cifar10_image_field_training9'
+    checkpoint_path = 'data/cifar10_image_field_training10'
     dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
@@ -160,6 +164,8 @@ def main():
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print('Epoch:', epoch, 'Loss:', average_loss)
         
+        log_entry = {'loss': average_loss}
+        wandb.log(log_entry, step=state.step)
         if epoch % epochs_between_checkpoints != 0 or epoch == 0:
             continue
 
@@ -188,10 +194,8 @@ def main():
                 image_width=image_width,
                 image_height=image_height
             )
-            plt.imsave(
-                os.path.join(checkpoint_path, f'image_{i}_epoch_{epoch}.png'), 
-                rendered_image
-            )
+            image_save_path = os.path.join(checkpoint_path, f'image_{i}_epoch_{epoch}.png')
+            plt.imsave(image_save_path, rendered_image)
     print('Finished training')
 
 if __name__ == '__main__':

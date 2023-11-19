@@ -1,8 +1,8 @@
 {
     "normal_dtype": "float32",
     "quantized_dtype": "float32",
-    "batch_size": 256,
-    "learning_rate": 0.001,
+    "batch_size": 32,
+    "learning_rate": 0.0003,
     "diffusion_steps": 20,
     "min_signal_rate": 0.02,
     "max_signal_rate": 0.95,

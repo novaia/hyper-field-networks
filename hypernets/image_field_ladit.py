@@ -15,6 +15,7 @@ from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 from functools import partial
 import json
+import wandb
     
 @jax.jit
 def train_step(state:TrainState, key:int, batch:jax.Array):
@@ -70,7 +71,7 @@ def main():
         config = json.load(f)
 
     config['dataset'] = 'packed_cifar10_image_fields'
-    experiment_id = 0
+    experiment_id = 1
     experiment_name = f'experiment_{experiment_id}'
     project_name = 'image_field_latid_cifar10'
     project_path = os.path.join('data', project_name)
@@ -86,12 +87,13 @@ def main():
 
     with open(os.path.join(project_path, f'{experiment_name}.json'), 'w') as f:
         json.dump(config, f, indent=4)
+    wandb.init(project="image-field-ladit", config=config)
 
     image_width = 32
     image_height = 32
     num_render_only_images = 5
     num_train_preview_images = 5
-    epochs_between_checkpoints = 1
+    epochs_between_checkpoints = 5
 
     data_iterator = get_data_iterator(dataset_path, config['batch_size'])
     dummy_batch = data_iterator.next()['x']
@@ -168,6 +170,7 @@ def main():
             batch = jax.device_put(batch['x'], gpu)
             batch = tokenize_batch_fn(batch=batch)
             loss, state = train_step(state, step_key, batch)
+            wandb.log({'loss': loss}, step=state.step)
             losses_this_epoch.append(loss)
 
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)

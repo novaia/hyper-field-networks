@@ -5,6 +5,7 @@ from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 from hypernets.common.nn import LinearAttention
 import jax
+import optax
 
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
     @pipeline_def
@@ -51,10 +52,7 @@ class Encoder(nn.Module):
             num_embeddings=self.context_length,
             features=x.shape[-1]
         )(positions)
-        print('e', e.shape)
-        print('xb', x.shape)
         x = x + e
-        print('x', x.shape)
         x = LinearAttention(
             attention_dim=self.attention_dim, 
             output_dim=self.attention_out_dim,
@@ -100,15 +98,31 @@ class VAE(nn.Module):
     def __call__(self, x):
         x, key = x
         means, deviations = self.encoder(x)
-        print('means', means.shape)
-        print('deviations', deviations.shape)
         x = jax.vmap(
             jax.vmap(sample_normals, in_axes=(0, 0, None)), in_axes=(0, 0, None)
         )(means, deviations, key)
         x = self.decoder(x)
         return x, means, deviations
 
+@jax.jit
+def train_step(state, batch):
+    key = jax.random.PRNGKey(state.step)
+    def loss_fn(params):
+        y, means, deviations = state.apply_fn({'params': params}, [batch, key])
+        reconstruction_loss = jnp.mean((y - batch)**2)
+        kl_divergence_loss = 0
+        loss = reconstruction_loss + kl_divergence_loss
+        return loss
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grad = grad_fn(state.params)
+    state = state.apply_gradients(grads=grad)
+    return loss, state
+
 def main():
+    learning_rate = 1e-4
+    num_epochs = 20
+    dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
+    batch_size = 32
     num_attention_heads = 1
     original_length = 784
     token_dim = 32
@@ -134,7 +148,17 @@ def main():
     )
     model = VAE(encoder, decoder)
     key = jax.random.PRNGKey(0)
-    print(model.tabulate(key, [x, key]))
+    params = model.init(key, [x, key])['params']
+    tx = optax.adam(learning_rate)
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+
+    data_iterator = get_data_iterator(dataset_path, batch_size)
+    for epoch in range(num_epochs):
+        for batch in data_iterator:
+            batch = tokenize_batch(token_dim, batch['x']) / 255.
+            loss, state = train_step(state, batch)
+            print(loss)
+        print(f'Finished epoch {epoch}')
 
 if __name__ == '__main__':
     main()

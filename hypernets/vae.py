@@ -6,6 +6,7 @@ from nvidia.dali.plugin.jax import DALIGenericIterator
 from hypernets.common.nn import LinearAttention
 import jax
 import optax
+import wandb
 
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
     @pipeline_def
@@ -119,6 +120,8 @@ def train_step(state, batch):
     return loss, state
 
 def main():
+    wandb.init(project='transformer-vae')
+
     learning_rate = 1e-4
     num_epochs = 20
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
@@ -154,11 +157,14 @@ def main():
 
     data_iterator = get_data_iterator(dataset_path, batch_size)
     for epoch in range(num_epochs):
+        losses_this_epoch = []
         for batch in data_iterator:
             batch = tokenize_batch(token_dim, batch['x']) / 255.
             loss, state = train_step(state, batch)
+            losses_this_epoch.append(loss)
             print(loss)
         print(f'Finished epoch {epoch}')
+        wandb.log({'loss': sum(losses_this_epoch)/len(losses_this_epoch)}, step=state.step)
 
 if __name__ == '__main__':
     main()

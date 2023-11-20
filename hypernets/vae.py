@@ -7,6 +7,8 @@ from hypernets.common.nn import LinearAttention
 import jax
 import optax
 import wandb
+import os
+import matplotlib.pyplot as plt
 
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
     @pipeline_def
@@ -96,13 +98,14 @@ class VAE(nn.Module):
     decoder: nn.Module
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, only_decode:bool=False):
         x, key = x
         means, deviations = self.encoder(x)
         x = jax.vmap(
             jax.vmap(sample_normals, in_axes=(0, 0, None)), in_axes=(0, 0, None)
         )(means, deviations, key)
         x = self.decoder(x)
+        x = nn.sigmoid(x)
         return x, means, deviations
 
 @jax.jit
@@ -155,6 +158,11 @@ def main():
     tx = optax.adam(learning_rate)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
+    benchmark_sample = jnp.load(os.path.join(dataset_path, '0.npy'))
+    benchmark_sample = jnp.expand_dims(benchmark_sample, axis=0)
+    benchmark_sample = tokenize_batch(token_dim, benchmark_sample)
+    benchmark_key = jax.random.PRNGKey(0)
+
     data_iterator = get_data_iterator(dataset_path, batch_size)
     for epoch in range(num_epochs):
         losses_this_epoch = []
@@ -165,6 +173,14 @@ def main():
             print(loss)
         print(f'Finished epoch {epoch}')
         wandb.log({'loss': sum(losses_this_epoch)/len(losses_this_epoch)}, step=state.step)
+        benchmark_reconstruction, _, _ = state.apply_fn(
+            {'params': state.params}, [benchmark_sample, benchmark_key]
+        )
+        benchmark_reconstruction = detokenize_batch(original_length, benchmark_reconstruction)
+        benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
+        plt.imsave(
+            f'data/vae_reconstructions/{epoch}.png', benchmark_reconstruction, cmap='gray'
+        )
 
 if __name__ == '__main__':
     main()

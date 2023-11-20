@@ -98,7 +98,7 @@ class VAE(nn.Module):
     decoder: nn.Module
 
     @nn.compact
-    def __call__(self, x, only_decode:bool=False):
+    def __call__(self, x):
         x, key = x
         means, deviations = self.encoder(x)
         x = jax.vmap(
@@ -107,6 +107,21 @@ class VAE(nn.Module):
         x = self.decoder(x)
         x = nn.sigmoid(x)
         return x, means, deviations
+    
+class BaselineVAE(nn.Module):
+    @nn.compact
+    def __call__(self, x):
+        x, key = x
+        x = nn.Dense(64)(x)
+        x = nn.gelu(x)
+        means = nn.Dense(2)(x)
+        deviations = nn.Dense(2)(x)
+        x = jax.vmap(sample_normals, in_axes=(0, 0, None))(means, deviations, key)
+        x = nn.Dense(64)(x)
+        x = nn.gelu(x)
+        x = nn.Dense(784)(x)
+        x = nn.sigmoid(x)
+        return x, None, None
 
 @jax.jit
 def train_step(state, batch):
@@ -122,9 +137,41 @@ def train_step(state, batch):
     state = state.apply_gradients(grads=grad)
     return loss, state
 
-def main():
-    wandb.init(project='transformer-vae')
+def train_baseline():
+    learning_rate = 1e-4
+    num_epochs = 20
+    batch_size = 32
+    dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
+    model = BaselineVAE()
+    
+    key = jax.random.PRNGKey(0)
+    x = [jnp.ones((2, 784)), key]
+    params = model.init(key, x)['params']
+    tx = optax.adam(learning_rate)
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
+    benchmark_sample = jnp.load(os.path.join(dataset_path, '0.npy'))
+    benchmark_sample = jnp.expand_dims(benchmark_sample, axis=0)
+
+    data_iterator = get_data_iterator(dataset_path, batch_size)
+    for epoch in range(num_epochs):
+        losses_this_epoch = []
+        for batch in data_iterator:
+            batch = batch['x'] / 255.
+            loss, state = train_step(state, batch)
+            losses_this_epoch.append(loss)
+            print(loss)
+        print(f'Finished epoch {epoch}')
+        benchmark_reconstruction, _, _ = state.apply_fn(
+            {'params': state.params}, [benchmark_sample, key]
+        )
+        benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
+        plt.imsave(
+            f'data/vae_reconstructions/{epoch}.png', benchmark_reconstruction, cmap='gray'
+        )
+
+def train_transformer():
+    wandb.init(project='transformer-vae')
     learning_rate = 1e-4
     num_epochs = 20
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
@@ -181,6 +228,10 @@ def main():
         plt.imsave(
             f'data/vae_reconstructions/{epoch}.png', benchmark_reconstruction, cmap='gray'
         )
+
+def main():
+    #train_transformer()
+    train_baseline()
 
 if __name__ == '__main__':
     main()

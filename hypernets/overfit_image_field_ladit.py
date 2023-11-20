@@ -64,21 +64,25 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint_epoch', type=int, default=-1)
     parser.add_argument('--render_only', type=bool, default=False)
-    parser.add_argument('--train_epochs', type=int, default=1000)
+    parser.add_argument('--train_epochs', type=int, default=100)
     args = parser.parse_args()
 
-    with open('configs/image_field_ladit.json', 'r') as f:
+    with open('configs/overfit_image_field_ladit.json', 'r') as f:
         config = json.load(f)
 
-    config['dataset'] = 'cifar10_single_batch'
+    dataset_sizes = [1*16, 2*16, 8*16, 16*16, 256*16, 1024*16]
+    config['dataset_size'] = dataset_sizes[config['dataset_size_id']]
+    print('Dataset size', config['dataset_size'])
+
+    config['dataset'] = f'cifar10_size{config["dataset_size_id"]}'
     experiment_id = 0
-    experiment_name = f'experiment_{experiment_id}'
+    experiment_name = f'experiment_{experiment_id}_{config["dataset_size_id"]}'
     project_name = 'overfit_image_field_latid_cifar10'
     project_path = os.path.join('data', project_name)
     image_path = os.path.join(project_path, 'images', experiment_name)
-    dataset_path = 'data/ngp_images/cifar10_single_batch'
+    dataset_path = os.path.join('data/ngp_images', config['dataset'])
     config_path = 'configs/image_field.json'
-    weight_map_path = os.path.join(dataset_path, 'weight_map.json')
+    weight_map_path = os.path.join('data/ngp_images/cifar10_single_batch', 'weight_map.json')
 
     if not os.path.exists(project_path): os.makedirs(project_path)
     if not os.path.exists(image_path): os.makedirs(image_path)
@@ -91,7 +95,7 @@ def main():
     image_height = 32
     num_render_only_images = 6
     num_train_preview_images = 5
-    epochs_between_generations = 5
+    epochs_between_generations = 1
 
     data_iterator = get_data_iterator(dataset_path, config['batch_size'])
     dummy_batch = data_iterator.next()['x']
@@ -156,9 +160,10 @@ def main():
         exit(0)
 
     gpu = jax.devices('gpu')[0]
+    epoch_repeats = 60_000 // config['dataset_size']
     for epoch in range(args.checkpoint_epoch+1, args.checkpoint_epoch+args.train_epochs+1):
         losses_this_epoch = []
-        for i in range(1000):
+        for i in range(epoch_repeats):
             for step, batch in enumerate(data_iterator):
                 step_key = jax.random.PRNGKey(state.step)
                 batch = jax.device_put(batch['x'], gpu)

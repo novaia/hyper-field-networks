@@ -42,60 +42,49 @@ def sample_normals(means, standard_deviations, key):
     split_keys = jax.random.split(key, means.shape[-1])
     return jax.vmap(sample, in_axes=0)(means, standard_deviations, split_keys)
 
-class Encoder(nn.Module):
-    attention_dim: int
-    context_length: int
-    attention_out_dim: int
+class AutoPositionalEmbedding(nn.Module):
+    num_positions: int
+    feature_dim: int
+
+    @nn.compact
+    def __call__(self):
+        positions = jnp.arange(self.num_positions)
+        e = nn.Embed(self.num_positions, self.feature_dim)(positions)
+        return e
+
+class TransformerVaeComponent(nn.Module):
+    hidden_dims: List[int]
+    output_dim: int
+    per_head_attention_dims: List[int]
     num_attention_heads: int
-    feed_forward_dim: int
-    final_dim: int
+    context_length: int
+    encoder: bool
 
     @nn.compact
     def __call__(self, x):
-        positions = jnp.arange(self.context_length)
-        e = nn.Embed(
-            num_embeddings=self.context_length,
-            features=x.shape[-1]
-        )(positions)
+        e = AutoPositionalEmbedding(self.context_length, x.shape[-1])()
         x = x + e
-        x = LinearAttention(
-            attention_dim=self.attention_dim, 
-            output_dim=self.attention_out_dim,
-            num_heads=self.num_attention_heads
-        )(x)
-        x = nn.Dense(features=self.feed_forward_dim)(x)
-        x = nn.gelu(x)
-        means = nn.Dense(features=self.final_dim)(x)
-        deviations = nn.Dense(features=self.final_dim)(x)
-        return means, deviations
-    
-class Decoder(nn.Module):
-    attention_dim: int
-    context_length: int
-    attention_out_dim: int
-    num_attention_heads: int
-    feed_forward_dim: int
-    final_dim: int
+        for i in range(len(self.hidden_dims)):
+            current_hidden_dim = self.hidden_dims[i]
+            x = LinearAttention(
+                attention_dim=self.per_head_attention_dims[i] * self.num_attention_heads, 
+                output_dim=current_hidden_dim,
+                num_heads=self.num_attention_heads
+            )(x)
+            x = nn.Dense(features=current_hidden_dim)(x)
+            x = nn.gelu(x)
+            x = nn.Dense(features=current_hidden_dim)(x)
+            x = nn.gelu(x)
+        if self.encoder:
+            means = nn.Dense(features=self.output_dim)(x)
+            deviations = nn.Dense(features=self.output_dim)(x)
+            deviations = jnp.exp(deviations)
+            return means, deviations
+        else:
+            logits = nn.Dense(features=self.output_dim)(x)
+            return logits
 
-    @nn.compact
-    def __call__(self, x):
-        positions = jnp.arange(self.context_length)
-        e = nn.Embed(
-            num_embeddings=self.context_length,
-            features=x.shape[-1]
-        )(positions)
-        x = x + e
-        x = LinearAttention(
-            attention_dim=self.attention_dim, 
-            output_dim=self.attention_out_dim,
-            num_heads=self.num_attention_heads
-        )(x)
-        x = nn.Dense(features=self.feed_forward_dim)(x)
-        x = nn.gelu(x)
-        x = nn.Dense(features=self.final_dim)(x)
-        return x
-    
-class Vae(nn.Module):
+class TransformerVae(nn.Module):
     encoder: nn.Module
     decoder: nn.Module
 
@@ -103,12 +92,9 @@ class Vae(nn.Module):
     def __call__(self, x):
         x, key = x
         means, deviations = self.encoder(x)
-        x = jax.vmap(
-            jax.vmap(sample_normals, in_axes=(0, 0, None)), in_axes=(0, 0, None)
-        )(means, deviations, key)
-        x = self.decoder(x)
-        x = nn.sigmoid(x)
-        return x, means, deviations
+        x = means + deviations * jax.random.normal(key, means.shape)
+        logits = self.decoder(x)
+        return logits, means, deviations
     
 class BaselineVaeEncoder(nn.Module):
     widths: List[int]
@@ -193,8 +179,7 @@ def train_baseline():
         losses_this_epoch = []
         for batch in data_iterator:
             batch = batch['x'] / 255.
-            losses, state = train_step(state, batch, kl_weight)
-            loss, bce_loss, kld_loss = losses
+            (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight)
             losses_this_epoch.append(bce_loss)
             print('BCE Loss:', bce_loss, 'KLD Loss:', kld_loss, 'Total Loss:', loss)
         print(
@@ -219,35 +204,42 @@ def train_baseline():
             )
 
 def train_transformer():
-    wandb.init(project='transformer-vae')
+    kl_weight = 0.0
     learning_rate = 1e-4
     num_epochs = 20
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
     batch_size = 32
-    num_attention_heads = 1
     original_length = 784
-    token_dim = 32
+    token_dim = 784//2
     x = jnp.ones([3, original_length])
     x = tokenize_batch(token_dim, x)
     print(x.shape)
     context_length = x.shape[-2]
-    encoder = Encoder(
-        attention_dim=token_dim,
-        attention_out_dim=16,
-        context_length=context_length,
+    
+    latent_dim = 2
+    num_attention_heads = 4
+    encoder_attention_dims = [128, 128]
+    decoder_attention_dims = list(reversed(encoder_attention_dims))
+    encoder_hidden_dims = [512, 512]
+    decoder_hidden_dims = list(reversed(encoder_hidden_dims))
+    encoder = TransformerVaeComponent(
+        hidden_dims=encoder_hidden_dims,
+        output_dim=latent_dim,
+        per_head_attention_dims=encoder_attention_dims,
         num_attention_heads=num_attention_heads,
-        feed_forward_dim=8,
-        final_dim=2
-    )
-    decoder = Decoder(
-        attention_dim=token_dim,
-        attention_out_dim=token_dim,
         context_length=context_length,
-        num_attention_heads=num_attention_heads,
-        feed_forward_dim=token_dim,
-        final_dim=token_dim
+        encoder=True
     )
-    model = Vae(encoder, decoder)
+    decoder = TransformerVaeComponent(
+        hidden_dims=decoder_hidden_dims,
+        output_dim=token_dim,
+        per_head_attention_dims=decoder_attention_dims,
+        num_attention_heads=num_attention_heads,
+        context_length=context_length,
+        encoder=False
+    )
+
+    model = TransformerVae(encoder, decoder)
     key = jax.random.PRNGKey(0)
     params = model.init(key, [x, key])['params']
     tx = optax.adam(learning_rate)
@@ -263,15 +255,15 @@ def train_transformer():
         losses_this_epoch = []
         for batch in data_iterator:
             batch = tokenize_batch(token_dim, batch['x']) / 255.
-            loss, state = train_step(state, batch)
-            losses_this_epoch.append(loss)
-            print(loss)
+            (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight)
+            losses_this_epoch.append(bce_loss)
+            print(bce_loss)
         print(f'Finished epoch {epoch}')
-        wandb.log({'loss': sum(losses_this_epoch)/len(losses_this_epoch)}, step=state.step)
         benchmark_reconstruction, _, _ = state.apply_fn(
             {'params': state.params}, [benchmark_sample, benchmark_key]
         )
         benchmark_reconstruction = detokenize_batch(original_length, benchmark_reconstruction)
+        benchmark_reconstruction = nn.sigmoid(benchmark_reconstruction)
         benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
         plt.imsave(
             f'data/vae_reconstructions/transformer_{epoch}.png', 
@@ -279,8 +271,8 @@ def train_transformer():
         )
 
 def main():
-    #train_transformer()
-    train_baseline()
+    train_transformer()
+    #train_baseline()
     #test_this()
 
 if __name__ == '__main__':

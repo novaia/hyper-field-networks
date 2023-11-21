@@ -134,7 +134,8 @@ class BaselineVaeDecoder(nn.Module):
             x = nn.Dense(width)(x)
             x = nn.gelu(x)
         x = nn.Dense(self.output_width)(x)
-        x = nn.sigmoid(x)
+        x = nn.gelu(x)
+        x = nn.Dense(self.output_width)(x)
         return x
 
 class BaselineVae(nn.Module):
@@ -153,28 +154,28 @@ class BaselineVae(nn.Module):
 def train_step(state, batch, kl_weight):
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
-        y, means, deviations = state.apply_fn({'params': params}, [batch, key])
-        reconstruction_loss = jnp.mean((y - batch)**2)
-        kl_divergence_loss = jnp.sum(deviations**2 + means**2 - jnp.log(deviations) - 0.5)
-        loss = reconstruction_loss * (1 - kl_weight) + kl_divergence_loss * (kl_weight)
-        return loss, (reconstruction_loss, kl_divergence_loss)
+        logits, means, deviations = state.apply_fn({'params': params}, [batch, key])
+        bce_loss = jnp.sum(optax.sigmoid_binary_cross_entropy(logits, batch))
+        kld_loss = jnp.sum(deviations**2 + means**2 - jnp.log(deviations) - 0.5)
+        loss = bce_loss * (1 - kl_weight) + kld_loss * (kl_weight)
+        return loss, (bce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, (reconstruction_loss, kl_divergence_loss)), grad = grad_fn(state.params)
+    (loss, (bce_loss, kld_loss)), grad = grad_fn(state.params)
     state = state.apply_gradients(grads=grad)
-    return (loss, reconstruction_loss, kl_divergence_loss), state
+    return (loss, bce_loss, kld_loss), state
 
 def train_baseline():
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     num_epochs = 20
-    batch_size = 32
+    batch_size = 64
     num_generative_samples = 3
-    kl_weight = 0.7
+    kl_weight = 0.5
     input_dim = 784
     image_width = 28
     image_height = 28
     latent_dim = 2
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
-    encoder_widths = [512, 512]
+    encoder_widths = [500, 500]
     # It is necessary to cast to a list here or else Flax will not retain the reversed view.
     decoder_widths = list(reversed(encoder_widths))
     encoder = BaselineVaeEncoder(encoder_widths, latent_dim)
@@ -193,22 +194,19 @@ def train_baseline():
         for batch in data_iterator:
             batch = batch['x'] / 255.
             losses, state = train_step(state, batch, kl_weight)
-            loss, reconstruction_loss, kl_divergence_loss = losses
-            losses_this_epoch.append(reconstruction_loss)
-            #print(
-            #    'Reconstruction loss:', reconstruction_loss, 
-            #    'KL divergence loss:', kl_divergence_loss, 
-            #    'Total loss:', loss
-            #
+            loss, bce_loss, kld_loss = losses
+            losses_this_epoch.append(bce_loss)
+            print('BCE Loss:', bce_loss, 'KLD Loss:', kld_loss, 'Total Loss:', loss)
         print(
             'Epoch:', epoch, 
-            'Reconstruction Loss:', sum(losses_this_epoch)/len(losses_this_epoch)
+            'BCE Loss:', sum(losses_this_epoch)/len(losses_this_epoch)
         )
         test_latents = jax.random.normal(
             jax.random.PRNGKey(state.step), 
             (num_generative_samples, latent_dim)
         )
         test_generations = decoder.apply({'params': state.params['decoder']}, test_latents)
+        test_generations = nn.sigmoid(test_generations)
         test_generations = jnp.reshape(
             test_generations, 
             (num_generative_samples, image_height, image_width)
@@ -216,7 +214,7 @@ def train_baseline():
         print(test_generations.shape)
         for i in range(test_generations.shape[0]):
             plt.imsave(
-                f'data/vae_reconstructions/{i}_{epoch}.png', 
+                f'data/vae_reconstructions/image{i}_epoch{epoch}.png', 
                 test_generations[i], cmap='gray'
             )
 

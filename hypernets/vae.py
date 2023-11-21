@@ -12,9 +12,6 @@ import matplotlib.pyplot as plt
 from enum import Enum, auto
 from typing import List
 
-class VAECallType(Enum): 
-    ENCODE_ONLY = auto(); DECODE_ONLY = auto(); ENCODE_AND_DECODE = auto();
-
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
     @pipeline_def
     def my_pipeline_def():

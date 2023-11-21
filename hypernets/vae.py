@@ -111,16 +111,18 @@ class VAE(nn.Module):
 class BaselineVAE(nn.Module):
     @nn.compact
     def __call__(self, x):
+        widths = [512, 256, 64, 32, 2]
         x, key = x
-        x = nn.Dense(64)(x)
-        x = nn.gelu(x)
-        means = nn.Dense(2)(x)
-        deviations = nn.Dense(2)(x)
+        for width in widths[:-1]:
+            x = nn.Dense(width)(x)
+            x = nn.gelu(x)
+        means = nn.Dense(widths[-1])(x)
+        deviations = nn.Dense(widths[-1])(x)
         deviations = jnp.exp(deviations)
         x = means + deviations * jax.random.normal(key, means.shape)
-        #x = jax.vmap(sample_normals, in_axes=(0, 0, None))(means, deviations, key)
-        x = nn.Dense(64)(x)
-        x = nn.gelu(x)
+        for width in reversed(widths[:-1]):
+            x = nn.Dense(width)(x)
+            x = nn.gelu(x)
         x = nn.Dense(784)(x)
         x = nn.sigmoid(x)
         return x, means, deviations
@@ -134,14 +136,14 @@ def train_step(state, batch):
         reconstruction_loss = jnp.mean((y - batch)**2)
         kl_divergence_loss = jnp.sum(deviations**2 + means**2 - jnp.log(deviations) - 0.5)
         loss = reconstruction_loss * (1 - kl_weight) + kl_divergence_loss * (kl_weight)
-        return loss
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grad = grad_fn(state.params)
+        return loss, (reconstruction_loss, kl_divergence_loss)
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    (loss, (reconstruction_loss, kl_divergence_loss)), grad = grad_fn(state.params)
     state = state.apply_gradients(grads=grad)
-    return loss, state
+    return loss, reconstruction_loss, kl_divergence_loss, state
 
 def train_baseline():
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     num_epochs = 20
     batch_size = 32
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
@@ -161,9 +163,13 @@ def train_baseline():
         losses_this_epoch = []
         for batch in data_iterator:
             batch = batch['x'] / 255.
-            loss, state = train_step(state, batch)
+            loss, reconstruction_loss, kl_divergence_loss, state = train_step(state, batch)
             losses_this_epoch.append(loss)
-            print(loss)
+            print(
+                'Reconstruction loss:', reconstruction_loss, 
+                'KL divergence loss:', kl_divergence_loss, 
+                'Total loss:', loss
+            )
         print(f'Finished epoch {epoch}')
         benchmark_reconstruction, _, _ = state.apply_fn(
             {'params': state.params}, [benchmark_sample, key]

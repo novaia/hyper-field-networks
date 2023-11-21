@@ -9,6 +9,11 @@ import optax
 import wandb
 import os
 import matplotlib.pyplot as plt
+from enum import Enum, auto
+from typing import List
+
+class VAECallType(Enum): 
+    ENCODE_ONLY = auto(); DECODE_ONLY = auto(); ENCODE_AND_DECODE = auto();
 
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
     @pipeline_def
@@ -93,7 +98,7 @@ class Decoder(nn.Module):
         x = nn.Dense(features=self.final_dim)(x)
         return x
     
-class VAE(nn.Module):
+class Vae(nn.Module):
     encoder: nn.Module
     decoder: nn.Module
 
@@ -108,23 +113,43 @@ class VAE(nn.Module):
         x = nn.sigmoid(x)
         return x, means, deviations
     
-class BaselineVAE(nn.Module):
+class BaselineVaeEncoder(nn.Module):
+    widths: List[int]
+    output_width: int
+
     @nn.compact
     def __call__(self, x):
-        widths = [512, 256, 64, 32, 2]
-        x, key = x
-        for width in widths[:-1]:
+        for width in self.widths:
             x = nn.Dense(width)(x)
             x = nn.gelu(x)
-        means = nn.Dense(widths[-1])(x)
-        deviations = nn.Dense(widths[-1])(x)
+        means = nn.Dense(self.output_width)(x)
+        deviations = nn.Dense(self.output_width)(x)
         deviations = jnp.exp(deviations)
-        x = means + deviations * jax.random.normal(key, means.shape)
-        for width in reversed(widths[:-1]):
+        return means, deviations
+
+class BaselineVaeDecoder(nn.Module):
+    widths: List[int]
+    output_width: int
+
+    @nn.compact
+    def __call__(self, x):
+        for width in self.widths:
             x = nn.Dense(width)(x)
             x = nn.gelu(x)
-        x = nn.Dense(784)(x)
+        x = nn.Dense(self.output_width)(x)
         x = nn.sigmoid(x)
+        return x
+
+class BaselineVae(nn.Module):
+    encoder: nn.Module
+    decoder: nn.Module
+
+    @nn.compact
+    def __call__(self, x):
+        x, key = x
+        means, deviations = self.encoder(x)
+        x = means + deviations * jax.random.normal(key, means.shape)
+        x = self.decoder(x)
         return x, means, deviations
 
 @jax.jit
@@ -143,20 +168,22 @@ def train_step(state, batch):
     return loss, reconstruction_loss, kl_divergence_loss, state
 
 def train_baseline():
-    learning_rate = 1e-3
+    learning_rate = 1e-4
     num_epochs = 20
     batch_size = 32
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
-    model = BaselineVAE()
-    
+    encoder_widths = [512, 512]
+    # It is necessary to cast to a list here or else Flax will not retain the reversed view.
+    decoder_widths = list(reversed(encoder_widths))
+    encoder = BaselineVaeEncoder(encoder_widths, 2)
+    decoder = BaselineVaeDecoder(decoder_widths, 784)
+    model = BaselineVae(encoder, decoder)
+
     key = jax.random.PRNGKey(0)
-    x = [jnp.ones((2, 784)), key]
+    x = [jnp.ones((32, 784)), key]
     params = model.init(key, x)['params']
     tx = optax.adam(learning_rate)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-
-    benchmark_sample = jnp.load(os.path.join(dataset_path, '0.npy'))
-    benchmark_sample = jnp.expand_dims(benchmark_sample, axis=0)
 
     data_iterator = get_data_iterator(dataset_path, batch_size)
     for epoch in range(num_epochs):
@@ -164,21 +191,26 @@ def train_baseline():
         for batch in data_iterator:
             batch = batch['x'] / 255.
             loss, reconstruction_loss, kl_divergence_loss, state = train_step(state, batch)
-            losses_this_epoch.append(loss)
-            print(
-                'Reconstruction loss:', reconstruction_loss, 
-                'KL divergence loss:', kl_divergence_loss, 
-                'Total loss:', loss
+            losses_this_epoch.append(reconstruction_loss)
+            #print(
+            #    'Reconstruction loss:', reconstruction_loss, 
+            #    'KL divergence loss:', kl_divergence_loss, 
+            #    'Total loss:', loss
+            #
+        print(
+            'Epoch:', epoch, 
+            'Reconstruction Loss:', sum(losses_this_epoch)/len(losses_this_epoch)
+        )
+        num_generations = 5
+        test_latents = jax.random.normal(jax.random.PRNGKey(state.step), (num_generations, 2))
+        test_generations = decoder.apply({'params': state.params['decoder']}, test_latents)
+        test_generations = jnp.reshape(test_generations, (num_generations, 28, 28))
+        print(test_generations.shape)
+        for i in range(test_generations.shape[0]):
+            plt.imsave(
+                f'data/vae_reconstructions/{i}_{epoch}.png', 
+                test_generations[i], cmap='gray'
             )
-        print(f'Finished epoch {epoch}')
-        benchmark_reconstruction, _, _ = state.apply_fn(
-            {'params': state.params}, [benchmark_sample, key]
-        )
-        benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
-        plt.imsave(
-            f'data/vae_reconstructions/baseline_{epoch}.png', 
-            benchmark_reconstruction, cmap='gray'
-        )
 
 def train_transformer():
     wandb.init(project='transformer-vae')
@@ -209,7 +241,7 @@ def train_transformer():
         feed_forward_dim=token_dim,
         final_dim=token_dim
     )
-    model = VAE(encoder, decoder)
+    model = Vae(encoder, decoder)
     key = jax.random.PRNGKey(0)
     params = model.init(key, [x, key])['params']
     tx = optax.adam(learning_rate)
@@ -243,6 +275,7 @@ def train_transformer():
 def main():
     #train_transformer()
     train_baseline()
+    #test_this()
 
 if __name__ == '__main__':
     main()

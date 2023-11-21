@@ -116,21 +116,24 @@ class BaselineVAE(nn.Module):
         x = nn.gelu(x)
         means = nn.Dense(2)(x)
         deviations = nn.Dense(2)(x)
-        x = jax.vmap(sample_normals, in_axes=(0, 0, None))(means, deviations, key)
+        deviations = jnp.exp(deviations)
+        x = means + deviations * jax.random.normal(key, means.shape)
+        #x = jax.vmap(sample_normals, in_axes=(0, 0, None))(means, deviations, key)
         x = nn.Dense(64)(x)
         x = nn.gelu(x)
         x = nn.Dense(784)(x)
         x = nn.sigmoid(x)
-        return x, None, None
+        return x, means, deviations
 
 @jax.jit
 def train_step(state, batch):
+    kl_weight = 0.7
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
         y, means, deviations = state.apply_fn({'params': params}, [batch, key])
         reconstruction_loss = jnp.mean((y - batch)**2)
-        kl_divergence_loss = 0
-        loss = reconstruction_loss + kl_divergence_loss
+        kl_divergence_loss = jnp.sum(deviations**2 + means**2 - jnp.log(deviations) - 0.5)
+        loss = reconstruction_loss * (1 - kl_weight) + kl_divergence_loss * (kl_weight)
         return loss
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grad = grad_fn(state.params)
@@ -167,7 +170,8 @@ def train_baseline():
         )
         benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
         plt.imsave(
-            f'data/vae_reconstructions/{epoch}.png', benchmark_reconstruction, cmap='gray'
+            f'data/vae_reconstructions/baseline_{epoch}.png', 
+            benchmark_reconstruction, cmap='gray'
         )
 
 def train_transformer():
@@ -226,7 +230,8 @@ def train_transformer():
         benchmark_reconstruction = detokenize_batch(original_length, benchmark_reconstruction)
         benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
         plt.imsave(
-            f'data/vae_reconstructions/{epoch}.png', benchmark_reconstruction, cmap='gray'
+            f'data/vae_reconstructions/transformer_{epoch}.png', 
+            benchmark_reconstruction, cmap='gray'
         )
 
 def main():

@@ -30,18 +30,21 @@ class TransformerEncoder(nn.Module):
     def __call__(self, x):
         x = AutoPositionalEmbedding(self.context_length, x.shape[-1])(x)
         
-        for i in range(len(self.hidden_dims)-1):
-            current_hidden_dim = self.hidden_dims[i]
-            next_hidden_dim = self.hidden_dims[i+1]
+        for dim in self.hidden_dims:
+            x = nn.Dense(dim)(x)
+            residual = x
             x = LinearAttention(
-                attention_dim=current_hidden_dim, 
-                output_dim=current_hidden_dim,
+                attention_dim=dim, 
+                output_dim=dim,
                 num_heads=self.num_attention_heads
             )(x)
-            x = nn.Dense(current_hidden_dim)(x)
+            x = nn.LayerNorm()(x + residual)
+            residual = x
+            x = nn.Dense(dim)(x)
             x = nn.gelu(x)
-            x = nn.Dense(next_hidden_dim)(x)
+            x = nn.Dense(dim)(x)
             x = nn.gelu(x)
+            x = nn.LayerNorm()(x + residual)
 
         flattened_shape = (x.shape[0], self.context_length * x.shape[-1])
         x = jnp.reshape(x, flattened_shape)
@@ -63,18 +66,21 @@ class TransformerDecoder(nn.Module):
         x = jnp.reshape(x, tokenized_shape)
         x = AutoPositionalEmbedding(self.context_length, x.shape[-1])(x)
 
-        for i in range(len(self.hidden_dims)-1):
-            current_hidden_dim = self.hidden_dims[i]
-            next_hidden_dim = self.hidden_dims[i+1]
+        for dim in self.hidden_dims:
+            x = nn.Dense(dim)(x)
+            residual = x
             x = LinearAttention(
-                attention_dim=current_hidden_dim,
-                output_dim=current_hidden_dim,
+                attention_dim=dim, 
+                output_dim=dim,
                 num_heads=self.num_attention_heads
             )(x)
-            x = nn.Dense(current_hidden_dim)(x)
+            x = nn.LayerNorm()(x + residual)
+            residual = x
+            x = nn.Dense(dim)(x)
             x = nn.gelu(x)
-            x = nn.Dense(next_hidden_dim)(x)
+            x = nn.Dense(dim)(x)
             x = nn.gelu(x)
+            x = nn.LayerNorm()(x + residual)
 
         logits = nn.Dense(self.output_dim)(x)
         return logits
@@ -153,11 +159,11 @@ def main():
     key = jax.random.PRNGKey(0)
     
     original_dim = 784
-    token_dim = 784//4
+    token_dim = 28
     x = jnp.ones([3, original_dim])
     x = tokenize_batch(token_dim, x)
     context_length = x.shape[-2]
-    hidden_dims = [64, 32, 16]
+    hidden_dims = [128, 16]
     latent_dim = 2
     num_attention_heads = 4
     kl_weight = 0.0

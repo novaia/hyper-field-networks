@@ -158,6 +158,10 @@ def train_step(state, batch, kl_weight):
 def main():
     key = jax.random.PRNGKey(0)
     
+    image_height = 28
+    image_width = 28
+    num_generative_samples = 3
+
     original_dim = 784
     token_dim = 14
     x = jnp.ones([3, original_dim])
@@ -166,7 +170,7 @@ def main():
     hidden_dims = [128, 32]
     latent_dim = 2
     num_attention_heads = 8
-    kl_weight = 0.0
+    kl_weight = 0.5
     learning_rate = 1e-4
     num_epochs = 20
     batch_size = 32
@@ -196,16 +200,21 @@ def main():
             losses_this_epoch.append(bce_loss)
             print(bce_loss)
         print(f'Finished epoch {epoch}')
-        benchmark_reconstruction, _, _ = state.apply_fn(
-            {'params': state.params}, [benchmark_sample, key]
+        test_latents = jax.random.normal(
+            jax.random.PRNGKey(state.step), 
+            (num_generative_samples, latent_dim)
         )
-        benchmark_reconstruction = detokenize_batch(original_dim, benchmark_reconstruction)
-        benchmark_reconstruction = nn.sigmoid(benchmark_reconstruction)
-        benchmark_reconstruction = jnp.reshape(benchmark_reconstruction, (28, 28))
-        plt.imsave(
-            f'data/tvae_reconstructions/transformer_{epoch}.png', 
-            benchmark_reconstruction, cmap='gray'
+        test_generations = decoder.apply({'params': state.params['decoder']}, test_latents)
+        test_generations = nn.sigmoid(test_generations)
+        test_generations = jnp.reshape(
+            test_generations, 
+            (num_generative_samples, image_height, image_width)
         )
+        for i in range(test_generations.shape[0]):
+            plt.imsave(
+                f'data/tvae_reconstructions/image_{i}_epoch_{epoch}.png', 
+                test_generations[i], cmap='gray'
+            )
 
 if __name__ == '__main__':
     main()

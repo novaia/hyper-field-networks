@@ -159,13 +159,13 @@ def main():
     key = jax.random.PRNGKey(0)
     
     original_dim = 784
-    token_dim = 28
+    token_dim = 14
     x = jnp.ones([3, original_dim])
     x = tokenize_batch(token_dim, x)
     context_length = x.shape[-2]
-    hidden_dims = [128, 16]
+    hidden_dims = [128, 32]
     latent_dim = 2
-    num_attention_heads = 4
+    num_attention_heads = 8
     kl_weight = 0.0
     learning_rate = 1e-4
     num_epochs = 20

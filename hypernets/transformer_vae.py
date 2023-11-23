@@ -86,7 +86,6 @@ def main():
     hidden_dims = [128, 32]
     latent_dim = 2
     num_attention_heads = 8
-    kl_weight = 0.7
     learning_rate = 1e-4
     num_epochs = 20
     batch_size = 64
@@ -102,6 +101,7 @@ def main():
     params = model.init(key, [x, key])['params']
     tx = optax.adam(learning_rate)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+    kl_weight_schedule = optax.linear_schedule(0.0, 1.0, 60_000//batch_size)
 
     benchmark_sample = jnp.load(os.path.join(dataset_path, '0.npy'))
     benchmark_sample = jnp.expand_dims(benchmark_sample, axis=0)
@@ -112,11 +112,16 @@ def main():
         losses_this_epoch = []
         for batch in data_iterator:
             batch = tokenize_batch(token_dim, batch['x']) / 255.
+            kl_weight = kl_weight_schedule(state.step)
             (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight)
             losses_this_epoch.append(bce_loss)
-            #print('BCE Loss:', bce_loss, 'KLD Loss:', kld_loss, 'Total Loss', loss)
-            loss_message = 'BCE Loss: {:>8.5f}   KLD Loss: {:>8.5f}   Total Loss: {:>8.5f}'
-            print(loss_message.format(bce_loss, kld_loss, loss))
+            loss_message = (
+                'BCE Loss: {:>8.5f}   ' + 
+                'KLD Loss: {:>8.5f}   ' +
+                'Total Loss: {:>8.5f}   ' +
+                'KL Weight: {:>8.5f}'
+            )
+            print(loss_message.format(bce_loss, kld_loss, loss, kl_weight))
         print(f'Finished epoch {epoch}')
         test_latents = jax.random.normal(
             jax.random.PRNGKey(epoch), 

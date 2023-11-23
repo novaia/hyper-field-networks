@@ -95,7 +95,7 @@ def main():
     hidden_dims = [128, 32]
     latent_dim = 16
     num_attention_heads = 8
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     num_epochs = 20
     batch_size = 64
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
@@ -114,7 +114,7 @@ def main():
     cycle_steps = 4*(60_000//batch_size)
     kl_weight_schedule = cyclical_linear_schedule(
         initial_value=0.0,
-        final_value=1.0,
+        final_value=0.5,
         transition_steps=cycle_steps//2,
         cycle_steps=cycle_steps
     )
@@ -151,7 +151,7 @@ def main():
             (num_generative_samples, image_height, image_width)
         )
         for i in range(test_generations.shape[0]):
-            plt.imsave(f'data/tvae/{i}_{epoch}.png', test_generations[i], cmap='gray')
+            plt.imsave(f'data/tvae/image{i}_epoch{epoch}.png', test_generations[i], cmap='gray')
 
 if __name__ == '__main__':
     main()

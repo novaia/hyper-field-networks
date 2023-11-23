@@ -57,13 +57,14 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
     return iterator
 
 @jax.jit
-def train_step(state, batch, kl_weight, batch_size):
+def train_step(state, batch, kl_weight):
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
         logits, means, logvars = state.apply_fn({'params': params}, [batch, key])
         bce_loss = jnp.mean(binary_cross_entropy_with_logits(logits, batch))
         kld_loss = jnp.mean(kl_divergence(means, logvars))
-        loss = bce_loss * (1 - kl_weight) + kld_loss * (kl_weight)
+        loss = bce_loss + (kld_loss * kl_weight)
+        loss = bce_loss + kld_loss
         return loss, (bce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (bce_loss, kld_loss)), grad = grad_fn(state.params)
@@ -111,9 +112,11 @@ def main():
         losses_this_epoch = []
         for batch in data_iterator:
             batch = tokenize_batch(token_dim, batch['x']) / 255.
-            (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight, batch_size)
+            (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight)
             losses_this_epoch.append(bce_loss)
-            print(bce_loss)
+            #print('BCE Loss:', bce_loss, 'KLD Loss:', kld_loss, 'Total Loss', loss)
+            loss_message = 'BCE Loss: {:>8.5f}   KLD Loss: {:>8.5f}   Total Loss: {:>8.5f}'
+            print(loss_message.format(bce_loss, kld_loss, loss))
         print(f'Finished epoch {epoch}')
         test_latents = jax.random.normal(
             jax.random.PRNGKey(epoch), 
@@ -127,10 +130,7 @@ def main():
             (num_generative_samples, image_height, image_width)
         )
         for i in range(test_generations.shape[0]):
-            plt.imsave(
-                f'data/tvae/{i}_{epoch}.png', 
-                test_generations[i], cmap='gray'
-            )
+            plt.imsave(f'data/tvae/{i}_{epoch}.png', test_generations[i], cmap='gray')
 
 if __name__ == '__main__':
     main()

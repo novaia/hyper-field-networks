@@ -142,12 +142,12 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
     return iterator
 
 @jax.jit
-def train_step(state, batch, kl_weight):
+def train_step(state, batch, kl_weight, batch_size):
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
         logits, means, deviations = state.apply_fn({'params': params}, [batch, key])
-        bce_loss = jnp.sum(optax.sigmoid_binary_cross_entropy(logits, batch))
-        kld_loss = jnp.sum(deviations**2 + means**2 - jnp.log(deviations) - 0.5)
+        bce_loss = jnp.sum(optax.sigmoid_binary_cross_entropy(logits, batch)) / batch_size
+        kld_loss = jnp.sum(deviations**2 + means**2 - jnp.log(deviations) - 0.5) / batch_size
         loss = bce_loss * (1 - kl_weight) + kld_loss * (kl_weight)
         return loss, (bce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -170,10 +170,10 @@ def main():
     hidden_dims = [128, 32]
     latent_dim = 2
     num_attention_heads = 8
-    kl_weight = 0.5
+    kl_weight = 0.7
     learning_rate = 1e-4
     num_epochs = 20
-    batch_size = 32
+    batch_size = 64
     dataset_path = 'data/easy-mnist/mnist_numpy_flat/data'
 
     model, encoder, decoder = create_transformer_vae(
@@ -196,23 +196,24 @@ def main():
         losses_this_epoch = []
         for batch in data_iterator:
             batch = tokenize_batch(token_dim, batch['x']) / 255.
-            (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight)
+            (loss, bce_loss, kld_loss), state = train_step(state, batch, kl_weight, batch_size)
             losses_this_epoch.append(bce_loss)
             print(bce_loss)
         print(f'Finished epoch {epoch}')
         test_latents = jax.random.normal(
-            jax.random.PRNGKey(state.step), 
+            jax.random.PRNGKey(epoch), 
             (num_generative_samples, latent_dim)
         )
         test_generations = decoder.apply({'params': state.params['decoder']}, test_latents)
         test_generations = nn.sigmoid(test_generations)
+        test_generations = detokenize_batch(original_dim, test_generations)
         test_generations = jnp.reshape(
             test_generations, 
             (num_generative_samples, image_height, image_width)
         )
         for i in range(test_generations.shape[0]):
             plt.imsave(
-                f'data/tvae_reconstructions/image_{i}_epoch_{epoch}.png', 
+                f'data/tvae/{i}_{epoch}.png', 
                 test_generations[i], cmap='gray'
             )
 

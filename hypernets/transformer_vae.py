@@ -11,6 +11,7 @@ from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 import matplotlib.pyplot as plt
 import os
+from functools import partial
 
 def create_transformer_vae(
     hidden_dims, latent_dim, output_dim, context_length, num_attention_heads
@@ -56,6 +57,15 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
     iterator = DALIGenericIterator(pipelines=[my_pipeline], output_map=['x'], reader_name='r')
     return iterator
 
+def cyclical_linear_schedule(initial_value, final_value, transition_steps, cycle_steps):
+    slope = final_value / transition_steps
+    linear_fn = partial(
+        lambda m, b, max_y, x: jnp.clip(m * x + b, 0, max_y), 
+        slope, initial_value, final_value
+    )
+    cyclical_fn = partial(lambda period, x: linear_fn(x % period), cycle_steps)
+    return cyclical_fn
+
 @jax.jit
 def train_step(state, batch, kl_weight):
     key = jax.random.PRNGKey(state.step)
@@ -64,7 +74,6 @@ def train_step(state, batch, kl_weight):
         bce_loss = jnp.mean(binary_cross_entropy_with_logits(logits, batch))
         kld_loss = jnp.mean(kl_divergence(means, logvars))
         loss = bce_loss + (kld_loss * kl_weight)
-        loss = bce_loss + kld_loss
         return loss, (bce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (bce_loss, kld_loss)), grad = grad_fn(state.params)
@@ -84,7 +93,7 @@ def main():
     x = tokenize_batch(token_dim, x)
     context_length = x.shape[-2]
     hidden_dims = [128, 32]
-    latent_dim = 2
+    latent_dim = 16
     num_attention_heads = 8
     learning_rate = 1e-4
     num_epochs = 20
@@ -101,7 +110,14 @@ def main():
     params = model.init(key, [x, key])['params']
     tx = optax.adam(learning_rate)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-    kl_weight_schedule = optax.linear_schedule(0.0, 1.0, 60_000//batch_size)
+
+    cycle_steps = 4*(60_000//batch_size)
+    kl_weight_schedule = cyclical_linear_schedule(
+        initial_value=0.0,
+        final_value=1.0,
+        transition_steps=cycle_steps//2,
+        cycle_steps=cycle_steps
+    )
 
     benchmark_sample = jnp.load(os.path.join(dataset_path, '0.npy'))
     benchmark_sample = jnp.expand_dims(benchmark_sample, axis=0)

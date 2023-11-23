@@ -114,6 +114,7 @@ class LinearTransformer(nn.Module):
         
         for _ in range(self.num_blocks):
             residual = x
+            x = nn.LayerNorm(dtype=self.normal_dtype)(x.astype(self.normal_dtype))
             x = CustomAttention(
                 attention_dim=self.attention_dim, 
                 output_dim=self.residual_dim,
@@ -121,12 +122,13 @@ class LinearTransformer(nn.Module):
                 normal_dtype=self.normal_dtype, 
                 quantized_dtype=self.quantized_dtype
             )(x)
-            x = nn.LayerNorm(dtype=self.normal_dtype)((x + residual).astype(self.normal_dtype))
+            x = x + residual
             residual = x
+            x = nn.LayerNorm(dtype=self.normal_dtype)(x.astype(self.normal_dtype))
             x = CustomFeedForward(
                 self.feed_forward_dim, self.residual_dim, self.quantized_dtype
             )(x)
-            x = nn.LayerNorm(dtype=self.normal_dtype)((x + residual).astype(self.normal_dtype))
+            x = x + residual
         return x
 
 class VanillaTransformer(nn.Module):
@@ -148,16 +150,18 @@ class VanillaTransformer(nn.Module):
         
         for _ in range(self.num_blocks):
             residual = x
+            x = nn.LayerNorm()(x)
             x = CustomAttention(
                 num_heads=self.num_heads,
                 qkv_features=self.attention_dim, 
                 out_features=self.residual_dim
             )(x)
             x = nn.gelu(x)
-            x = nn.LayerNorm()(x + residual)
+            x = x + residual
             residual = x
+            x = nn.LayerNorm()(x)
             x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
-            x = nn.LayerNorm()(x + residual)
+            x = x + residual
         return x
 
 # Linear Attention Diffusion Transformer = LADiT.
@@ -234,18 +238,20 @@ class TransformerVaeEncoder(nn.Module):
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             residual = x
+            x = nn.LayerNorm()(x)
             x = MultiHeadLinearAttention(
                 attention_dim=dim, 
                 output_dim=dim,
                 num_heads=self.num_attention_heads
             )(x)
-            x = nn.LayerNorm()(x + residual)
+            x = x + residual
             residual = x
+            x = nn.LayerNorm()(x)
             x = nn.Dense(dim)(x)
             x = nn.gelu(x)
             x = nn.Dense(dim)(x)
             x = nn.gelu(x)
-            x = nn.LayerNorm()(x + residual)
+            x = x + residual
 
         flattened_shape = (x.shape[0], self.context_length * x.shape[-1])
         x = jnp.reshape(x, flattened_shape)
@@ -269,18 +275,20 @@ class TransformerVaeDecoder(nn.Module):
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             residual = x
+            x = nn.LayerNorm()(x)
             x = MultiHeadLinearAttention(
                 attention_dim=dim, 
                 output_dim=dim,
                 num_heads=self.num_attention_heads
             )(x)
-            x = nn.LayerNorm()(x + residual)
+            x = x + residual
             residual = x
+            x = nn.LayerNorm()(x)
             x = nn.Dense(dim)(x)
             x = nn.gelu(x)
             x = nn.Dense(dim)(x)
             x = nn.gelu(x)
-            x = nn.LayerNorm()(x + residual)
+            x = x + residual
 
         logits = nn.Dense(self.output_dim)(x)
         return logits

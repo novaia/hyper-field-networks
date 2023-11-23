@@ -71,7 +71,7 @@ def main():
         config = json.load(f)
 
     config['dataset'] = 'packed_cifar10_image_fields'
-    experiment_id = 1
+    experiment_id = 12
     experiment_name = f'experiment_{experiment_id}'
     project_name = 'image_field_latid_cifar10'
     project_path = os.path.join('data', project_name)

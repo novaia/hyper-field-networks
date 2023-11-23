@@ -3,120 +3,27 @@ from flax.training.train_state import TrainState
 import jax
 import jax.numpy as jnp
 from typing import List
-from hypernets.common.nn import LinearAttention
+from hypernets.common.nn import \
+    TransformerVae, TransformerVaeEncoder, TransformerVaeDecoder, \
+    binary_cross_entropy_with_logits, kl_divergence
 import optax
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
 import matplotlib.pyplot as plt
 import os
 
-@jax.vmap
-def kl_divergence(mean, logvar):
-    return -0.5 * jnp.sum(1 + logvar - jnp.square(mean) - jnp.exp(logvar))
-
-@jax.vmap
-def binary_cross_entropy_with_logits(logits, labels):
-    logits = nn.log_sigmoid(logits)
-    return -jnp.sum(labels * logits + (1.0 - labels) * jnp.log(-jnp.expm1(logits)))
-
-class AutoPositionalEmbedding(nn.Module):
-    num_positions: int
-    feature_dim: int
-
-    @nn.compact
-    def __call__(self, x):
-        positions = jnp.arange(self.num_positions)
-        e = nn.Embed(self.num_positions, self.feature_dim)(positions)
-        return x + e
-
-class TransformerEncoder(nn.Module):
-    context_length: int
-    hidden_dims: int
-    num_attention_heads: int
-    latent_dim: int
-
-    @nn.compact
-    def __call__(self, x):
-        x = AutoPositionalEmbedding(self.context_length, x.shape[-1])(x)
-        
-        for dim in self.hidden_dims:
-            x = nn.Dense(dim)(x)
-            residual = x
-            x = LinearAttention(
-                attention_dim=dim, 
-                output_dim=dim,
-                num_heads=self.num_attention_heads
-            )(x)
-            x = nn.LayerNorm()(x + residual)
-            residual = x
-            x = nn.Dense(dim)(x)
-            x = nn.gelu(x)
-            x = nn.Dense(dim)(x)
-            x = nn.gelu(x)
-            x = nn.LayerNorm()(x + residual)
-
-        flattened_shape = (x.shape[0], self.context_length * x.shape[-1])
-        x = jnp.reshape(x, flattened_shape)
-        means = nn.Dense(self.latent_dim)(x)
-        logvars = nn.Dense(self.latent_dim)(x)
-        return means, logvars
-    
-class TransformerDecoder(nn.Module):
-    context_length: int
-    hidden_dims: int
-    num_attention_heads: int
-    output_dim: int
-
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(self.context_length * self.hidden_dims[0])(x)
-        tokenized_shape = (x.shape[0], self.context_length, self.hidden_dims[0])
-        x = jnp.reshape(x, tokenized_shape)
-        x = AutoPositionalEmbedding(self.context_length, x.shape[-1])(x)
-
-        for dim in self.hidden_dims:
-            x = nn.Dense(dim)(x)
-            residual = x
-            x = LinearAttention(
-                attention_dim=dim, 
-                output_dim=dim,
-                num_heads=self.num_attention_heads
-            )(x)
-            x = nn.LayerNorm()(x + residual)
-            residual = x
-            x = nn.Dense(dim)(x)
-            x = nn.gelu(x)
-            x = nn.Dense(dim)(x)
-            x = nn.gelu(x)
-            x = nn.LayerNorm()(x + residual)
-
-        logits = nn.Dense(self.output_dim)(x)
-        return logits
-
-class TransformerVae(nn.Module):
-    encoder: nn.Module
-    decoder: nn.Module
-
-    @nn.compact
-    def __call__(self, x):
-        x, key = x
-        means, logvars = self.encoder(x)
-        x = means + jnp.exp(0.5 * logvars) * jax.random.normal(key, means.shape)
-        logits = self.decoder(x)
-        return logits, means, logvars
-
 def create_transformer_vae(
     hidden_dims, latent_dim, output_dim, context_length, num_attention_heads
 ):
     encoder_hidden_dims = hidden_dims
     decoder_hidden_dims = list(reversed(encoder_hidden_dims))
-    encoder = TransformerEncoder(
+    encoder = TransformerVaeEncoder(
         context_length=context_length,
         hidden_dims=encoder_hidden_dims,
         num_attention_heads=num_attention_heads,
         latent_dim=latent_dim
     )
-    decoder = TransformerDecoder(
+    decoder = TransformerVaeDecoder(
         context_length=context_length,
         hidden_dims=decoder_hidden_dims,
         num_attention_heads=num_attention_heads,

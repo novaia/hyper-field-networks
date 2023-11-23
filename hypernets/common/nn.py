@@ -2,6 +2,7 @@ from typing import Any
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
+from flax.linen.linear import PrecisionLike
 
 class SinusoidalEmbedding(nn.Module):
     embedding_dim:int
@@ -27,7 +28,30 @@ class SinusoidalEmbedding(nn.Module):
         )
         return embeddings
 
-class LinearAttention(nn.Module):
+def linear_attention(
+    query: jax.Array,
+    key: jax.Array,
+    value: jax.Array,
+    dtype: Any,
+    precision: PrecisionLike = None,
+):
+    feature_map = lambda x: nn.elu(x) + 1.0
+    Q = feature_map(query)
+    K = feature_map(key)
+    KV = jnp.einsum(
+        '...sh,...sh->...h', 
+        K.astype(dtype), 
+        value.astype(dtype),
+        precision=precision
+    )
+    Z = 1/(jnp.einsum(
+        '...lh,...h->...lh', 
+        Q, jnp.sum(K, axis=1, dtype=dtype),
+        precision=precision
+    ) + 1e-6)
+    return jnp.einsum("...lh,...h,...lh->...lh", Q, KV, Z)
+
+class MultiHeadLinearAttention(nn.Module):
     attention_dim:int
     output_dim:int
     num_heads:int
@@ -36,32 +60,23 @@ class LinearAttention(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        scaled_attention_dim = self.attention_dim // self.num_heads
-        def qkv_projection(x):
-            return nn.Dense(features=scaled_attention_dim, dtype=self.quantized_dtype)(x)
-        attention_head_outputs = []
-        for i in range(self.num_heads):
-            query = qkv_projection(x)
-            key = qkv_projection(x)
-            value = qkv_projection(x)
-            feature_map = lambda x: nn.elu(x) + 1.0
-            Q = feature_map(query)
-            K = feature_map(key)
-            KV = jnp.einsum(
-                'nsh,nsh->nh', 
-                K.astype(self.normal_dtype), 
-                value.astype(self.normal_dtype),
-                precision='highest'
-            )
-            Z = 1/(jnp.einsum(
-                'nlh,nh->nlh', 
-                Q, jnp.sum(K, axis=1, dtype=self.quantized_dtype),
-                precision='highest'
-            ) + 1e-6)
-            V = jnp.einsum("nlh,nh,nlh->nlh", Q, KV, Z)
-            attention_head_outputs.append(V)
-        x = jnp.concatenate(attention_head_outputs, axis=-1)
-        x = nn.Dense(features=self.output_dim, dtype=self.quantized_dtype)(x)
+        assert self.attention_dim % self.num_heads == 0, (
+            'Attention dim {self.attention_dim} must be divisible by number of heads '
+            '{self.num_heads}'
+        )
+        head_dim = self.attention_dim // self.num_heads
+        def qkv_projection(x, name):
+            return nn.DenseGeneral(
+                axis=-1, features=(self.num_heads, head_dim), 
+                dtype=self.quantized_dtype, name=name
+            )(x)
+        query = qkv_projection(x, 'query')
+        key = qkv_projection(x, 'key')
+        value = qkv_projection(x, 'value')
+        x = jax.vmap(linear_attention, in_axes=(-2, -2, -2, None, None))(
+            query, key, value, self.quantized_dtype, 'highest'
+        )
+        x = nn.DenseGeneral(features=self.output_dim, axis=(0, -1), name='out')(x)
         x = nn.gelu(x)
         return x
     
@@ -91,10 +106,10 @@ class LinearTransformer(nn.Module):
     @nn.compact
     def __call__(self, x):
         if self.remat:
-            CustomAttention = nn.remat(LinearAttention)
+            CustomAttention = nn.remat(MultiHeadLinearAttention)
             CustomFeedForward = nn.remat(FeedForward)
         else:
-            CustomAttention = LinearAttention
+            CustomAttention = MultiHeadLinearAttention
             CustomFeedForward = FeedForward
         
         for _ in range(self.num_blocks):
@@ -219,7 +234,7 @@ class TransformerVaeEncoder(nn.Module):
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             residual = x
-            x = LinearAttention(
+            x = MultiHeadLinearAttention(
                 attention_dim=dim, 
                 output_dim=dim,
                 num_heads=self.num_attention_heads
@@ -254,7 +269,7 @@ class TransformerVaeDecoder(nn.Module):
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             residual = x
-            x = LinearAttention(
+            x = MultiHeadLinearAttention(
                 attention_dim=dim, 
                 output_dim=dim,
                 num_heads=self.num_attention_heads

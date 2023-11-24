@@ -6,10 +6,8 @@ import jax
 import jax.numpy as jnp
 from typing import Dict
 
-from ..configuration_utils import ConfigMixin, flax_register_to_config
-from ..modeling_flax_utils import FlaxModelMixin
-from ..utils import BaseOutput
-from .embeddings_flax import FlaxTimestepEmbedding, FlaxTimesteps
+from .embedding import TimestepEmbedding, SinusoidalTimestepEmbedding
+from .output import BaseOutput
 from .unet import (
     CrossAttnDownBlock2d,
     CrossAttnUpBlock2d,
@@ -26,8 +24,7 @@ class UNet2dConditionalOutput(BaseOutput):
 # Refactored - done but untested
 # UNet2dConditionalModel is a conditional 2D UNet model that takes in a noisy sample, 
 # conditional state, and a timestep and returns sample shaped output.
-@flax_register_to_config
-class UNet2dConditionalModel(nn.Module, FlaxModelMixin, ConfigMixin):
+class UNet2dConditionalModel(nn.Module):
     sample_size: int = 32
     in_channels: int = 4
     out_channels: int = 4
@@ -92,12 +89,12 @@ class UNet2dConditionalModel(nn.Module, FlaxModelMixin, ConfigMixin):
             timesteps = timesteps.astype(dtype=jnp.float32)
             timesteps = jnp.expand_dims(timesteps, 0)
 
-        t_emb = FlaxTimesteps(
+        t_emb = SinusoidalTimestepEmbedding(
             block_out_channels[0], 
             flip_sin_to_cos=self.flip_sin_to_cos, 
             freq_shift=self.config.freq_shift
         )(timesteps)
-        t_emb = FlaxTimestepEmbedding(time_embed_dim, dtype=self.dtype)(t_emb)
+        t_emb = TimestepEmbedding(time_embed_dim, dtype=self.dtype)(t_emb)
 
         # 2. pre-process
         sample = jnp.transpose(sample, (0, 2, 3, 1))

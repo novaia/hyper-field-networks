@@ -1,4 +1,5 @@
-# JAX implementation of VQGAN from taming-transformers https://github.com/CompVis/taming-transformers
+# JAX implementation of VQGAN from taming-transformers:
+# https://github.com/CompVis/taming-transformers
 
 import math
 from functools import partial
@@ -10,9 +11,7 @@ import jax
 import jax.numpy as jnp
 from flax.core.frozen_dict import FrozenDict
 
-from ..configuration_utils import ConfigMixin, flax_register_to_config
-from ..modeling_flax_utils import FlaxModelMixin
-from ..utils import BaseOutput
+from .output import BaseOutput
 
 # Refactored - done but untested
 @flax.struct.dataclass
@@ -22,10 +21,11 @@ class DecoderOutput(BaseOutput):
 # Refactored - done but untested
 @flax.struct.dataclass
 class AutoencoderKlOutput(BaseOutput):
-    latent_dist: "FlaxDiagonalGaussianDistribution"
+    # TODO: I had to add str= here, not sure if it is correct.
+    latent_dist:str = "FlaxDiagonalGaussianDistribution"
 
 # Refactored - done but untested
-class Upample2d(nn.Module):
+class Upsample2d(nn.Module):
     in_channels: int
     dtype: jnp.dtype = jnp.float32
 
@@ -171,7 +171,7 @@ class DownEncoderBlock2d(nn.Module):
     @nn.compact
     def __call__(self, hidden_states, deterministic=True):
         if self.add_downsample:
-            self.downsamplers_0 = FlaxDownsample2D(self.out_channels, dtype=self.dtype)
+            self.downsamplers_0 = Downsample2d(self.out_channels, dtype=self.dtype)
 
         for i in range(self.num_layers):
             in_channels = self.in_channels if i == 0 else self.out_channels
@@ -201,7 +201,7 @@ class UpDecoderBlock2d(nn.Module):
     def __call__(self, hidden_states, deterministic=True):
         for i in range(self.num_layers):
             in_channels = self.in_channels if i == 0 else self.out_channels
-            hidden_states = ResnetBlock2D(
+            hidden_states = ResnetBlock2d(
                 in_channels=in_channels,
                 out_channels=self.out_channels,
                 dropout=self.dropout,
@@ -244,7 +244,7 @@ class UNetMidBlock2d(nn.Module):
                 dtype=self.dtype,
             )(hidden_states)
 
-            hidden_states = ResnetBlock2D(
+            hidden_states = ResnetBlock2d(
                 in_channels=self.in_channels,
                 out_channels=self.in_channels,
                 dropout=self.dropout,
@@ -414,8 +414,7 @@ class DiagonalGaussianDistribution(object):
         return self.mean
     
 # Refactored - done but untested
-@flax_register_to_config
-class AutoencoderKl(nn.Module, FlaxModelMixin, ConfigMixin):
+class AutoencoderKl(nn.Module):
     in_channels: int = 3
     out_channels: int = 3
     down_block_types: Tuple[str] = ("DownEncoderBlock2D",)

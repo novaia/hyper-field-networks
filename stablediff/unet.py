@@ -1,8 +1,8 @@
 import flax.linen as nn
 import jax.numpy as jnp
 
-from .attention_flax import FlaxTransformer2DModel
-from .resnet_flax import Downsample2d, ResnetBlock2d, Upsample2d
+from .attention import Transformer2dModel
+from .resnet import Downsample2d, ResnetBlock2d, Upsample2d
 
 # Refactored - done but untested
 class CrossAttnDownBlock2d(nn.Module):
@@ -28,7 +28,7 @@ class CrossAttnDownBlock2d(nn.Module):
                 dtype=self.dtype,
             )(hidden_states, temb, deterministic=deterministic)
 
-            hidden_states = FlaxTransformer2DModel(
+            hidden_states = Transformer2dModel(
                 in_channels=self.out_channels,
                 n_heads=self.attn_num_head_channels,
                 d_head=self.out_channels // self.attn_num_head_channels,
@@ -103,7 +103,7 @@ class CrossAttnUpBlock2d(nn.Module):
                 dtype=self.dtype,
             )(hidden_states, temb, deterministic=deterministic)
 
-            hidden_states = FlaxTransformer2DModel(
+            hidden_states = Transformer2dModel(
                 in_channels=self.out_channels,
                 n_heads=self.attn_num_head_channels,
                 d_head=self.out_channels // self.attn_num_head_channels,
@@ -171,7 +171,7 @@ class UNetMidBlock2dCrossAttn(nn.Module):
         )(hidden_states, temb)
 
         for _ in range(self.num_layers-1):
-            hidden_states = FlaxTransformer2DModel(
+            hidden_states = Transformer2dModel(
                 in_channels=self.in_channels,
                 n_heads=self.attn_num_head_channels,
                 d_head=self.in_channels // self.attn_num_head_channels,

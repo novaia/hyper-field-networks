@@ -25,10 +25,14 @@ class BaseOutput(OrderedDict):
                     self[field.name] = v
 
     def __delitem__(self, *args, **kwargs):
-        raise Exception(f"You cannot use ``__delitem__`` on a {self.__class__.__name__} instance.")
+        raise Exception(
+            f"You cannot use ``__delitem__`` on a {self.__class__.__name__} instance."
+        )
 
     def setdefault(self, *args, **kwargs):
-        raise Exception(f"You cannot use ``setdefault`` on a {self.__class__.__name__} instance.")
+        raise Exception(
+            f"You cannot use ``setdefault`` on a {self.__class__.__name__} instance."
+        )
 
     def pop(self, *args, **kwargs):
         raise Exception(f"You cannot use ``pop`` on a {self.__class__.__name__} instance.")

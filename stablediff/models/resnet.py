@@ -50,6 +50,7 @@ class ResnetBlock2d(nn.Module):
     use_nin_shortcut: bool = None
     dtype: jnp.dtype = jnp.float32
 
+    @nn.compact
     def __call__(self, hidden_states, temb, deterministic=True):
         out_channels = self.in_channels if self.out_channels is None else self.out_channels
         residual = hidden_states

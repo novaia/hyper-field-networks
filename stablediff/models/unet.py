@@ -82,6 +82,7 @@ class CrossAttnUpBlock2d(nn.Module):
     add_upsample: bool = True
     use_linear_projection: bool = False
     only_cross_attention: bool = False
+    dtype: jnp.dtype = jnp.float32
 
     @nn.compact
     def __call__(
@@ -89,13 +90,19 @@ class CrossAttnUpBlock2d(nn.Module):
         deterministic:bool = True
     ):
         for i in range(self.num_layers):
+            if i == self.num_layers - 1:
+                res_skip_channels = self.in_channels
+            else:
+                res_skip_channels = self.out_channels
+            if i == 0:
+                resnet_in_channels = self.prev_output_channel
+            else:
+                resnet_in_channels = self.out_channels
+
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
             hidden_states = jnp.concatenate((hidden_states, res_hidden_states), axis=-1)
-            
-            res_skip_channels = self.in_channels if (i == self.num_layers - 1) else self.out_channels
-            resnet_in_channels = self.prev_output_channel if i == 0 else self.out_channels
             hidden_states = ResnetBlock2d(
                 in_channels=resnet_in_channels + res_skip_channels,
                 out_channels=self.out_channels,
@@ -130,16 +137,20 @@ class UpBlock2d(nn.Module):
     @nn.compact
     def __call__(self, hidden_states, res_hidden_states_tuple, temb, deterministic=True):
         for i in range(self.num_layers):
+            if i == self.num_layers - 1:
+                res_skip_channels = self.in_channels
+            else:
+                res_skip_channels = self.out_channels
+            if i == 0:
+                resnet_in_channels = self.prev_output_channel
+            else:
+                resnet_in_channels = self.out_channels
+            
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
             hidden_states = jnp.concatenate((hidden_states, res_hidden_states), axis=-1)
 
-            if i == self.num_layers - 1:
-                res_skip_channels = self.in_channels
-            else:
-                res_skip_channels = self.out_channels
-            resnet_in_channels = self.prev_output_channel if i == 0 else self.out_channels
             hidden_states = ResnetBlock2d(
                 in_channels=resnet_in_channels + res_skip_channels,
                 out_channels=self.out_channels,

@@ -11,7 +11,7 @@ class AttentionBlock(nn.Module):
 
     @nn.compact
     def __call__(self, hidden_states, context=None, deterministic:bool = True):
-        def reshape_heads_to_batch_dim(self, tensor):
+        def reshape_heads_to_batch_dim(tensor):
             batch_size, seq_len, dim = tensor.shape
             head_size = self.heads
             tensor = tensor.reshape(batch_size, seq_len, head_size, dim // head_size)
@@ -19,7 +19,7 @@ class AttentionBlock(nn.Module):
             tensor = tensor.reshape(batch_size * head_size, seq_len, dim // head_size)
             return tensor
         
-        def reshape_batch_dim_to_heads(self, tensor):
+        def reshape_batch_dim_to_heads(tensor):
             batch_size, seq_len, dim = tensor.shape
             head_size = self.heads
             tensor = tensor.reshape(batch_size // head_size, head_size, seq_len, dim)
@@ -45,8 +45,9 @@ class AttentionBlock(nn.Module):
         value_states = reshape_heads_to_batch_dim(value_proj)
 
         # compute attentions
+        scale = self.dim_head**-0.5
         attention_scores = jnp.einsum("b i d, b j d->b i j", query_states, key_states)
-        attention_scores = attention_scores * self.scale
+        attention_scores = attention_scores * scale
         attention_probs = nn.softmax(attention_scores, axis=2)
 
         # attend to values
@@ -90,7 +91,7 @@ class BasicTransformerBlock(nn.Module):
 
         # feed forward
         residual = hidden_states
-        hidden_states = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype)
+        hidden_states = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype)(hidden_states)
         hidden_states = GluFeedForward(
             dim=self.dim, dropout=self.dropout, dtype=self.dtype
         )(hidden_states, deterministic=deterministic)
@@ -141,7 +142,7 @@ class Transformer2dModel(nn.Module):
                 dropout=self.dropout,
                 only_cross_attention=self.only_cross_attention,
                 dtype=self.dtype,
-            )(hidden_states)
+            )(hidden_states, context, deterministic=deterministic)
 
         # project out
         if self.use_linear_projection:
@@ -170,7 +171,9 @@ class GluFeedForward(nn.Module):
     def __call__(self, hidden_states, deterministic=True):
         # The second linear layer needs to be called
         # net_2 for now to match the index of the Sequential layer
-        hidden_states = GegluFeedForward(self.dim, self.dropout, self.dtype, name='net_0')(hidden_states)
+        hidden_states = GegluFeedForward(
+            self.dim, self.dropout, self.dtype, name='net_0'
+        )(hidden_states)
         hidden_states = nn.Dense(self.dim, dtype=self.dtype, name='net_2')(hidden_states)
         return hidden_states
 
@@ -182,6 +185,7 @@ class GegluFeedForward(nn.Module):
     dropout: float = 0.0
     dtype: jnp.dtype = jnp.float32
 
+    @nn.compact
     def __call__(self, hidden_states, deterministic=True):
         inner_dim = self.dim * 4
         hidden_states = nn.Dense(inner_dim * 2, dtype=self.dtype)(hidden_states)

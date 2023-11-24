@@ -28,6 +28,7 @@ class UNet2dConditionalModel(nn.Module):
     sample_size: int = 32
     in_channels: int = 4
     out_channels: int = 4
+    # TODO: switch these to enums because strings are too error prone.
     down_block_types: Tuple[str] = (
         "CrossAttnDownBlock2d",
         "CrossAttnDownBlock2d",
@@ -63,6 +64,7 @@ class UNet2dConditionalModel(nn.Module):
 
         return self.init(rngs, sample, timesteps, encoder_hidden_states)["params"]
 
+    @nn.compact
     def __call__(
         self,
         sample,
@@ -92,7 +94,7 @@ class UNet2dConditionalModel(nn.Module):
         t_emb = SinusoidalTimestepEmbedding(
             block_out_channels[0], 
             flip_sin_to_cos=self.flip_sin_to_cos, 
-            freq_shift=self.config.freq_shift
+            freq_shift=self.freq_shift
         )(timesteps)
         t_emb = TimestepEmbedding(time_embed_dim, dtype=self.dtype)(t_emb)
 
@@ -107,13 +109,14 @@ class UNet2dConditionalModel(nn.Module):
         )(sample)
 
         # 3. down
+        down_block_res_samples = (sample,)
         output_channel = block_out_channels[0]
         for i, down_block_type in enumerate(self.down_block_types):
             input_channel = output_channel
             output_channel = block_out_channels[i]
             is_final_block = i == len(block_out_channels) - 1
 
-            if down_block_type == "CrossAttnDownBlock2D":
+            if down_block_type == "CrossAttnDownBlock2d":
                 sample, res_samples = CrossAttnDownBlock2d(
                     in_channels=input_channel,
                     out_channels=output_channel,
@@ -154,13 +157,14 @@ class UNet2dConditionalModel(nn.Module):
             res_samples = down_block_res_samples[-(self.layers_per_block + 1) :]
             down_block_res_samples = down_block_res_samples[: -(self.layers_per_block + 1)]
 
-            if up_block_type == "CrossAttnUpBlock2D":
-                prev_output_channel = output_channel
-                output_channel = reversed_block_out_channels[i]
-                input_channel = reversed_block_out_channels[
-                    min(i + 1, len(block_out_channels) - 1)
-                ]
+            is_final_block = i == len(block_out_channels) - 1
+            prev_output_channel = output_channel
+            output_channel = reversed_block_out_channels[i]
+            input_channel = reversed_block_out_channels[
+                min(i + 1, len(block_out_channels) - 1)
+            ]
 
+            if up_block_type == "CrossAttnUpBlock2d":
                 sample = CrossAttnUpBlock2d(
                     in_channels=input_channel,
                     out_channels=output_channel,

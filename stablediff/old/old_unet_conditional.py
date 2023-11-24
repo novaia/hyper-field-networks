@@ -122,6 +122,7 @@ class UNet2dConditionalModel(nn.Module, FlaxModelMixin, ConfigMixin):
         )(sample)
 
         # 3. down
+        down_block_res_samples = (sample,)
         output_channel = block_out_channels[0]
         for i, down_block_type in enumerate(self.down_block_types):
             input_channel = output_channel

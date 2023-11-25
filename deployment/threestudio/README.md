@@ -9,6 +9,22 @@ This version branches from the original at the following commit:
 f3d8a3a6a1bfdc2a4e69d646bcebf0bf3fe2176f
 ```
 
+## Example Prompts
+```
+a tiger karate master
+```
+```
+a zoomed out DSLR photo of a yorkie dog dressed as a maid
+```
+```
+Michelangelo style statue of an astronaut
+```
+
+## Training DreamFusion
+```
+python launch.py --config configs/dreamfusion-sd.yaml --train --gpu 0 system.prompt_processor.prompt="a tiger karate master"
+```
+
 ## Citation
 ```bibtex
 @Misc{threestudio2023,

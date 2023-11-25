@@ -47,3 +47,7 @@ cufile.log
 
 # Wandb
 wandb
+
+# Threestudio
+deployment/threestudio/load
+deployment/threestudio/extern/ldm_zero123/modules/image_degradation/utils/test.png

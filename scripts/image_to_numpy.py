@@ -8,6 +8,7 @@ def main():
     parser.add_argument('--input_path', type=str, required=True)
     parser.add_argument('--output_path', type=str, required=True)
     parser.add_argument('--input_extension', type=str, default='jpg')
+    parser.add_argument('--num_channels', type=int, default=3)
     args = parser.parse_args()
 
     if not os.path.exists(args.output_path):
@@ -18,7 +19,7 @@ def main():
         if not file_name.endswith('.' + args.input_extension):
             continue
         image = Image.open(os.path.join(args.input_path, file_name))
-        image_array = jnp.array(image)
+        image_array = jnp.array(image)[..., :args.num_channels]
         jnp.save(os.path.join(args.output_path, f'{i}.npy'), image_array)
         image.close()
         print(f'Converted {file_name}')

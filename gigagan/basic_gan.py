@@ -147,8 +147,8 @@ def main():
 
     data_iterator = get_data_iterator(dataset_path, batch_size)
     for epoch in range(num_epochs):
-        for batch in data_iterator:
-            batch = batch['x']
+        for step, batch in enumerate(data_iterator):
+            batch = batch['x']/255.
             losses, generator_state, discriminator_state = train_step(
                 discriminator_state=discriminator_state,
                 generator_state=generator_state,
@@ -159,15 +159,19 @@ def main():
             )
             generator_loss, disciminator_loss = losses
             print('Gen Loss:', generator_loss, 'Disc Loss:', disciminator_loss)
+            if step % 100 == 0 and step > 0:
+                latent_shape = (4, latent_height, latent_width, 1)
+                latent_key = jax.random.PRNGKey(generator_state.step)
+                latent_input = jax.random.normal(latent_key, latent_shape)
+                generated_images = generator_state.apply_fn(
+                    {'params': generator_state.params}, latent_input
+                )
+                for i in range(generated_images.shape[0]):
+                    plt.imsave(
+                        os.path.join(save_path, f'epoch{epoch}_step{step}_image{i}.png'), 
+                        generated_images[i]
+                    )
         print(f'Finished epoch {epoch}')
-        latent_shape = (4, latent_height, latent_width, 1)
-        latent_key = jax.random.PRNGKey(generator_state.step)
-        latent_input = jax.random.normal(latent_key, latent_shape)
-        generated_images = generator_state.apply_fn(
-            {'params': generator_state.params}, latent_input
-        )
-        for i in range(generated_images.shape[0]):
-            plt.imsave(os.path.join(save_path, f'epoch{epoch}_image{i}.png'), generated_images[i])
 
 
 if __name__ == '__main__':

@@ -35,17 +35,19 @@ class Generator(nn.Module):
     widths: List[int]
     block_depth: int
     num_groups: int = 32
+    channels: int = 3
+    smallest_side: int = 8
 
     @nn.compact
     def __call__(self, x):
-        x = nn.Dense(8**2)(x)
-        x = jnp.reshape(x, (x.shape[0], 8, 8, 1))
+        x = nn.Dense(self.smallest_side*self.smallest_side*self.channels)(x)
+        x = jnp.reshape(x, (x.shape[0], self.smallest_side, self.smallest_side, self.channels))
         for width in self.widths:
             upsample_shape = (x.shape[0], x.shape[1] * 2, x.shape[2] * 2, x.shape[3])
             x = jax.image.resize(x, upsample_shape, method='bilinear')
             for _ in range(self.block_depth):
                 x = ResidualBlock(width, activation=nn.relu, num_groups=self.num_groups)(x)
-        x = nn.Conv(3, kernel_size=(1, 1))(x)
+        x = nn.Conv(self.channels, kernel_size=(3, 3), padding='same')(x)
         x = nn.sigmoid(x)
         return x
     
@@ -83,12 +85,11 @@ def train_step(generator_state, discriminator_state, real_data, key, latent_dim,
         logits = discriminator_state.apply_fn(
             {'params': params}, real_and_fake_data
         )
-        loss = jnp.sum(optax.sigmoid_binary_cross_entropy(logits, real_and_fake_labels))
+        loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, real_and_fake_labels))
         return loss
     discriminator_grad_fn = jax.value_and_grad(discriminator_loss_fn)
     discriminator_loss, discriminator_grads = discriminator_grad_fn(discriminator_state.params)
     discriminator_state = discriminator_state.apply_gradients(grads=discriminator_grads)
-
 
     def generator_loss_fn(params):
         fake_data = generator_state.apply_fn(
@@ -97,8 +98,9 @@ def train_step(generator_state, discriminator_state, real_data, key, latent_dim,
         logits = discriminator_state.apply_fn(
             {'params': discriminator_state.params}, fake_data
         )
-        loss = jnp.sum(optax.sigmoid_binary_cross_entropy(logits, real_labels))
+        loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, real_labels))
         return loss
+
     generator_grad_fn = jax.value_and_grad(generator_loss_fn)
     generator_loss, generator_grads = generator_grad_fn(generator_state.params)
     generator_state = generator_state.apply_gradients(grads=generator_grads)
@@ -126,6 +128,8 @@ def generate_and_save_previews(latent_dim, generator_state, save_path):
     generated_images = generator_state.apply_fn(
         {'params': generator_state.params}, latent_input
     )
+    if generated_images.shape[-1] == 1:
+        generated_images = jnp.squeeze(generated_images, axis=-1)
     for i in range(generated_images.shape[0]):
         plt.imsave(
             os.path.join(save_path, f'step{generator_state.step}_image{i}.png'), 
@@ -137,10 +141,18 @@ def main():
     batch_size = 64
     num_epochs = 10
     learning_rate = 3e-4
-    dataset_path = 'data/cifar10_numpy'
+    channels = 1
+    smallest_side = 7
+    dataset_path = 'data/mnist_numpy'
     save_path = 'data/gan_generations'
-    generator = Generator(widths=[32, 32], block_depth=2, num_groups=2)
-    discriminator = Discriminator(widths=[32, 32], block_depth=2, num_groups=2)
+    generator = Generator(
+        widths=[32, 32], 
+        block_depth=1, 
+        num_groups=2, 
+        channels=channels, 
+        smallest_side=smallest_side
+    )
+    discriminator = Discriminator(widths=[4, 8], block_depth=1, num_groups=2)
 
     key = jax.random.PRNGKey(0)
     latent_input = jnp.ones((1, latent_dim))
@@ -156,7 +168,10 @@ def main():
         key, generator_output
     )
     discriminator_params = discriminator_variables['params']
-    discriminator_tx = optax.adam(learning_rate)
+    discriminator_schedule = optax.linear_schedule(
+        init_value=0.0, end_value=learning_rate, transition_steps=500
+    )
+    discriminator_tx = optax.adam(discriminator_schedule)
     discriminator_state = TrainState.create(
         apply_fn=discriminator.apply, params=discriminator_params, tx=discriminator_tx
     )
@@ -177,8 +192,7 @@ def main():
             )
             generator_loss, disciminator_loss = losses
             print(loss_message.format(generator_loss, disciminator_loss))
-            if generator_state.step % 100 == 0 and generator_state.step > 0:
-                generate_and_save_previews(latent_dim, generator_state, save_path)   
+        generate_and_save_previews(latent_dim, generator_state, save_path)   
         print(f'Finished epoch {epoch}')
 
 

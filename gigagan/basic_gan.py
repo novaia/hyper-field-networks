@@ -63,8 +63,8 @@ class Discriminator(nn.Module):
                 )(x)
             x = nn.avg_pool(x, window_shape=(2, 2), strides=(2, 2))
         x = nn.Conv(1, kernel_size=(1, 1))(x)
-        x = jnp.squeeze(x, axis=-1)
-        x = nn.DenseGeneral(1, axis=(-1, -2))(x)
+        x = jnp.mean(x, axis=(-1, -2))
+        x = nn.Dense(1)(x)
         return x
 
 @partial(jax.jit, static_argnames=['latent_dim', 'batch_size'])
@@ -139,8 +139,8 @@ def main():
     learning_rate = 3e-4
     dataset_path = 'data/cifar10_numpy'
     save_path = 'data/gan_generations'
-    generator = Generator(widths=[8, 8], block_depth=2, num_groups=2)
-    discriminator = Discriminator(widths=[8, 8], block_depth=2, num_groups=2)
+    generator = Generator(widths=[32, 32], block_depth=2, num_groups=2)
+    discriminator = Discriminator(widths=[32, 32], block_depth=2, num_groups=2)
 
     key = jax.random.PRNGKey(0)
     latent_input = jnp.ones((1, latent_dim))

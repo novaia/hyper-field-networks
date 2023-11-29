@@ -3,21 +3,50 @@ import jax.numpy as jnp
 import jax
 from jax import lax
 from typing import Tuple, List, Union
+from functools import partial
 
 def normalize(x:jax.Array, eps:float = 1e-12, axis:int = 1):
     return x / jnp.clip(jnp.linalg.norm(x, axis=axis), a_min=eps)
 
-def patchify(x, patch_size):
+@partial(jax.jit, static_argnames=['patch_size', 'channels'])
+def patchify(x, patch_size, channels):
+    def get_patch(x, horizontal_id, vertical_id):
+        start_indices = [horizontal_id, vertical_id, 0]
+        slice_sizes = [patch_size, patch_size, channels]
+        patch = lax.dynamic_slice(x, start_indices, slice_sizes)
+        return jnp.ravel(patch)
+
+    num_patches_across = (x.shape[1] // patch_size)
+    num_patches_total = num_patches_across**2 
+    indices = jnp.arange(num_patches_across) * patch_size
+    horizontal_indices, vertical_indices = jnp.meshgrid(indices, indices)
+    patches = jax.vmap(
+        jax.vmap(get_patch, in_axes=(None, 0, 0)), in_axes=(None, 0, 0)
+    )(x, horizontal_indices, vertical_indices)
+    patches = jnp.reshape(patches, (num_patches_total, patch_size*patch_size*3))
+    return patches, num_patches_across, num_patches_total
+
+@partial(jax.jit, static_argnames=['patch_size', 'num_patches_across'])
+def depatchify(x, patch_size, num_patches_across, num_patches_total):
+    x = jnp.reshape(x, (num_patches_total, patch_size, patch_size, 3))
+    x = jnp.array(jnp.split(x, num_patches_across, axis=0))
+    x = jax.vmap(lambda a: jnp.concatenate(a, axis=0), in_axes=0)(x)
+    x = jnp.concatenate(x, axis=1)
     return x
 
-def depatchify(x):
-    return x
+# Swaps channel and spatial axes of an image tensor so that channel axis comes first.
+# NHWC -> NCWH -> NCHW.
+def swap_channel_first(x):
+    return jnp.swapaxes(jnp.swapaxes(x, 1, 3), 2, 3)
+
+# Swaps channel and spatial axes of an image tensor so that spatial axes come first.
+# NCHW -> NCWH -> NHWC.
+def swap_spatial_first(x):
+    return jnp.swapaxes(jnp.swapaxes(x, 3, 1), 2, 1)
 
 # Style mapper M which maps latent code z and text descriptor t_global to style vector w.
 class StyleMapper(nn.Module):
-    # Mapping Network M layer depth.
     depth: int
-    # w dimension.
     dim: int
 
     @nn.compact
@@ -136,10 +165,13 @@ class SynthesisBlockAttention(nn.Module):
 
     @nn.compact
     def __call__(self, x, w, t_local):
-        x = patchify(x, self.patch_size)
+        # Patch functions expect spatial axes to come before the channel axis.
+        x = swap_spatial_first(x)
+        x = patchify(x, self.patch_size, x.shape[-1])
         x = SelfAttention()(x, w)
         x = CrossAttention()(x, t_local)
         x = depatchify(x)
+        x = swap_channel_first(x)
 
 class SynthesisBlock(nn.Module):
     depth: int

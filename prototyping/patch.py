@@ -7,12 +7,13 @@ from functools import partial
 
 image = Image.open('data/ngp_image_old.png')
 image = jnp.array(image)[..., :-1]
+print('image', image.shape)
 
-@partial(jax.jit, static_argnames=['patch_size'])
-def patchify(x, patch_size):
+@partial(jax.jit, static_argnames=['patch_size', 'channels'])
+def patchify(x, patch_size, channels):
     def get_patch(x, horizontal_id, vertical_id):
         start_indices = [horizontal_id, vertical_id, 0]
-        slice_sizes = [patch_size, patch_size, 3]
+        slice_sizes = [patch_size, patch_size, channels]
         patch = lax.dynamic_slice(x, start_indices, slice_sizes)
         return jnp.ravel(patch)
 
@@ -34,8 +35,9 @@ def depatchify(x, patch_size, num_patches_across, num_patches_total):
     x = jnp.concatenate(x, axis=1)
     return x
 
+channels = 3
 patch_size = 8
-patches, num_patches_across, num_patches_total = patchify(image, patch_size)
+patches, num_patches_across, num_patches_total = patchify(image, patch_size, channels)
 #print('patches', patches.shape)
 #for i in range(patches.shape[0]):
 #    plt.imsave(f'data/patches/{i}.png', patches[i])

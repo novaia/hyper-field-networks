@@ -37,7 +37,23 @@ filters = jnp.einsum('nfchw,n...hw->nfchw', filters, 1.0 / filterwise_norm)
 print('demodulated filters', filters.shape)
 x = jnp.ones((batch_size, channels_in, image_height, image_width))
 print('x', x.shape)
-# TODO: figure out how to implement grouped convolutions
-# lhs should be nchw, rhs should be fchw
-# y = lax.conv(lhs=x, rhs=filters, padding='same', window_strides=(1, 1))
-# print('y', y.shape)
+batch_size = filters.shape[0]
+# nchw - > 1(nc)hw
+grouped_x_shape = (1, batch_size * channels_in, image_height, image_width)
+x = jnp.reshape(x, grouped_x_shape)
+print('grouped x shape', x.shape)
+# nfchw -> (nf)chw
+grouped_filters_shape = (batch_size * num_filters, channels_in, kernel_size, kernel_size)
+filters = jnp.reshape(filters, grouped_filters_shape)
+print('grouped filters shape', filters.shape)
+# lhs should be nchw, rhs should be (nf)chw for groups = n
+y = lax.conv_general_dilated(
+    lhs=x, 
+    rhs=filters, 
+    feature_group_count=batch_size, 
+    padding='SAME', 
+    window_strides=(1, 1)
+)
+print('y', y.shape)
+y = jnp.reshape(y, (batch_size, num_filters, image_height, image_width))
+print('y final', y.shape)

@@ -77,6 +77,32 @@ class AdaptiveConv(nn.Module):
             jnp.clamp(jnp.einsum('nfchw,nfchw->nhw', filters, filters), a_min=self.eps)
         )
         filters = jnp.einsum('nfchw,n...hw->nfchw', filters, 1.0 / filterwise_norm)
+        
+        batch_size = filters.shape[0]
+        input_height = x.shape[-2]
+        input_width = x.shape[-1]
+
+        # TODO: verify correctness of grouped convolutions.
+        # nchw - > 1(nc)hw
+        grouped_x_shape = (1, batch_size * channels_in, input_height, input_width)
+        x = jnp.reshape(x, grouped_x_shape)
+        # nfchw -> (nf)chw
+        grouped_filters_shape = (
+            batch_size * self.num_filters, 
+            channels_in, 
+            self.kernel_size, 
+            self.kernel_size)
+        filters = jnp.reshape(filters, grouped_filters_shape)
+        # lhs should be nchw, rhs should be (nf)chw for groups = n
+        x = lax.conv_general_dilated(
+            lhs=x, 
+            rhs=filters, 
+            feature_group_count=batch_size, 
+            padding='SAME', 
+            window_strides=(1, 1)
+        )
+        x = jnp.reshape(x, (batch_size, self.num_filters, input_height, input_width))
+        return x
 
 class Generator(nn.Module):
     pretrained_text_encoder: nn.Module

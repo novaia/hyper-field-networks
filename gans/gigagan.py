@@ -202,16 +202,17 @@ class Generator(nn.Module):
         x = self.params(
             'learned_constant', 
             nn.initializers.normal(), 
-            self.learned_constant_shape
+            (self.lowest_resolution, self.lowest_resolution, self.image_channels)
         )
 
         attention_depth_id = 0
         image_pyramid = []
         pyramid_levels = len(self.synthesis_block_depths)
+        current_resolution = self.lowest_resolution
         
         for l in range(pyramid_levels):
             attention_depth = None
-            if 2*l in self.attention_resolutions:
+            if current_resolution in self.attention_resolutions:
                 attention_depth = self.attention_depths[attention_depth_id]
                 attention_resolution_id += 1
             
@@ -228,5 +229,6 @@ class Generator(nn.Module):
             image_pyramid.append(image)
             if l < self.pyramid_levels - 1:
                 x = UpSample()
+                current_resolution *= 2
 
         return image_pyramid

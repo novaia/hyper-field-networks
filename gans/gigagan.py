@@ -44,6 +44,20 @@ def swap_channel_first(x):
 def swap_spatial_first(x):
     return jnp.swapaxes(jnp.swapaxes(x, 3, 1), 2, 1)
 
+# The GigaGAN paper uses L2 distance attention instead of dot product attention because it has 
+# a better Lipschitz constant which is important for discriminator stability. 
+@jax.jit
+def l2_attention_weights(key, query):
+    l2_squared = jax.vmap(
+        jax.vmap(
+            lambda k, q: jnp.sum((q - k)**2, axis=-1), 
+            in_axes=(0, None)
+        ), 
+        in_axes=(None, 0)
+    )(key, query)
+    weights = nn.softmax(-l2_squared)
+    return weights
+
 # Style mapper M which maps latent code z and text descriptor t_global to style vector w.
 class StyleMapper(nn.Module):
     depth: int
@@ -167,10 +181,10 @@ class SynthesisBlockAttention(nn.Module):
     def __call__(self, x, w, t_local):
         # Patch functions expect spatial axes to come before the channel axis.
         x = swap_spatial_first(x)
-        x = patchify(x, self.patch_size, x.shape[-1])
+        x = jax.vmap(patchify, in_axes=(0, None, None))(x, self.patch_size, x.shape[-1])
         x = SelfAttention()(x, w)
         x = CrossAttention()(x, t_local)
-        x = depatchify(x)
+        x = jax.vmap(depatchify, in_axes=0)(x)
         x = swap_channel_first(x)
 
 class SynthesisBlock(nn.Module):

@@ -76,6 +76,8 @@ class MultiHeadLinearAttention(nn.Module):
         x = jax.vmap(linear_attention, in_axes=(-2, -2, -2, None, None))(
             query, key, value, self.quantized_dtype, 'highest'
         )
+        # TODO: double check that these are the correct axes. 
+        # There might be cross batch contamination.
         x = nn.DenseGeneral(features=self.output_dim, axis=(0, -1), name='out')(x)
         x = nn.gelu(x)
         return x

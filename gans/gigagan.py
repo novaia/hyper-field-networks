@@ -47,7 +47,7 @@ def swap_spatial_first(x):
 # The GigaGAN paper uses L2 distance attention instead of dot product attention because it has 
 # a better Lipschitz constant which is important for discriminator stability. 
 @jax.jit
-def l2_attention_weights(key, query):
+def l2_attention(key, query, value):
     l2_squared = jax.vmap(
         jax.vmap(
             lambda k, q: jnp.sum((q - k)**2, axis=-1), 
@@ -56,7 +56,8 @@ def l2_attention_weights(key, query):
         in_axes=(None, 0)
     )(key, query)
     weights = nn.softmax(-l2_squared)
-    return weights
+    # TODO: verify that reduction is on the correct axis.
+    return weights @ value
 
 # Style mapper M which maps latent code z and text descriptor t_global to style vector w.
 class StyleMapper(nn.Module):

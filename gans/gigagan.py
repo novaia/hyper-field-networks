@@ -4,6 +4,8 @@ import jax
 from jax import lax
 from typing import Tuple, List, Union
 from functools import partial
+from nvidia.dali import pipeline_def, fn
+from nvidia.dali.plugin.jax import DALIGenericIterator
 
 def normalize(x:jax.Array, eps:float = 1e-12, axis:int = 1):
     return x / jnp.clip(jnp.linalg.norm(x, axis=axis, keepdims=True), a_min=eps)
@@ -107,6 +109,27 @@ def modulated_conv(x, conv_filter, modulation_scales, stride=1, eps=1e-8):
     )
     x = jnp.reshape(x, (batch_size, num_features, input_height, input_width))
     return x
+
+@jax.jit
+def concat_real_and_fake(real, fake):
+    result = []
+    for i in range(len(real)):
+        result.append(jnp.concatenate([real[i], fake[i]], axis=0))
+    return result
+
+@partial(jax.jit, static_argnames=['levels'])
+def make_image_pyramid(image, levels):
+    pyramid = [image]
+    for _ in range(1, levels):
+        last_image = pyramid[-1]
+        new_shape = (
+            last_image.shape[0], 
+            last_image.shape[1], 
+            last_image.shape[2]//2, 
+            last_image.shape[3]//2
+        )
+        pyramid.append(jax.image.resize(image, new_shape, method='bilinear'))
+    return pyramid
 
 # Style mapper M which maps latent code z and text descriptor t_global to style vector w.
 class StyleMapper(nn.Module):
@@ -426,7 +449,7 @@ class Generator(nn.Module):
             if l < pyramid_levels - 1:
                 x = UpSample()(x)
                 current_resolution *= 2
-        return image_pyramid
+        return list(reversed(image_pyramid))
 
 class ExtractorBlockAttention(nn.Module):
     depth: int
@@ -532,16 +555,16 @@ class Discriminator(nn.Module):
         )(t)
 
         attention_depth_id = 0
-        predictions = []
+        logits = []
         pyramid_levels = len(image_pyramid)
         assert pyramid_levels== len(self.extractor_block_depths), (
             f'len(image_pyramid) {pyramid_levels} does not match '
             f'len(self.extractor_block_depths) {len(self.extractor_block_depths)}'
         )
 
-        for l in range(pyramid_levels-1, -1, -1):
+        for l in range(pyramid_levels):
             input_image = image_pyramid[l]
-            if l == pyramid_levels-1:
+            if l == 0:
                 x = input_image
             else:
                 x = jnp.concatenate([x, input_image], axis=1)
@@ -559,12 +582,59 @@ class Discriminator(nn.Module):
                 patch_size=self.patch_size,
                 attention_depth=attention_depth
             )(x)
-            predictions.append(Predictor(4)(x, t_global))
-        return predictions
+            logits.append(Predictor(4)(x, t_global))
+        logits = jnp.array(logits).T
+        return logits
+
+def get_data_iterator(dataset_path, batch_size, num_threads=3):
+    @pipeline_def
+    def my_pipeline_def():
+        data = fn.readers.numpy(
+            device='cpu', 
+            file_root=dataset_path, 
+            file_filter='*.npy', 
+            shuffle_after_epoch=True,
+            name='r'
+        )
+        return data
+    my_pipeline = my_pipeline_def(batch_size=batch_size, num_threads=num_threads, device_id=0)
+    iterator = DALIGenericIterator(pipelines=[my_pipeline], output_map=['x'], reader_name='r')
+    return iterator
+
+def train_step(
+    gen_state, disc_state, real_data, pyramid_levels, latent_dim, text_encoding, 
+    batch_size, key
+):
+    latent_noise = jax.random.normal(key, (batch_size, latent_dim))
+    real_data = make_image_pyramid(real_data, pyramid_levels)
+
+    def disc_loss_fn(disc_params):
+        x = gen_state.apply_fn({'params': gen_state.gen_params}, latent_noise, text_encoding)
+        real_and_fake_x = concat_real_and_fake(real_data, x)
+        logits = disc_state.apply_fn({'params': disc_params}, real_and_fake_x, text_encoding)
+        real_logits = logits[:batch_size]
+        fake_logits = logits[batch_size:]
+        loss = nn.log_sigmoid(real_logits) + nn.log_sigmoid(-fake_logits)
+        return loss
+    disc_grad_fn = jax.value_and_grad(disc_loss_fn)
+    disc_loss, disc_grads = disc_grad_fn(disc_state.params)
+    disc_state = disc_state.apply_gradients(grads=disc_grads)
+
+    def gen_loss_fn(gen_params):
+        x = gen_state.apply_fn({'params': gen_params}, latent_noise, text_encoding)
+        logits = disc_state.apply_fn({'params': disc_state.params}, x)
+        # Non-saturating generator loss.
+        loss = jnp.mean(-nn.log_sigmoid(logits))
+        return loss
+    gen_grad_fn = jax.value_and_grad(gen_loss_fn)
+    gen_loss, gen_grads = gen_grad_fn(gen_state.params)
+    gen_state = gen_state.apply_gradients(grads=gen_grads)
+    return gen_loss, disc_loss, gen_state, disc_loss
 
 def main():
     key = jax.random.PRNGKey(0)
 
+    dataset_path = 'data/3d_renders_64_numpy'
     batch_size = 32
     latent_dim = 128
     max_prompt_tokens = 77
@@ -628,8 +698,7 @@ def main():
     key, disc_model_key = jax.random.split(key, 2)
     disc_output, disc_variables = discriminator.init_with_output(disc_model_key, gen_output, t)
     disc_params = disc_variables['params']
-    for i in range(len(disc_output)):
-        print(f'Disc level {i}: {disc_output[i].shape}')
+    print('Logits:', disc_output.shape)
 
 if __name__ == '__main__':
     main()

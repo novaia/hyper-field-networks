@@ -355,8 +355,7 @@ class SynthesisBlock(nn.Module):
                 x = SynthesisBlockAttention(
                     depth=self.attention_depth, patch_size=self.patch_size
                 )(x, w, t_local)
-        kernel_size = (self.kernel_size, self.kernel_size)
-        image = nn.Conv(self.image_channels, kernel_size=kernel_size)(x)
+        image = NormalConv(self.image_channels, self.kernel_size)(x)
         image = nn.sigmoid(image)
         return x, image
 
@@ -605,20 +604,6 @@ def main():
         image_channels=image_channels
     )
 
-    key, z_key, t_key = jax.random.split(key, 3)
-    z = jax.random.normal(z_key, (batch_size, latent_dim))
-    t = jax.random.normal(t_key, (batch_size, max_prompt_tokens, text_encoder_dim))
-
-    key, gen_model_key = jax.random.split(key, 2)
-    print(generator.tabulate(gen_model_key, z, t))
-
-    image_pyramid_resolutions = [4, 8, 16, 32, 64]
-    image_pyramid = []
-    for resolution in image_pyramid_resolutions:
-        image_pyramid.append(jnp.ones((batch_size, image_channels, resolution, resolution)))
-    for i in range(len(image_pyramid)):
-        print(image_pyramid[i].shape)
-
     discriminator = Discriminator(
         text_encoder_depth=text_encoder_depth,
         text_encoder_dim=text_encoder_dim,
@@ -630,9 +615,21 @@ def main():
         attention_depths=disc_attention_depths
     )
 
-    key, disc_model_key = jax.random.split(key, 2)
-    print(discriminator.tabulate(disc_model_key, image_pyramid, t))
+    key, z_key, t_key = jax.random.split(key, 3)
+    z = jax.random.normal(z_key, (batch_size, latent_dim))
+    t = jax.random.normal(t_key, (batch_size, max_prompt_tokens, text_encoder_dim))
 
+    key, gen_model_key = jax.random.split(key, 2)
+    gen_output, gen_variables = generator.init_with_output(gen_model_key, z, t)
+    gen_params = gen_variables['params']
+    for i in range(len(gen_output)):
+        print(f'Gen level {i}: {gen_output[i].shape}')
+
+    key, disc_model_key = jax.random.split(key, 2)
+    disc_output, disc_variables = discriminator.init_with_output(disc_model_key, gen_output, t)
+    disc_params = disc_variables['params']
+    for i in range(len(disc_output)):
+        print(f'Disc level {i}: {disc_output[i].shape}')
 
 if __name__ == '__main__':
     main()

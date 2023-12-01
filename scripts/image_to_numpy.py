@@ -9,6 +9,7 @@ def main():
     parser.add_argument('--output_path', type=str, required=True)
     parser.add_argument('--input_extension', type=str, default='jpg')
     parser.add_argument('--num_channels', type=int, default=3)
+    parser.add_argument('--swap_channel_first', type=bool, default=False)
     args = parser.parse_args()
 
     if not os.path.exists(args.output_path):
@@ -20,6 +21,8 @@ def main():
             continue
         image = Image.open(os.path.join(args.input_path, file_name))
         image_array = jnp.array(image)[..., :args.num_channels]
+        if args.swap_channel_first:
+            image_array = jnp.swapaxes(jnp.swapaxes(image_array, 0, 2), 1, 2)
         jnp.save(os.path.join(args.output_path, f'{i}.npy'), image_array)
         image.close()
         print(f'Converted {file_name}')

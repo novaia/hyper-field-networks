@@ -138,21 +138,21 @@ def generate_and_save_previews(latent_dim, generator_state, save_path):
 
 def main():
     latent_dim = 128
-    batch_size = 64
-    num_epochs = 10
+    batch_size = 16
+    num_epochs = 1000
     learning_rate = 3e-4
-    channels = 1
-    smallest_side = 7
-    dataset_path = 'data/mnist_numpy'
-    save_path = 'data/gan_generations'
+    channels = 3
+    smallest_side = 16
+    dataset_path = 'data/3d_renders_64_numpy_normal'
+    save_path = 'data/gan_generations_2'
     generator = Generator(
         widths=[32, 32], 
-        block_depth=1, 
+        block_depth=2, 
         num_groups=2, 
         channels=channels, 
         smallest_side=smallest_side
     )
-    discriminator = Discriminator(widths=[4, 8], block_depth=1, num_groups=2)
+    discriminator = Discriminator(widths=[8, 4], block_depth=2, num_groups=2)
 
     key = jax.random.PRNGKey(0)
     latent_input = jnp.ones((1, latent_dim))
@@ -169,7 +169,7 @@ def main():
     )
     discriminator_params = discriminator_variables['params']
     discriminator_schedule = optax.linear_schedule(
-        init_value=0.0, end_value=learning_rate, transition_steps=500
+        init_value=0.0, end_value=learning_rate, transition_steps=1
     )
     discriminator_tx = optax.adam(discriminator_schedule)
     discriminator_state = TrainState.create(

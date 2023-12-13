@@ -16,7 +16,7 @@ import glob
 from PIL import Image
 import os
 import time
-import wandb
+import math
 
 class ExternalInputIterator(object):
     def __init__(self, paths, batch_size):
@@ -79,10 +79,10 @@ class SinusoidalEmbedding(nn.Module):
                 dtype=self.dtype
             )
         )
-        angular_speeds = 2.0 * jnp.pi * frequencies
+        angular_speeds = 2.0 * math.pi * frequencies
         embeddings = jnp.concatenate(
             [jnp.sin(angular_speeds * x), jnp.cos(angular_speeds * x)],
-            axis = -1,
+            axis=-1,
             dtype=self.dtype
         )
         return embeddings
@@ -127,7 +127,7 @@ class DownBlock(nn.Module):
                 activation_fn=self.activation_fn
             )(x, time_emb)
             skips.append(x)
-        x = nn.avg_pool(x, window_shape=(2, 2), strides=(2, 2))
+        x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))
         return x, skips
 
 class UpBlock(nn.Module):
@@ -192,7 +192,6 @@ class VanillaDiffusion(nn.Module):
         x = nn.Conv(
             self.output_channels, 
             kernel_size=(1, 1), 
-            kernel_init=nn.initializers.zeros_init()
         )(x)
         return x
 
@@ -205,10 +204,16 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
-#@partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate'])
+@partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate'])
 def train_step(state, images, min_signal_rate, max_signal_rate, key):
     noise_key, diffusion_time_key = jax.random.split(key, 2)
     noises = jax.random.normal(noise_key, images.shape, dtype=jnp.float32)
+    # Clipping the noise prevents NaN loss when train_step is compiled on GPU, however this 
+    # diverges from the math of typical diffusion models since the noise is no longer Gaussian. 
+    # Standardizing the images to 0 mean and unit variance might have the same effect while 
+    # remaining in line with standard practice. Setting NaN gradients to 0 also prevents NaN 
+    # loss, but it feels kind of hacky and might obscure other numerical issues. 
+    noises = jnp.clip(noises, -1.0, 1.0)
     diffusion_times = jax.random.uniform(diffusion_time_key, (images.shape[0], 1, 1, 1))
     noise_rates, signal_rates = diffusion_schedule(
         diffusion_times, min_signal_rate, max_signal_rate
@@ -218,9 +223,10 @@ def train_step(state, images, min_signal_rate, max_signal_rate, key):
     def loss_fn(params):
         pred_noises = state.apply_fn({'params': params}, noisy_images, noise_rates**2)
         return jnp.mean((pred_noises - noises)**2)
-    
+
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
+    #grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
     state = state.apply_gradients(grads=grads)
     return loss, state
 
@@ -243,6 +249,7 @@ def reverse_diffusion(
         jax.random.PRNGKey(seed), 
         shape=(num_images, image_height, image_width, channels)
     )
+    initial_noise = jnp.clip(initial_noise, -1.0, 1.0)
     step_size = 1.0 / diffusion_steps
     
     next_noisy_images = initial_noise
@@ -266,6 +273,9 @@ def reverse_diffusion(
     return pred_images
 
 def main():
+    wandb_logging = False
+    if wandb_logging:
+        import wandb
     gpu = jax.devices('gpu')[0]
     print(gpu)
 
@@ -307,12 +317,13 @@ def main():
     )
     diffusion_times = jnp.ones((config['batch_size'], 1, 1, 1), dtype=jnp.float32)
     params = model.init(jax.random.PRNGKey(0), x, diffusion_times)['params']
-    tx = optax.adam(config['learning_rate'], eps_root=1e-8, eps=1e-6)
+    tx = optax.adam(config['learning_rate'])
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
 
-    wandb.init(project='vanilla-diffusion', config=config)
+    if wandb_logging: 
+        wandb.init(project='vanilla-diffusion', config=config)
 
     print('Steps per epoch', steps_per_epoch)
     min_signal_rate = config['min_signal_rate']
@@ -326,8 +337,10 @@ def main():
             images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(state, images, min_signal_rate, max_signal_rate, step_key)
-            wandb.log({'loss': loss}, step=state.step)
-            #print(loss)
+            if wandb_logging: 
+                wandb.log({'loss': loss}, step=state.step)
+            else:
+                print(state.step, loss)
         epoch_end_time = time.time()
         print(
             f'Epoch {epoch} completed in {epoch_end_time-epoch_start_time}'

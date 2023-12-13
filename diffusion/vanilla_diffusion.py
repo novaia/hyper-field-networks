@@ -273,16 +273,17 @@ def reverse_diffusion(
     return pred_images
 
 def main():
-    wandb_logging = False
-    if wandb_logging:
-        import wandb
     gpu = jax.devices('gpu')[0]
     print(gpu)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True)
     parser.add_argument('--dataset', type=str, required=True)
+    parser.add_argument('--wandb', type=bool, default=False)
     args = parser.parse_args()
+
+    if args.wandb:
+        import wandb
 
     with open(args.config, 'r') as f:
         config = json.load(f)
@@ -322,7 +323,7 @@ def main():
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
 
-    if wandb_logging: 
+    if args.wandb: 
         wandb.init(project='vanilla-diffusion', config=config)
 
     print('Steps per epoch', steps_per_epoch)
@@ -337,7 +338,7 @@ def main():
             images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(state, images, min_signal_rate, max_signal_rate, step_key)
-            if wandb_logging: 
+            if args.wandb: 
                 wandb.log({'loss': loss}, step=state.step)
             else:
                 print(state.step, loss)

@@ -11,6 +11,7 @@ services:
       - 7070:8888
     volumes:
       - .:/project
+      - ../scraper/data/:/scraper_data
     deploy:
       resources:
         reservations:

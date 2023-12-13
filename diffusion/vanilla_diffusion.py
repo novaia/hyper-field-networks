@@ -14,16 +14,18 @@ from nvidia.dali.plugin.jax import DALIGenericIterator
 import nvidia.dali.types as types
 import glob
 from PIL import Image
+import os
+import time
 
 class ExternalInputIterator(object):
     def __init__(self, paths, batch_size):
         self.batch_size = batch_size
         self.paths = paths
+        shuffle(self.paths)
 
     def __iter__(self):
         self.i = 0
         self.n = len(self.paths)
-        shuffle(self.paths)
         return self
 
     def __next__(self):
@@ -36,20 +38,20 @@ class ExternalInputIterator(object):
         return batch
 
 def get_data_iterator(dataset_path, batch_size, num_threads=3):
-    paths = glob.glob(dataset_path)
+    abs_dataset_path = os.path.abspath(dataset_path)
+    paths = glob.glob(f'{abs_dataset_path}/*/*')
     shuffle(paths)
     steps_per_epoch = len(paths) // batch_size
     external_iterator = ExternalInputIterator(paths, batch_size)
 
     @pipeline_def
     def my_pipeline_def(source):
-        jpegs, labels = fn.external_source(
+        jpegs = fn.external_source(
             source=source, 
-            num_outputs=2, 
-            dtype=[types.UINT8, types.FLOAT],
+            dtype=types.UINT8,
         )
         images = fn.decoders.image(jpegs, device='cpu', output_type=types.RGB)
-        return images, labels
+        return images
     
     train_pipeline = my_pipeline_def(
         source=external_iterator, 
@@ -91,17 +93,16 @@ class ResidualBlock(nn.Module):
 
     @nn.compact
     def __call__(self, x, time_emb):
-        input_width = x.shape[-1]
-        if input_width == self.width:
+        input_features = x.shape[-1]
+        if input_features == self.num_features:
             residual = x
         else:
             residual = nn.Conv(self.num_features, kernel_size=(1, 1))(x)
         x = nn.Conv(self.num_features, kernel_size=(3, 3))(x)
         x = nn.GroupNorm(self.num_groups)(x)
         x = self.activation_fn(x)
-        time_emb = nn.Dense(self.num_features)(x)
+        time_emb = nn.Dense(self.num_features)(time_emb)
         time_emb = self.activation_fn(time_emb)
-        time_emb = jnp.expand_dims(time_emb, axis=(1, 2))
         time_emb = jnp.broadcast_to(time_emb, x.shape)
         x = x + time_emb
         x = nn.Conv(self.num_features, kernel_size=(3, 3))(x)
@@ -173,15 +174,13 @@ class VanillaDiffusion(nn.Module):
                 block_depth=self.block_depth,
                 activation_fn=self.activation_fn
             )(x, time_emb, skips)
-
         for _ in range(self.block_depth):
             x = ResidualBlock(
                 num_features=self.num_features[-1],
                 num_groups=self.num_groups[-1],
                 activation_fn=self.activation_fn
-            )(x)
-
-        for f, g in reversed(features_and_groups):
+            )(x, time_emb)
+        for f, g in list(reversed(features_and_groups)):
             x, skips = UpBlock(
                 num_features=f,
                 num_groups=g,
@@ -205,10 +204,10 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
-@partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate'])
+#@partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate'])
 def train_step(state, images, min_signal_rate, max_signal_rate, key):
     noise_key, diffusion_time_key = jax.random.split(key, 2)
-    noises = jax.random.normal(noise_key, images.shape)
+    noises = jax.random.normal(noise_key, images.shape, dtype=jnp.float32)
     diffusion_times = jax.random.uniform(diffusion_time_key, (images.shape[0], 1, 1, 1))
     noise_rates, signal_rates = diffusion_schedule(
         diffusion_times, min_signal_rate, max_signal_rate
@@ -249,7 +248,7 @@ def reverse_diffusion(
     for step in range(diffusion_steps):
         noisy_images = next_noisy_images
         
-        diffusion_times = jnp.ones((num_images, 1)) - step * step_size
+        diffusion_times = jnp.ones((num_images, 1, 1, 1)) - step * step_size
         noise_rates, signal_rates = diffusion_schedule(
             diffusion_times, min_signal_rate, max_signal_rate
         )
@@ -266,6 +265,9 @@ def reverse_diffusion(
     return pred_images
 
 def main():
+    gpu = jax.devices('gpu')[0]
+    print(gpu)
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True)
     parser.add_argument('--dataset', type=str, required=True)
@@ -278,7 +280,7 @@ def main():
     )
     activation_fn_name = config['activation_fn']
     activation_fn_map = {'gelu': nn.gelu}
-    assert activation_fn_name in activation_fn_map.keys, (
+    assert activation_fn_name in activation_fn_map.keys(), (
         f'Invalid activation function: {activation_fn_name}. ',
         f'Must be one of the following: {activation_fn_map.keys()}.'
     )
@@ -302,21 +304,29 @@ def main():
         ),
         dtype=jnp.float32
     )
-    diffusion_times = jnp.ones((config['batch_size'], 1), dtype=jnp.float32)
-    params = model.init(jax.random.key(0), x, diffusion_times)['params']
-    tx = optax.adam(config['learning_rate'])
+    diffusion_times = jnp.ones((config['batch_size'], 1, 1, 1), dtype=jnp.float32)
+    params = model.init(jax.random.PRNGKey(0), x, diffusion_times)['params']
+    tx = optax.adam(config['learning_rate'], eps_root=1e-8, eps=1e-6)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
+    print('Steps per epoch', steps_per_epoch)
     min_signal_rate = config['min_signal_rate']
     max_signal_rate = config['max_signal_rate']
     for epoch in range(config['epochs']):
+        epoch_start_time = time.time()
         for _ in range(steps_per_epoch):
             images = next(data_iterator)['x']
+            images = jnp.array(images, dtype=jnp.float32)
+            images = jax.device_put(images, gpu)
             images = ((images / 255.0) * 2.0) - 1.0
-            step_key = jax.PRNGKey(state.step)
+            step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(state, images, min_signal_rate, max_signal_rate, step_key)
-            print(loss)
+            #print(loss)
+        epoch_end_time = time.time()
+        print(
+            f'Epoch {epoch} completed in {epoch_end_time-epoch_start_time}'
+        )
 
         generated_images = reverse_diffusion(
             state=state, 
@@ -324,9 +334,10 @@ def main():
             diffusion_steps=20,
             image_width=config['image_size'],
             image_height=config['image_size'],
-            channels=config['ouput_channels'],
+            channels=config['output_channels'],
             min_signal_rate=min_signal_rate,
-            max_signal_rate=max_signal_rate
+            max_signal_rate=max_signal_rate,
+            seed=epoch
         )
         generated_images = ((generated_images + 1.0) / 2.0) * 255.0
         generated_images = jnp.clip(generated_images, 0.0, 255.0)
@@ -334,3 +345,6 @@ def main():
         for i in range(generated_images.shape[0]):
             image = Image.fromarray(generated_images[i])
             image.save(f'data/vanilla_diffusion_output/epoch{epoch}_image{i}.png')
+
+if __name__ == '__main__':
+    main()

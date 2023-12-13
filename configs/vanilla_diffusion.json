@@ -1,5 +1,5 @@
 {
-    "embedding_dim": 64,
+    "embedding_dim": 32,
     "embedding_max_frequency": 1000.0,
     "num_features": [64, 64, 64, 64],
     "num_groups": [32, 32, 32, 32],
@@ -9,6 +9,7 @@
     "learning_rate": 0.0003,
     "image_size": 128,
     "epochs": 1000,
-    "min_signal_rate": 0.01,
-    "max_signal_rate": 0.99
+    "min_signal_rate": 0.02,
+    "max_signal_rate": 0.95,
+    "batch_size": 32
 }

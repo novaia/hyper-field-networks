@@ -16,6 +16,7 @@ import glob
 from PIL import Image
 import os
 import time
+import wandb
 
 class ExternalInputIterator(object):
     def __init__(self, paths, batch_size):
@@ -310,6 +311,9 @@ def main():
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
+
+    wandb.init(project='vanilla-diffusion', config=config)
+
     print('Steps per epoch', steps_per_epoch)
     min_signal_rate = config['min_signal_rate']
     max_signal_rate = config['max_signal_rate']
@@ -322,6 +326,7 @@ def main():
             images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(state, images, min_signal_rate, max_signal_rate, step_key)
+            wandb.log({'loss': loss}, step=state.step)
             #print(loss)
         epoch_end_time = time.time()
         print(

@@ -1,0 +1,19 @@
+{
+    "embedding_dim": 32,
+    "embedding_max_frequency": 1000.0,
+    "num_features": [32, 64, 16, 16, 16],
+    "num_groups": [16, 32, 8, 8, 16],
+    "block_depth": 2,
+    "output_channels": 3,
+    "activation_fn": "gelu",
+    "learning_rate": 0.0003,
+    "image_size": 128,
+    "epochs": 1000,
+    "min_signal_rate": 0.01,
+    "max_signal_rate": 0.99,
+    "batch_size": 32,
+    "noise_clip": 3.0,
+    "patch_sizes": [0, 0, 4, 4, 4],
+    "head_dims": [0, 0, 256, 256, 256],
+    "num_heads": [0, 0, 2, 2, 2] 
+}

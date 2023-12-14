@@ -3,6 +3,7 @@ import flax.linen as nn
 from flax.training.train_state import TrainState
 import jax.numpy as jnp
 import jax
+from jax import lax
 import argparse
 import json
 from functools import partial
@@ -15,8 +16,9 @@ import nvidia.dali.types as types
 import glob
 from PIL import Image
 import os
-import time
+from datetime import datetime
 import math
+import orbax.checkpoint as ocp
 
 class ExternalInputIterator(object):
     def __init__(self, paths, batch_size):
@@ -63,6 +65,37 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
     train_iterator = DALIGenericIterator(pipelines=[train_pipeline], output_map=['x'])
     return train_iterator, steps_per_epoch
 
+def precompute_patch_data(image_size, patch_size):
+    num_patches_across = image_size // patch_size
+    num_patches_total = num_patches_across**2
+    indices = jnp.arange(num_patches_across) * patch_size
+    horizontal_indices, vertical_indices = jnp.meshgrid(indices, indices)
+    return num_patches_across, num_patches_total, horizontal_indices, vertical_indices
+
+@partial(jax.jit, static_argnames=['num_patches_total', 'patch_size', 'channels'])
+def patchify(x, num_patches_total, horizontal_indices, vertical_indices, patch_size, channels):
+    def get_patch(x, horizontal_id, vertical_id):
+        start_indices = [horizontal_id, vertical_id, 0]
+        slice_sizes = [patch_size, patch_size, channels]
+        patch = lax.dynamic_slice(x, start_indices, slice_sizes)
+        return jnp.ravel(patch)
+
+    patches = jax.vmap(
+        jax.vmap(get_patch, in_axes=(None, 0, 0)), in_axes=(None, 0, 0)
+    )(x, horizontal_indices, vertical_indices)
+    patches = jnp.reshape(patches, (num_patches_total, patch_size*patch_size*channels))
+    return patches
+
+@partial(jax.jit, static_argnames=[
+    'patch_size', 'num_patches_across', 'num_patches_total', 'channels'
+])
+def depatchify(x, patch_size, num_patches_across, num_patches_total, channels):
+    x = jnp.reshape(x, (num_patches_total, patch_size, patch_size, channels))
+    x = jnp.array(jnp.split(x, num_patches_across, axis=0))
+    x = jax.vmap(lambda a: jnp.concatenate(a, axis=0), in_axes=0)(x)
+    x = jnp.concatenate(x, axis=1)
+    return x
+
 class SinusoidalEmbedding(nn.Module):
     embedding_dim:int
     embedding_max_frequency:float
@@ -87,9 +120,50 @@ class SinusoidalEmbedding(nn.Module):
         )
         return embeddings
 
+class ImageSelfAttention(nn.Module):
+    head_dim: int
+    num_heads: int
+    patch_size: int
+
+    @nn.compact
+    def __call__(self, x):
+        if self.head_dim == 0:
+            return x
+        input_features = x.shape[-1]
+        num_patches_across, num_patches_total, horizontal_indices, vertical_indices = (
+            precompute_patch_data(x.shape[1], self.patch_size)
+        )
+        x = jax.vmap(patchify, in_axes=(0, None, None, None, None, None))(
+            x, 
+            num_patches_total, 
+            horizontal_indices,
+            vertical_indices,
+            self.patch_size,
+            input_features
+        )
+        residual = x
+        x = nn.LayerNorm()(x)
+        x = nn.MultiHeadDotProductAttention(
+            num_heads=self.num_heads,
+            qkv_features=self.num_heads*self.head_dim,
+            out_features=x.shape[-1]
+        )(inputs_q=x, inputs_kv=x)
+        x = x + residual
+        x = jax.vmap(depatchify, in_axes=(0, None, None, None, None))(
+            x,
+            self.patch_size,
+            num_patches_across,
+            num_patches_total,
+            input_features
+        )
+        return x
+
 class ResidualBlock(nn.Module):
     num_features: int
     num_groups: int
+    patch_size: int
+    head_dim: int
+    num_heads: int
     activation_fn: Callable
 
     @nn.compact
@@ -110,12 +184,20 @@ class ResidualBlock(nn.Module):
         x = nn.GroupNorm(self.num_groups)(x)
         x = self.activation_fn(x)
         x = x + residual
+        x = ImageSelfAttention(
+            head_dim=self.head_dim,
+            num_heads=self.num_heads,
+            patch_size=self.patch_size
+        )(x)
         return x
 
 class DownBlock(nn.Module):
     num_features: int
     num_groups: int
     block_depth: int
+    patch_size: int
+    head_dim: int
+    num_heads: int
     activation_fn: Callable
 
     @nn.compact
@@ -124,6 +206,9 @@ class DownBlock(nn.Module):
             x = ResidualBlock(
                 num_features=self.num_features, 
                 num_groups=self.num_groups,
+                patch_size=self.patch_size,
+                head_dim=self.head_dim,
+                num_heads=self.num_heads,
                 activation_fn=self.activation_fn
             )(x, time_emb)
             skips.append(x)
@@ -134,6 +219,9 @@ class UpBlock(nn.Module):
     num_features: int
     num_groups: int
     block_depth: int
+    patch_size: int
+    head_dim: int
+    num_heads: int
     activation_fn: Callable
 
     @nn.compact
@@ -146,6 +234,9 @@ class UpBlock(nn.Module):
             x = ResidualBlock(
                 num_features=self.num_features,
                 num_groups=self.num_groups,
+                patch_size=self.patch_size,
+                head_dim=self.head_dim,
+                num_heads=self.num_heads,
                 activation_fn=self.activation_fn
             )(x, time_emb)
         return x, skips
@@ -156,6 +247,9 @@ class VanillaDiffusion(nn.Module):
     num_features: List[int]
     num_groups: List[int]
     block_depth: int
+    patch_sizes: List[int]
+    head_dims: List[int]
+    num_heads: List[int]
     output_channels: int
     activation_fn: Callable
 
@@ -167,25 +261,40 @@ class VanillaDiffusion(nn.Module):
         )(diffusion_time)
 
         skips = []
-        features_and_groups = list(zip(self.num_features[:-1], self.num_groups[:-1]))
-        for f, g in features_and_groups:
+        block_params = list(zip(
+            self.num_features, 
+            self.num_groups, 
+            self.patch_sizes, 
+            self.head_dims, 
+            self.num_heads
+        ))[:-1]
+        for features, groups, patch, head_dim, heads in block_params:
             x, skips = DownBlock(
-                num_features=f,
-                num_groups=g,
+                num_features=features,
+                num_groups=groups,
                 block_depth=self.block_depth,
+                patch_size=patch,
+                head_dim=head_dim,
+                num_heads=heads,
                 activation_fn=self.activation_fn
             )(x, time_emb, skips)
         for _ in range(self.block_depth):
             x = ResidualBlock(
                 num_features=self.num_features[-1],
                 num_groups=self.num_groups[-1],
+                patch_size=self.patch_sizes[-1],
+                head_dim=self.head_dims[-1],
+                num_heads=self.head_dims[-1],
                 activation_fn=self.activation_fn
             )(x, time_emb)
-        for f, g in list(reversed(features_and_groups)):
+        for features, groups, patch, head_dim, heads in list(reversed(block_params)):
             x, skips = UpBlock(
-                num_features=f,
-                num_groups=g,
+                num_features=features,
+                num_groups=groups,
                 block_depth=self.block_depth,
+                patch_size=patch,
+                head_dim=head_dim,
+                num_heads=heads,
                 activation_fn=self.activation_fn
             )(x, time_emb, skips)
 
@@ -204,8 +313,8 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
-@partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate'])
-def train_step(state, images, min_signal_rate, max_signal_rate, key):
+@partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate', 'noise_clip'])
+def train_step(state, images, min_signal_rate, max_signal_rate, noise_clip, key):
     noise_key, diffusion_time_key = jax.random.split(key, 2)
     noises = jax.random.normal(noise_key, images.shape, dtype=jnp.float32)
     # Clipping the noise prevents NaN loss when train_step is compiled on GPU, however this 
@@ -213,7 +322,7 @@ def train_step(state, images, min_signal_rate, max_signal_rate, key):
     # Standardizing the images to 0 mean and unit variance might have the same effect while 
     # remaining in line with standard practice. Setting NaN gradients to 0 also prevents NaN 
     # loss, but it feels kind of hacky and might obscure other numerical issues. 
-    noises = jnp.clip(noises, -1.0, 1.0)
+    noises = jnp.clip(noises, -noise_clip, noise_clip)
     diffusion_times = jax.random.uniform(diffusion_time_key, (images.shape[0], 1, 1, 1))
     noise_rates, signal_rates = diffusion_schedule(
         diffusion_times, min_signal_rate, max_signal_rate
@@ -226,7 +335,6 @@ def train_step(state, images, min_signal_rate, max_signal_rate, key):
 
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
-    #grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
     state = state.apply_gradients(grads=grads)
     return loss, state
 
@@ -243,13 +351,14 @@ def reverse_diffusion(
     channels:int,
     min_signal_rate:float,
     max_signal_rate:float,
+    noise_clip:float,
     seed:int, 
 ):
     initial_noise = jax.random.normal(
         jax.random.PRNGKey(seed), 
         shape=(num_images, image_height, image_width, channels)
     )
-    initial_noise = jnp.clip(initial_noise, -1.0, 1.0)
+    initial_noise = jnp.clip(initial_noise, -noise_clip, noise_clip)
     step_size = 1.0 / diffusion_steps
     
     next_noisy_images = initial_noise
@@ -279,10 +388,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True)
     parser.add_argument('--dataset', type=str, required=True)
-    parser.add_argument('--wandb', type=bool, default=False)
+    parser.add_argument('--wandb', type=int, choices=[0, 1], default=1)
+    parser.add_argument('--epochs_between_previews', type=int, default=1)
+    parser.add_argument('--save_checkpoints', type=int, choices=[0, 1], default=1)
     args = parser.parse_args()
 
-    if args.wandb:
+    if args.wandb == 1:
         import wandb
 
     with open(args.config, 'r') as f:
@@ -304,6 +415,9 @@ def main():
         num_features=config['num_features'],
         num_groups=config['num_groups'],
         block_depth=config['block_depth'],
+        patch_sizes=config['patch_sizes'],
+        head_dims=config['head_dims'],
+        num_heads=config['num_heads'],
         output_channels=config['output_channels'],
         activation_fn=activation_fn
     )
@@ -320,32 +434,47 @@ def main():
     params = model.init(jax.random.PRNGKey(0), x, diffusion_times)['params']
     tx = optax.adam(config['learning_rate'])
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+    
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    config['param_count'] = param_count
+    print('Param count', param_count)
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
 
-    if args.wandb: 
+    if args.wandb == 1: 
         wandb.init(project='vanilla-diffusion', config=config)
 
     print('Steps per epoch', steps_per_epoch)
     min_signal_rate = config['min_signal_rate']
     max_signal_rate = config['max_signal_rate']
+    noise_clip = config['noise_clip']
+    checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     for epoch in range(config['epochs']):
-        epoch_start_time = time.time()
+        epoch_start_time = datetime.now()
         for _ in range(steps_per_epoch):
             images = next(data_iterator)['x']
             images = jnp.array(images, dtype=jnp.float32)
             images = jax.device_put(images, gpu)
             images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
-            loss, state = train_step(state, images, min_signal_rate, max_signal_rate, step_key)
-            if args.wandb: 
+            loss, state = train_step(
+                state, images, min_signal_rate, max_signal_rate, noise_clip, step_key
+            )
+            if args.wandb == 1: 
                 wandb.log({'loss': loss}, step=state.step)
             else:
                 print(state.step, loss)
-        epoch_end_time = time.time()
+        epoch_end_time = datetime.now()
         print(
-            f'Epoch {epoch} completed in {epoch_end_time-epoch_start_time}'
+            f'Epoch {epoch} completed in {epoch_end_time-epoch_start_time} at {epoch_end_time}'
         )
+
+        if args.save_checkpoints == 1:
+            checkpointer.save(
+                f'data/vanilla_diffusion_checkpoints/epoch{epoch}', state, force=True
+            )
+        if epoch % args.epochs_between_previews != 0:
+            continue
 
         generated_images = reverse_diffusion(
             state=state, 
@@ -356,6 +485,7 @@ def main():
             channels=config['output_channels'],
             min_signal_rate=min_signal_rate,
             max_signal_rate=max_signal_rate,
+            noise_clip=noise_clip,
             seed=epoch
         )
         generated_images = ((generated_images + 1.0) / 2.0) * 255.0

@@ -497,7 +497,7 @@ def main():
         generated_images = np.array(generated_images, dtype=np.uint8)
         for i in range(generated_images.shape[0]):
             image = Image.fromarray(generated_images[i])
-            image.save(f'data/vanilla_diffusion_output/epoch{epoch}_image{i}.png')
+            image.save(f'data/vanilla_diffusion_output/step{state.step}_image{i}.png')
 
 if __name__ == '__main__':
     main()

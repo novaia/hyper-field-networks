@@ -391,6 +391,7 @@ def main():
     parser.add_argument('--wandb', type=int, choices=[0, 1], default=1)
     parser.add_argument('--epochs_between_previews', type=int, default=1)
     parser.add_argument('--save_checkpoints', type=int, choices=[0, 1], default=1)
+    parser.add_argument('--checkpoint_path', type=str, default=None)
     args = parser.parse_args()
 
     if args.wandb == 1:
@@ -441,6 +442,10 @@ def main():
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
 
+    if args.checkpoint_path is not None:
+        checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
+        state = checkpointer.restore(args.checkpoint_path, item=state)
+
     if args.wandb == 1: 
         wandb.init(project='vanilla-diffusion', config=config)
 
@@ -448,7 +453,6 @@ def main():
     min_signal_rate = config['min_signal_rate']
     max_signal_rate = config['max_signal_rate']
     noise_clip = config['noise_clip']
-    checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     for epoch in range(config['epochs']):
         epoch_start_time = datetime.now()
         for _ in range(steps_per_epoch):
@@ -471,7 +475,7 @@ def main():
 
         if args.save_checkpoints == 1:
             checkpointer.save(
-                f'data/vanilla_diffusion_checkpoints/epoch{epoch}', state, force=True
+                f'data/vanilla_diffusion_checkpoints/vd_step_{state.step}', state, force=True
             )
         if epoch % args.epochs_between_previews != 0:
             continue

@@ -124,6 +124,7 @@ class ImageSelfAttention(nn.Module):
     head_dim: int
     num_heads: int
     patch_size: int
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
@@ -142,11 +143,12 @@ class ImageSelfAttention(nn.Module):
             input_features
         )
         residual = x
-        x = nn.LayerNorm()(x)
+        x = nn.LayerNorm(dtype=jnp.float32)(x)
         x = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.num_heads*self.head_dim,
-            out_features=x.shape[-1]
+            out_features=x.shape[-1],
+            dtype=self.dtype
         )(inputs_q=x, inputs_kv=x)
         x = x + residual
         x = jax.vmap(depatchify, in_axes=(0, None, None, None, None))(
@@ -165,6 +167,7 @@ class ResidualBlock(nn.Module):
     head_dim: int
     num_heads: int
     activation_fn: Callable
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, time_emb):
@@ -172,22 +175,23 @@ class ResidualBlock(nn.Module):
         if input_features == self.num_features:
             residual = x
         else:
-            residual = nn.Conv(self.num_features, kernel_size=(1, 1))(x)
-        x = nn.Conv(self.num_features, kernel_size=(3, 3))(x)
-        x = nn.GroupNorm(self.num_groups)(x)
+            residual = nn.Conv(self.num_features, kernel_size=(1, 1), dtype=self.dtype)(x)
+        x = nn.Conv(self.num_features, kernel_size=(3, 3), dtype=self.dtype)(x)
+        x = nn.GroupNorm(self.num_groups, dtype=jnp.float32)(x)
         x = self.activation_fn(x)
-        time_emb = nn.Dense(self.num_features)(time_emb)
+        time_emb = nn.Dense(self.num_features, dtype=self.dtype)(time_emb)
         time_emb = self.activation_fn(time_emb)
         time_emb = jnp.broadcast_to(time_emb, x.shape)
         x = x + time_emb
-        x = nn.Conv(self.num_features, kernel_size=(3, 3))(x)
-        x = nn.GroupNorm(self.num_groups)(x)
+        x = nn.Conv(self.num_features, kernel_size=(3, 3), dtype=self.dtype)(x)
+        x = nn.GroupNorm(self.num_groups, dtype=jnp.float32)(x)
         x = self.activation_fn(x)
         x = x + residual
         x = ImageSelfAttention(
             head_dim=self.head_dim,
             num_heads=self.num_heads,
-            patch_size=self.patch_size
+            patch_size=self.patch_size,
+            dtype=self.dtype
         )(x)
         return x
 
@@ -199,6 +203,7 @@ class DownBlock(nn.Module):
     head_dim: int
     num_heads: int
     activation_fn: Callable
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, time_emb, skips):
@@ -209,7 +214,8 @@ class DownBlock(nn.Module):
                 patch_size=self.patch_size,
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
-                activation_fn=self.activation_fn
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
             )(x, time_emb)
             skips.append(x)
         x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))
@@ -223,6 +229,7 @@ class UpBlock(nn.Module):
     head_dim: int
     num_heads: int
     activation_fn: Callable
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, time_emb, skips):
@@ -237,7 +244,8 @@ class UpBlock(nn.Module):
                 patch_size=self.patch_size,
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
-                activation_fn=self.activation_fn
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
             )(x, time_emb)
         return x, skips
 
@@ -252,12 +260,14 @@ class VanillaDiffusion(nn.Module):
     num_heads: List[int]
     output_channels: int
     activation_fn: Callable
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, diffusion_time):
         time_emb = SinusoidalEmbedding(
             embedding_dim=self.embedding_dim,
-            embedding_max_frequency=self.embedding_max_frequency
+            embedding_max_frequency=self.embedding_max_frequency,
+            dtype=self.dtype
         )(diffusion_time)
 
         skips = []
@@ -276,7 +286,8 @@ class VanillaDiffusion(nn.Module):
                 patch_size=patch,
                 head_dim=head_dim,
                 num_heads=heads,
-                activation_fn=self.activation_fn
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
             )(x, time_emb, skips)
         for _ in range(self.block_depth):
             x = ResidualBlock(
@@ -285,7 +296,8 @@ class VanillaDiffusion(nn.Module):
                 patch_size=self.patch_sizes[-1],
                 head_dim=self.head_dims[-1],
                 num_heads=self.head_dims[-1],
-                activation_fn=self.activation_fn
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
             )(x, time_emb)
         for features, groups, patch, head_dim, heads in list(reversed(block_params)):
             x, skips = UpBlock(
@@ -295,13 +307,11 @@ class VanillaDiffusion(nn.Module):
                 patch_size=patch,
                 head_dim=head_dim,
                 num_heads=heads,
-                activation_fn=self.activation_fn
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
             )(x, time_emb, skips)
 
-        x = nn.Conv(
-            self.output_channels, 
-            kernel_size=(1, 1), 
-        )(x)
+        x = nn.Conv(self.output_channels, kernel_size=(1, 1), dtype=self.dtype)(x)
         return x
 
 def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
@@ -397,18 +407,26 @@ def main():
     if args.wandb == 1:
         import wandb
 
+    # Config string maps.
+    activation_fn_map = {'gelu': nn.gelu}
+    dtype_map = {'float32': jnp.float32, 'bfloat16': jnp.float16}
+
     with open(args.config, 'r') as f:
         config = json.load(f)
     assert len(config['num_features']) == len(config['num_groups']), (
         'len(num_features) must equal len(num_groups).'
     )
     activation_fn_name = config['activation_fn']
-    activation_fn_map = {'gelu': nn.gelu}
     assert activation_fn_name in activation_fn_map.keys(), (
         f'Invalid activation function: {activation_fn_name}. ',
         f'Must be one of the following: {activation_fn_map.keys()}.'
     )
     activation_fn = activation_fn_map[activation_fn_name]
+    dtype_name = config['dtype']
+    assert dtype_name in dtype_map.keys(), (
+        f'Invalid dtype: {dtype_name}. Must be one of the following: {dtype_map.keys()}'
+    )
+    dtype = dtype_map[dtype_name]
 
     model = VanillaDiffusion(
         embedding_dim=config['embedding_dim'],
@@ -420,7 +438,8 @@ def main():
         head_dims=config['head_dims'],
         num_heads=config['num_heads'],
         output_channels=config['output_channels'],
-        activation_fn=activation_fn
+        activation_fn=activation_fn,
+        dtype=dtype
     )
     x = jnp.ones(
         (
@@ -429,9 +448,9 @@ def main():
             config['image_size'], 
             config['output_channels']
         ),
-        dtype=jnp.float32
+        dtype=dtype
     )
-    diffusion_times = jnp.ones((config['batch_size'], 1, 1, 1), dtype=jnp.float32)
+    diffusion_times = jnp.ones((config['batch_size'], 1, 1, 1), dtype=dtype)
     params = model.init(jax.random.PRNGKey(0), x, diffusion_times)['params']
     tx = optax.adam(config['learning_rate'])
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)

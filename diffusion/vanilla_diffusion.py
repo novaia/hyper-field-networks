@@ -54,6 +54,8 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
             dtype=types.UINT8,
         )
         images = fn.decoders.image(jpegs, device='cpu', output_type=types.RGB)
+        images = fn.cast(images, dtype=types.FLOAT)
+        images = (images / types.Constant(127.5).float32()) - types.Constant(1.0).float32()
         return images
     
     train_pipeline = my_pipeline_def(
@@ -478,7 +480,7 @@ def main():
             images = next(data_iterator)['x']
             images = jnp.array(images, dtype=jnp.float32)
             images = jax.device_put(images, gpu)
-            images = ((images / 255.0) * 2.0) - 1.0
+            #images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(
                 state, images, min_signal_rate, max_signal_rate, noise_clip, step_key

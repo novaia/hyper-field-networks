@@ -461,6 +461,37 @@ def main():
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
 
+    '''
+    pixel_sum = jnp.zeros((1), dtype=jnp.float64)
+    pixel_sum_square = jnp.zeros((1), dtype=jnp.float64)
+    for _ in range(steps_per_epoch):
+        images = next(data_iterator)['x'] / 255.0
+        pixel_sum = pixel_sum + jnp.sum(images)
+        pixel_sum_square = pixel_sum_square + jnp.sum(images**2)
+    pixel_count = \
+        steps_per_epoch * config['batch_size'] * config['image_size'] * config['image_size']
+    dataset_mean = pixel_sum / pixel_count
+    dataset_var = (pixel_sum_square / pixel_count) - (dataset_mean ** 2)
+    dataset_std = jnp.sqrt(dataset_var)
+    print('Dataset mean', dataset_mean)
+    print('Dataset std', dataset_std)
+    '''
+
+    means = []
+    for _ in range(steps_per_epoch):
+        images = jax.device_put(next(data_iterator)['x'], gpu)
+        means.append(jnp.mean(images, axis=[0, 1, 2]))
+    dataset_mean = jnp.mean(jnp.array(means), axis=0)
+
+    variances = []
+    for _ in range(steps_per_epoch):
+        images = jax.device_put(next(data_iterator)['x'], gpu)
+        variances.append(jnp.mean((images - dataset_mean)**2, axis=[0, 1, 2]))
+    dataset_std = jnp.sqrt(jnp.mean(jnp.array(variances), axis=0))
+
+    print('Dataset mean', dataset_mean)
+    print('Dataset std', dataset_std)
+
     if args.checkpoint_path is not None:
         checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
         state = checkpointer.restore(args.checkpoint_path, item=state)
@@ -478,7 +509,9 @@ def main():
             images = next(data_iterator)['x']
             images = jnp.array(images, dtype=jnp.float32)
             images = jax.device_put(images, gpu)
-            images = ((images / 255.0) * 2.0) - 1.0
+            images = images
+            images = (images - dataset_mean) / dataset_std
+            #images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(
                 state, images, min_signal_rate, max_signal_rate, noise_clip, step_key
@@ -511,7 +544,8 @@ def main():
             noise_clip=noise_clip,
             seed=epoch
         )
-        generated_images = ((generated_images + 1.0) / 2.0) * 255.0
+        #generated_images = ((generated_images + 1.0) / 2.0) * 255.0
+        generated_images = (generated_images * dataset_std) + dataset_mean
         generated_images = jnp.clip(generated_images, 0.0, 255.0)
         generated_images = np.array(generated_images, dtype=np.uint8)
         for i in range(generated_images.shape[0]):

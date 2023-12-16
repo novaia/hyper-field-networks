@@ -366,6 +366,12 @@ def reverse_diffusion(
     noise_clip:float,
     seed:int, 
 ):
+    @jax.jit
+    def inference_fn(noisy_images, diffusion_times):
+        return jax.lax.stop_gradient(
+            state.apply_fn({'params': state.params}, noisy_images, diffusion_times)
+        )
+    
     initial_noise = jax.random.normal(
         jax.random.PRNGKey(seed), 
         shape=(num_images, image_height, image_width, channels)
@@ -381,9 +387,7 @@ def reverse_diffusion(
         noise_rates, signal_rates = diffusion_schedule(
             diffusion_times, min_signal_rate, max_signal_rate
         )
-        pred_noises = jax.lax.stop_gradient(
-            state.apply_fn({'params': state.params}, noisy_images, noise_rates**2)
-        )
+        pred_noises = inference_fn(noisy_images, noise_rates**2)
         pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
         
         next_diffusion_times = diffusion_times - step_size
@@ -504,7 +508,7 @@ def main():
         generated_images = reverse_diffusion(
             state=state, 
             num_images=8,
-            diffusion_steps=20,
+            diffusion_steps=1000,
             image_width=config['image_size'],
             image_height=config['image_size'],
             channels=config['output_channels'],

@@ -150,7 +150,7 @@ class ImageSelfAttention(nn.Module):
             num_heads=self.num_heads,
             qkv_features=self.num_heads*self.head_dim,
             out_features=x.shape[-1],
-            dtype=self.dtype
+            dtype=jnp.float32
         )(inputs_q=x, inputs_kv=x)
         x = x + residual
         x = jax.vmap(depatchify, in_axes=(0, None, None, None, None))(
@@ -313,7 +313,7 @@ class VanillaDiffusion(nn.Module):
                 dtype=self.dtype
             )(x, time_emb, skips)
 
-        x = nn.Conv(self.output_channels, kernel_size=(1, 1), dtype=self.dtype)(x)
+        x = nn.Conv(self.output_channels, kernel_size=(1, 1), dtype=jnp.float32)(x)
         return x
 
 def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
@@ -367,7 +367,7 @@ def reverse_diffusion(
     seed:int, 
 ):
     @jax.jit
-    def inference_fn(noisy_images, diffusion_times):
+    def inference_fn(state, noisy_images, diffusion_times):
         return jax.lax.stop_gradient(
             state.apply_fn({'params': state.params}, noisy_images, diffusion_times)
         )
@@ -387,7 +387,7 @@ def reverse_diffusion(
         noise_rates, signal_rates = diffusion_schedule(
             diffusion_times, min_signal_rate, max_signal_rate
         )
-        pred_noises = inference_fn(noisy_images, noise_rates**2)
+        pred_noises = inference_fn(state, noisy_images, noise_rates**2)
         pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
         
         next_diffusion_times = diffusion_times - step_size
@@ -415,7 +415,7 @@ def main():
 
     # Config string maps.
     activation_fn_map = {'gelu': nn.gelu}
-    dtype_map = {'float32': jnp.float32, 'bfloat16': jnp.float16}
+    dtype_map = {'float32': jnp.float32, 'bfloat16': jnp.bfloat16}
 
     with open(args.config, 'r') as f:
         config = json.load(f)
@@ -467,8 +467,8 @@ def main():
 
     data_iterator, steps_per_epoch = get_data_iterator(args.dataset, config['batch_size'])
 
+    checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     if args.checkpoint_path is not None:
-        checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
         state = checkpointer.restore(args.checkpoint_path, item=state)
 
     if args.wandb == 1: 
@@ -484,7 +484,6 @@ def main():
             images = next(data_iterator)['x']
             images = jnp.array(images, dtype=jnp.float32)
             images = jax.device_put(images, gpu)
-            #images = ((images / 255.0) * 2.0) - 1.0
             step_key = jax.random.PRNGKey(state.step)
             loss, state = train_step(
                 state, images, min_signal_rate, max_signal_rate, noise_clip, step_key

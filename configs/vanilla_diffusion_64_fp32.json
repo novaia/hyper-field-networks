@@ -6,7 +6,7 @@
     "block_depth": 2,
     "output_channels": 3,
     "activation_fn": "gelu",
-    "learning_rate": 0.0003,
+    "learning_rate": 0.0001,
     "image_size": 64,
     "epochs": 1000,
     "min_signal_rate": 0.01,

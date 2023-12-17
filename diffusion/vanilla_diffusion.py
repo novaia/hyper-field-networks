@@ -150,7 +150,7 @@ class ImageSelfAttention(nn.Module):
             num_heads=self.num_heads,
             qkv_features=self.num_heads*self.head_dim,
             out_features=x.shape[-1],
-            dtype=jnp.float32
+            dtype=self.dtype
         )(inputs_q=x, inputs_kv=x)
         x = x + residual
         x = jax.vmap(depatchify, in_axes=(0, None, None, None, None))(
@@ -179,14 +179,14 @@ class ResidualBlock(nn.Module):
         else:
             residual = nn.Conv(self.num_features, kernel_size=(1, 1), dtype=self.dtype)(x)
         x = nn.Conv(self.num_features, kernel_size=(3, 3), dtype=self.dtype)(x)
-        x = nn.GroupNorm(self.num_groups, dtype=jnp.float32)(x)
+        x = nn.GroupNorm(self.num_groups, dtype=self.dtype)(x)
         x = self.activation_fn(x)
         time_emb = nn.Dense(self.num_features, dtype=self.dtype)(time_emb)
         time_emb = self.activation_fn(time_emb)
         time_emb = jnp.broadcast_to(time_emb, x.shape)
         x = x + time_emb
         x = nn.Conv(self.num_features, kernel_size=(3, 3), dtype=self.dtype)(x)
-        x = nn.GroupNorm(self.num_groups, dtype=jnp.float32)(x)
+        x = nn.GroupNorm(self.num_groups, dtype=self.dtype)(x)
         x = self.activation_fn(x)
         x = x + residual
         x = ImageSelfAttention(

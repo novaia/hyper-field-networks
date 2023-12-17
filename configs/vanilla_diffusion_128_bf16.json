@@ -12,7 +12,7 @@
     "min_signal_rate": 0.01,
     "max_signal_rate": 0.99,
     "batch_size": 64,
-    "noise_clip": 1.5,
+    "noise_clip": 3.0,
     "patch_sizes": [0, 0, 4, 4, 4],
     "head_dims": [0, 0, 256, 256, 256],
     "num_heads": [0, 0, 2, 2, 2],

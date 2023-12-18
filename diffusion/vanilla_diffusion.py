@@ -414,7 +414,7 @@ def main():
         import wandb
 
     # Config string maps.
-    activation_fn_map = {'gelu': nn.gelu}
+    activation_fn_map = {'gelu': nn.gelu, 'silu': nn.silu}
     dtype_map = {'float32': jnp.float32, 'bfloat16': jnp.bfloat16}
 
     with open(args.config, 'r') as f:

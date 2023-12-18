@@ -127,6 +127,7 @@ class ImageSelfAttention(nn.Module):
     num_heads: int
     patch_size: int
     dtype: Any = jnp.float32
+    param_dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
@@ -145,12 +146,13 @@ class ImageSelfAttention(nn.Module):
             input_features
         )
         residual = x
-        x = nn.LayerNorm(dtype=jnp.float32)(x)
+        x = nn.LayerNorm(dtype=jnp.float32, param_dtype=self.param_dtype)(x)
         x = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.num_heads*self.head_dim,
             out_features=x.shape[-1],
-            dtype=self.dtype
+            dtype=self.dtype,
+            param_dtype=self.param_dtype
         )(inputs_q=x, inputs_kv=x)
         x = x + residual
         x = jax.vmap(depatchify, in_axes=(0, None, None, None, None))(
@@ -170,6 +172,7 @@ class ResidualBlock(nn.Module):
     num_heads: int
     activation_fn: Callable
     dtype: Any = jnp.float32
+    param_dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, time_emb):
@@ -177,23 +180,35 @@ class ResidualBlock(nn.Module):
         if input_features == self.num_features:
             residual = x
         else:
-            residual = nn.Conv(self.num_features, kernel_size=(1, 1), dtype=self.dtype)(x)
-        x = nn.Conv(self.num_features, kernel_size=(3, 3), dtype=self.dtype)(x)
-        x = nn.GroupNorm(self.num_groups, dtype=self.dtype)(x)
+            residual = nn.Conv(
+                self.num_features, kernel_size=(1, 1), 
+                dtype=self.dtype, param_dtype=self.param_dtype
+            )(x)
+        x = nn.Conv(
+            self.num_features, kernel_size=(3, 3), 
+            dtype=self.dtype, param_dtype=self.param_dtype
+        )(x)
+        x = nn.GroupNorm(self.num_groups, dtype=self.dtype, param_dtype=self.param_dtype)(x)
         x = self.activation_fn(x)
-        time_emb = nn.Dense(self.num_features, dtype=self.dtype)(time_emb)
+        time_emb = nn.Dense(
+            self.num_features, dtype=self.dtype, param_dtype=self.param_dtype
+        )(time_emb)
         time_emb = self.activation_fn(time_emb)
         time_emb = jnp.broadcast_to(time_emb, x.shape)
         x = x + time_emb
-        x = nn.Conv(self.num_features, kernel_size=(3, 3), dtype=self.dtype)(x)
-        x = nn.GroupNorm(self.num_groups, dtype=self.dtype)(x)
+        x = nn.Conv(
+            self.num_features, kernel_size=(3, 3), 
+            dtype=self.dtype, param_dtype=self.param_dtype
+        )(x)
+        x = nn.GroupNorm(self.num_groups, dtype=self.dtype, param_dtype=self.param_dtype)(x)
         x = self.activation_fn(x)
         x = x + residual
         x = ImageSelfAttention(
             head_dim=self.head_dim,
             num_heads=self.num_heads,
             patch_size=self.patch_size,
-            dtype=self.dtype
+            dtype=self.dtype,
+            param_dtype=self.param_dtype
         )(x)
         return x
 
@@ -206,6 +221,7 @@ class DownBlock(nn.Module):
     num_heads: int
     activation_fn: Callable
     dtype: Any = jnp.float32
+    param_dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, time_emb, skips):
@@ -217,7 +233,8 @@ class DownBlock(nn.Module):
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
                 activation_fn=self.activation_fn,
-                dtype=self.dtype
+                dtype=self.dtype,
+                param_dtype=self.param_dtype
             )(x, time_emb)
             skips.append(x)
         x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))
@@ -232,6 +249,7 @@ class UpBlock(nn.Module):
     num_heads: int
     activation_fn: Callable
     dtype: Any = jnp.float32
+    param_dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, time_emb, skips):
@@ -247,7 +265,8 @@ class UpBlock(nn.Module):
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
                 activation_fn=self.activation_fn,
-                dtype=self.dtype
+                dtype=self.dtype,
+                param_dtype=self.param_dtype
             )(x, time_emb)
         return x, skips
 
@@ -263,6 +282,7 @@ class VanillaDiffusion(nn.Module):
     output_channels: int
     activation_fn: Callable
     dtype: Any = jnp.float32
+    param_dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x, diffusion_time):
@@ -289,7 +309,8 @@ class VanillaDiffusion(nn.Module):
                 head_dim=head_dim,
                 num_heads=heads,
                 activation_fn=self.activation_fn,
-                dtype=self.dtype
+                dtype=self.dtype,
+                param_dtype=self.param_dtype
             )(x, time_emb, skips)
         for _ in range(self.block_depth):
             x = ResidualBlock(
@@ -299,7 +320,8 @@ class VanillaDiffusion(nn.Module):
                 head_dim=self.head_dims[-1],
                 num_heads=self.head_dims[-1],
                 activation_fn=self.activation_fn,
-                dtype=self.dtype
+                dtype=self.dtype,
+                param_dtype=self.param_dtype
             )(x, time_emb)
         for features, groups, patch, head_dim, heads in list(reversed(block_params)):
             x, skips = UpBlock(
@@ -310,10 +332,14 @@ class VanillaDiffusion(nn.Module):
                 head_dim=head_dim,
                 num_heads=heads,
                 activation_fn=self.activation_fn,
-                dtype=self.dtype
+                dtype=self.dtype,
+                param_dtype=self.param_dtype
             )(x, time_emb, skips)
 
-        x = nn.Conv(self.output_channels, kernel_size=(1, 1), dtype=jnp.float32)(x)
+        x = nn.Conv(
+            self.output_channels, kernel_size=(1, 1), 
+            dtype=jnp.float32, param_dtype=jnp.float32
+        )(x)
         return x
 
 def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
@@ -430,9 +456,15 @@ def main():
     activation_fn = activation_fn_map[activation_fn_name]
     dtype_name = config['dtype']
     assert dtype_name in dtype_map.keys(), (
-        f'Invalid dtype: {dtype_name}. Must be one of the following: {dtype_map.keys()}'
+        f'Invalid dtype: {dtype_name}. Must be one of the following: {dtype_map.keys()}/'
     )
     dtype = dtype_map[dtype_name]
+    param_dtype_name = config['param_dtype']
+    assert param_dtype_name in dtype_map.keys(), (
+        f'Invalid param dtype: {param_dtype_name}.'
+        f'Must be one of the following: {dtype_map.keys()}.'
+    )
+    param_dtype = dtype_map[param_dtype_name]
 
     model = VanillaDiffusion(
         embedding_dim=config['embedding_dim'],
@@ -445,7 +477,8 @@ def main():
         num_heads=config['num_heads'],
         output_channels=config['output_channels'],
         activation_fn=activation_fn,
-        dtype=dtype
+        dtype=dtype,
+        param_dtype=param_dtype
     )
     x = jnp.ones(
         (

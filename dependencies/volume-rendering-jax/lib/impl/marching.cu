@@ -2,7 +2,6 @@
 
 #include <driver_types.h>
 #include <serde-helper/serde.h>
-#include "../serde.h"
 #include <vector_types.h>
 
 #include "volrend.h"

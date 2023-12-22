@@ -33,7 +33,10 @@ let
   };
 in
 stdenv.mkDerivation (finalAttrs: rec {
-  inherit (source) pname version src;
+  pname = "tiny-cuda-nn";
+  version = "0.0.0";
+
+  src = ./.;
 
   outputs = [ "out" "dev" ];
 

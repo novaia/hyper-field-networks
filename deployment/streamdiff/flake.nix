@@ -73,8 +73,8 @@
                     (cudaPkgs.${py}.withPackages (pp: mkPythonDeps {
                         inherit pp;
                         extraPackages = with pp; [
-                            #pkgs.volume-rendering-jax
-                            #pkgs.jax-tcnn
+                            pkgs.volume-rendering-jax
+                            pkgs.jax-tcnn
                         ];
                     }))
                 ];

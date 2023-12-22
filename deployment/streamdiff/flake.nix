@@ -13,7 +13,8 @@
         };
     };
     outputs = inputs@{ self, nixpkgs, flake-utils, ... }: let
-        deps = import ./deps;
+        deps = import ../../dependencies;
+
     in flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: let
         inherit (nixpkgs) lib;
         basePkgs = import nixpkgs {
@@ -52,7 +53,7 @@
                     allowUnfree = true;
                     cudaSupport = true;
                     packageOverrides = pkgs: {
-                    linuxPackages = (import inputs.nixpkgs-with-nvidia-driver-fix {}).linuxPackages;
+                        linuxPackages = (import inputs.nixpkgs-with-nvidia-driver-fix {}).linuxPackages;
                     };
                 };
             };
@@ -72,7 +73,6 @@
                     (cudaPkgs.${py}.withPackages (pp: mkPythonDeps {
                         inherit pp;
                         extraPackages = with pp; [
-                            #pkgs.spherical-harmonics-encoding-jax
                             #pkgs.volume-rendering-jax
                             #pkgs.jax-tcnn
                         ];
@@ -80,10 +80,8 @@
                 ];
                 shellHook = ''
                     source <(sed -Ee '/\$@/d' ${lib.getExe cudaPkgs.nixgl.nixGLIntel})
-                '' + (if isWsl
-                    then ''export LD_LIBRARY_PATH=/usr/lib/wsl/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}''
-                    else ''source <(sed -Ee '/\$@/d' ${lib.getExe cudaPkgs.nixgl.auto.nixGLNvidia}*)''
-                ) + "\n" + commonShellHook;
+                    source <(sed -Ee '/\$@/d' ${lib.getExe cudaPkgs.nixgl.auto.nixGLNvidia}*)
+                '' + "\n" + commonShellHook;
             };
         };
         packages = deps.packages basePkgs;

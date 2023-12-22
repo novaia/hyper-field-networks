@@ -1,7 +1,7 @@
 #include <cstdint>
 
 #include <cuda_device_runtime_api.h>
-#include "../serde.h"
+#include <serde-helper/serde.h>
 #include <stdexcept>
 #include <tiny-cuda-nn/common.h>
 #include <tiny-cuda-nn/encoding.h>

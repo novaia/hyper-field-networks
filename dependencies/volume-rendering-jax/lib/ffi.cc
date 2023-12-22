@@ -2,8 +2,7 @@
 
 #include <fmt/format.h>
 #include <pybind11/pybind11.h>
-//#include <serde-helper/serde.h>
-#include "serde.h"
+#include <serde-helper/serde.h>
 #include <stdexcept>
 
 #include "impl/volrend.h"

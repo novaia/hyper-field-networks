@@ -7,20 +7,19 @@
         nixgl = {
             url = "github:guibou/nixgl/c917918ab9ebeee27b0dd657263d3f57ba6bb8ad";
             inputs = {
-            nixpkgs.follows = "nixpkgs";
-            flake-utils.follows = "flake-utils";
+                nixpkgs.follows = "nixpkgs";
+                flake-utils.follows = "flake-utils";
             };
         };
     };
     outputs = inputs@{ self, nixpkgs, flake-utils, ... }: let
         deps = import ../../dependencies;
-
     in flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: let
         inherit (nixpkgs) lib;
         basePkgs = import nixpkgs {
             inherit system;
             overlays = [
-            self.overlays.default
+                self.overlays.default
             ];
         };
     in {
@@ -28,9 +27,6 @@
             pyVer = "310";
             py = "python${pyVer}";
             jaxOverlays = final: prev: {
-                #opencv4 = prev.opencv4.override {
-                #    enableCuda = false;
-                #};
                 ${py} = prev.${py}.override {
                     packageOverrides = finalScope: prevScope: {
                         jax = prevScope.jax.overridePythonAttrs (o: { doCheck = false; });
@@ -58,13 +54,13 @@
                 };
             };
             mkPythonDeps = { pp, extraPackages }: with pp; [
+                pyyaml
                 jaxlib-bin
                 jax
                 optax
                 flax
             ] ++ extraPackages;
-            commonShellHook = ''
-            '';
+            commonShellHook = '''';
         in rec {
             default = cudaDevShell;
             cudaDevShell = cudaPkgs.mkShell {

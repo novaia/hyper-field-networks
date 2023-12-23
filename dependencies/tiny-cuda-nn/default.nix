@@ -11,6 +11,7 @@
 , stdenv
 , symlinkJoin
 , which
+, fmt
 }:
 let
   cuda-common-redist = with cudaPackages; [
@@ -41,6 +42,7 @@ stdenv.mkDerivation (finalAttrs: rec {
   outputs = [ "out" "dev" ];
 
   nativeBuildInputs = [
+    fmt
     cmake
     cuda-native-redist
     ninja

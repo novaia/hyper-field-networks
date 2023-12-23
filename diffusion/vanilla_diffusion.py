@@ -29,6 +29,7 @@ class ExternalInputIterator(object):
     def __iter__(self):
         self.i = 0
         self.n = len(self.paths)
+        shuffle(self.paths)
         return self
 
     def __next__(self):
@@ -188,7 +189,7 @@ class ResidualBlock(nn.Module):
             self.num_features, kernel_size=(3, 3), 
             dtype=self.dtype, param_dtype=self.param_dtype
         )(x)
-        x = nn.GroupNorm(self.num_groups, dtype=self.dtype, param_dtype=self.param_dtype)(x)
+        #x = nn.GroupNorm(self.num_groups, dtype=self.dtype, param_dtype=self.param_dtype)(x)
         x = self.activation_fn(x)
         time_emb = nn.Dense(
             self.num_features, dtype=self.dtype, param_dtype=self.param_dtype
@@ -338,7 +339,7 @@ class VanillaDiffusion(nn.Module):
 
         x = nn.Conv(
             self.output_channels, kernel_size=(1, 1), 
-            dtype=jnp.float32, param_dtype=jnp.float32
+            dtype=self.dtype, param_dtype=self.param_dtype
         )(x)
         return x
 
@@ -434,6 +435,7 @@ def main():
     parser.add_argument('--epochs_between_previews', type=int, default=1)
     parser.add_argument('--save_checkpoints', type=int, choices=[0, 1], default=1)
     parser.add_argument('--checkpoint_path', type=str, default=None)
+    parser.add_argument('--tabulate', type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
 
     if args.wandb == 1:
@@ -490,7 +492,11 @@ def main():
         dtype=dtype
     )
     diffusion_times = jnp.ones((config['batch_size'], 1, 1, 1), dtype=dtype)
-    params = model.init(jax.random.PRNGKey(0), x, diffusion_times)['params']
+    key = jax.random.PRNGKey(0)
+    if args.tabulate == 1:
+        print(model.tabulate(key, x, diffusion_times))
+        exit()
+    params = model.init(key, x, diffusion_times)['params']
     tx = optax.adam(config['learning_rate'])
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
@@ -540,7 +546,7 @@ def main():
         generated_images = reverse_diffusion(
             state=state, 
             num_images=8,
-            diffusion_steps=1000,
+            diffusion_steps=20,
             image_width=config['image_size'],
             image_height=config['image_size'],
             channels=config['output_channels'],

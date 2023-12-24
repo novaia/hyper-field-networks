@@ -50,7 +50,6 @@ def update_occupancy_grid(
     occupancy_grid.densities = jax.lax.stop_gradient(
         update_occupancy_grid_densities(
             KEY=jax.random.PRNGKey(step),
-            batch_size=batch_size,
             densities=occupancy_grid.densities,
             occupancy_mask=occupancy_grid.mask,
             grid_resolution=occupancy_grid.resolution,

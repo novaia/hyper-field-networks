@@ -5,7 +5,7 @@ import json
 
 import re
 
-import jax.numpy as jnp
+import numpy as np
 from flax.traverse_util import flatten_dict, unflatten_dict
 from jax.random import PRNGKey
 
@@ -97,7 +97,7 @@ def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
                     f'{flax_tensor.shape}.'
                 )
         # also add unexpected weight so that warning is thrown
-        flax_state_dict[flax_key] = jnp.asarray(flax_tensor)
+        flax_state_dict[flax_key] = np.asarray(flax_tensor)
     return unflatten_dict(flax_state_dict)
 
 def main():

@@ -129,3 +129,14 @@ for more details.
     primaryClass={cs.CV}
 }
 ```
+
+```bibtex
+@article{kodaira2023streamdiffusion,
+    title={StreamDiffusion: A Pipeline-level Solution for Real-time Interactive Generation},
+    author={Akio Kodaira and Chenfeng Xu and Toshiki Hazama and Takanori Yoshimoto and Kohei Ohno and Shogo Mitsuhori and Soichi Sugano and Hanying Cho and Zhijian Liu and Kurt Keutzer},
+    year={2023},
+    eprint={2312.12491},
+    archivePrefix={arXiv},
+    primaryClass={cs.CV}
+}
+```

@@ -1,10 +1,12 @@
-from safetensors.torch import load
+from safetensors.torch import load as torch_load
+from safetensors.flax import save_file as flax_save_file
 import jax.numpy as jnp
 from .models.unet_conditional import UNet2dConditionalModel
 import json
 
 import re
 
+import jax
 import numpy as np
 from flax.traverse_util import flatten_dict, unflatten_dict
 from jax.random import PRNGKey
@@ -103,6 +105,7 @@ def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
 def main():
     config_path = 'configs/stable_diffusion_2_unet.json'
     model_path = 'data/models/stable_diffusion_2_unet.safetensors'
+    output_path = 'data/models/stable_diffusion_2_unet_flax.npy'
     
     with open(config_path, 'r') as f:
         config = json.load(f)
@@ -130,12 +133,10 @@ def main():
     # in torch mode then converted to flax.
     with open(model_path, 'rb') as f:
         model_weights = f.read()
-    model_weights = load(model_weights)
+    model_weights = torch_load(model_weights)
     model_weights = convert_pytorch_state_dict_to_flax(model_weights, model)
     print(model_weights.keys())
-    #with safe_open(model_path, framework='pt', device='cpu') as f:
-    #    model_weights = f.read()
-    #print(model_weights.keys())
+    jnp.save(output_path, model_weights, allow_pickle=True)
 
 if __name__ == '__main__':
     main()

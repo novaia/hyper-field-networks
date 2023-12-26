@@ -2,6 +2,7 @@ from safetensors.torch import load as torch_load
 from safetensors.flax import save_file as flax_save_file
 import jax.numpy as jnp
 from .models.unet_conditional import UNet2dConditionalModel
+from .models.vae import AutoencoderKl
 import json
 
 import re
@@ -10,6 +11,8 @@ import jax
 import numpy as np
 from flax.traverse_util import flatten_dict, unflatten_dict
 from jax.random import PRNGKey
+
+import argparse
 
 def rename_key(key):
     regex = r"\w+[.]\d+"
@@ -103,40 +106,55 @@ def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
     return unflatten_dict(flax_state_dict)
 
 def main():
-    config_path = 'configs/stable_diffusion_2_unet.json'
-    model_path = 'data/models/stable_diffusion_2_unet.safetensors'
-    output_path = 'data/models/stable_diffusion_2_unet_flax.npy'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config_path', type=str, required=True)
+    parser.add_argument('--model_path', type=str, required=True)
+    parser.add_argument('--output_path', type=str, required=True)
+    parser.add_argument('--model_type', type=str, choices=['unet', 'vae'], required=True)
+    args = parser.parse_args()
     
-    with open(config_path, 'r') as f:
+    with open(args.config_path, 'r') as f:
         config = json.load(f)
-
     print(json.dumps(config, indent=4))
     
-    # TODO: some config settings are hardcoded and need to be made into parameters.
-    model = UNet2dConditionalModel(
-        sample_size=config['sample_size'],
-        in_channels=config['in_channels'],
-        out_channels=config['out_channels'],
-        down_block_types=config['down_block_types'],
-        up_block_types=config['up_block_types'],
-        only_cross_attention=config['dual_cross_attention'], #TODO: double check this.
-        block_out_channels=config['block_out_channels'],
-        layers_per_block=config['layers_per_block'],
-        attention_head_dim=config['attention_head_dim'],
-        cross_attention_dim=config['cross_attention_dim'],
-        use_linear_projection=config['use_linear_projection'],
-        flip_sin_to_cos=config['flip_sin_to_cos'],
-        freq_shift=config['freq_shift']
-    )
-
-    # The stable diffusion 2 weights are distributed in torch format, so they need to be loaded
-    # in torch mode then converted to flax.
-    with open(model_path, 'rb') as f:
+    with open(args.model_path, 'rb') as f:
         model_weights = f.read()
     model_weights = torch_load(model_weights)
+
+    if args.model_type == 'unet':
+        model = UNet2dConditionalModel(
+            sample_size=config['sample_size'],
+            in_channels=config['in_channels'],
+            out_channels=config['out_channels'],
+            down_block_types=config['down_block_types'],
+            up_block_types=config['up_block_types'],
+            only_cross_attention=config['dual_cross_attention'], #TODO: double check this.
+            block_out_channels=config['block_out_channels'],
+            layers_per_block=config['layers_per_block'],
+            attention_head_dim=config['attention_head_dim'],
+            cross_attention_dim=config['cross_attention_dim'],
+            use_linear_projection=config['use_linear_projection'],
+            flip_sin_to_cos=config['flip_sin_to_cos'],
+            freq_shift=config['freq_shift']
+        )
+    elif args.model_type == 'vae':
+        model = AutoencoderKl(
+            in_channels=config['in_channels'],
+            out_channels=config['out_channels'],
+            down_block_types=config['down_block_types'],
+            up_block_types=config['up_block_types'],
+            layers_per_block=config['layers_per_block'],
+            act_fn=config['act_fn'],
+            latent_channels=config['latent_channels'],
+            norm_num_groups=config['norm_num_groups'],
+            sample_size=config['sample_size'],
+            block_out_channels=config['block_out_channels']
+        )
+    else:
+        raise ValueError('Unkown model type.')
     model_weights = convert_pytorch_state_dict_to_flax(model_weights, model)
     print(model_weights.keys())
-    jnp.save(output_path, model_weights, allow_pickle=True)
+    jnp.save(args.output_path, model_weights, allow_pickle=True)
 
 if __name__ == '__main__':
     main()

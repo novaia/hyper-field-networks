@@ -29,6 +29,7 @@ class Upsample2d(nn.Module):
     in_channels: int
     dtype: jnp.dtype = jnp.float32
 
+    @nn.compact
     def __call__(self, hidden_states):
         batch, height, width, channels = hidden_states.shape
         hidden_states = jax.image.resize(
@@ -131,7 +132,7 @@ class AttentionBlock(nn.Module):
 
         # transpose
         def transpose_for_scores(projection):
-            new_projection_shape = projection.shape[:-1] + (self.num_heads, -1)
+            new_projection_shape = projection.shape[:-1] + (num_heads, -1)
             # move heads to 2nd position (B, T, H * D) -> (B, T, H, D)
             new_projection = projection.reshape(new_projection_shape)
             # (B, T, H, D) -> (B, H, T, D)
@@ -170,9 +171,6 @@ class DownEncoderBlock2d(nn.Module):
 
     @nn.compact
     def __call__(self, hidden_states, deterministic=True):
-        if self.add_downsample:
-            self.downsamplers_0 = Downsample2d(self.out_channels, dtype=self.dtype)
-
         for i in range(self.num_layers):
             in_channels = self.in_channels if i == 0 else self.out_channels
             hidden_states = ResnetBlock2d(
@@ -306,7 +304,7 @@ class Encoder(nn.Module):
         conv_out_channels = 2 * self.out_channels if self.double_z else self.out_channels
         sample = nn.GroupNorm(num_groups=self.norm_num_groups, epsilon=1e-6)(sample)
         sample = nn.swish(sample)
-        sample = self.nn.Conv(
+        sample = nn.Conv(
             conv_out_channels,
             kernel_size=(3, 3),
             strides=(1, 1),
@@ -429,35 +427,35 @@ class AutoencoderKl(nn.Module):
 
     def setup(self):
         self.encoder = Encoder(
-            in_channels=self.config.in_channels,
-            out_channels=self.config.latent_channels,
-            down_block_types=self.config.down_block_types,
-            block_out_channels=self.config.block_out_channels,
-            layers_per_block=self.config.layers_per_block,
-            act_fn=self.config.act_fn,
-            norm_num_groups=self.config.norm_num_groups,
+            in_channels=self.in_channels,
+            out_channels=self.latent_channels,
+            down_block_types=self.down_block_types,
+            block_out_channels=self.block_out_channels,
+            layers_per_block=self.layers_per_block,
+            act_fn=self.act_fn,
+            norm_num_groups=self.norm_num_groups,
             double_z=True,
             dtype=self.dtype,
         )
         self.decoder = Decoder(
-            in_channels=self.config.latent_channels,
-            out_channels=self.config.out_channels,
-            up_block_types=self.config.up_block_types,
-            block_out_channels=self.config.block_out_channels,
-            layers_per_block=self.config.layers_per_block,
-            norm_num_groups=self.config.norm_num_groups,
-            act_fn=self.config.act_fn,
+            in_channels=self.latent_channels,
+            out_channels=self.out_channels,
+            up_block_types=self.up_block_types,
+            block_out_channels=self.block_out_channels,
+            layers_per_block=self.layers_per_block,
+            norm_num_groups=self.norm_num_groups,
+            act_fn=self.act_fn,
             dtype=self.dtype,
         )
         self.quant_conv = nn.Conv(
-            2 * self.config.latent_channels,
+            2 * self.latent_channels,
             kernel_size=(1, 1),
             strides=(1, 1),
             padding="VALID",
             dtype=self.dtype,
         )
         self.post_quant_conv = nn.Conv(
-            self.config.latent_channels,
+            self.latent_channels,
             kernel_size=(1, 1),
             strides=(1, 1),
             padding="VALID",
@@ -487,7 +485,7 @@ class AutoencoderKl(nn.Module):
         return AutoencoderKlOutput(latent_dist=posterior)
 
     def decode(self, latents, deterministic: bool = True, return_dict: bool = True):
-        if latents.shape[-1] != self.config.latent_channels:
+        if latents.shape[-1] != self.latent_channels:
             latents = jnp.transpose(latents, (0, 2, 3, 1))
 
         hidden_states = self.post_quant_conv(latents)

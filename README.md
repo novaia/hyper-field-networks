@@ -28,6 +28,18 @@ Use PyTest to run the tests in the tests directory:
 pytest tests
 ```
 
+## Nix Environment
+
+Entering development shell:
+```
+NIXPKGS_ALLOW_UNFREE=1 nix develop --impure
+```
+
+Exiting shell:
+```
+exit
+```
+
 ## Docker Environment
 
 Building image:

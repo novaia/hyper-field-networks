@@ -12,7 +12,7 @@
         };
     };
     outputs = inputs@{ self, nixpkgs, flake-utils, ... }: let
-        deps = import ../../dependencies;
+        deps = import ./dependencies;
     in flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: let
         inherit (nixpkgs) lib;
         basePkgs = import nixpkgs {

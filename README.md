@@ -35,11 +35,6 @@ Entering development shell:
 NIXPKGS_ALLOW_UNFREE=1 nix develop --impure
 ```
 
-Exiting shell:
-```
-exit
-```
-
 ## Docker Environment
 
 Building image:

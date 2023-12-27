@@ -1,11 +1,10 @@
 {
     description = "3D character generation.";
     inputs = {
-        nixpkgs.url = "github:nixos/nixpkgs/22.11";
-        nixpkgs-with-nvidia-driver-fix.url = "github:nixos/nixpkgs/pull/222762/head";
-        flake-utils.url = "github:numtide/flake-utils/3db36a8b464d0c4532ba1c7dda728f4576d6d073";
+        nixpkgs.url = "github:nixos/nixpkgs/23.11";
+        flake-utils.url = "github:numtide/flake-utils";
         nixgl = {
-            url = "github:guibou/nixgl/c917918ab9ebeee27b0dd657263d3f57ba6bb8ad";
+            url = "github:guibou/nixgl";
             inputs = {
                 nixpkgs.follows = "nixpkgs";
                 flake-utils.follows = "flake-utils";
@@ -28,13 +27,12 @@
             py = "python${pyVer}";
             jaxOverlays = final: prev: {
                 ${py} = prev.${py}.override {
-                    packageOverrides = finalScope: prevScope: {
-                        jax = prevScope.jax.overridePythonAttrs (o: { doCheck = false; });
-                        jaxlib = prevScope.jaxlib-bin;
-                        flax = prevScope.flax.overridePythonAttrs (o: {
-                            buildInputs = o.buildInputs ++ [ prevScope.pyyaml ];
-                            doCheck = false;
-                        });
+                    packageOverrides = final2: prev2: {
+                        # Turn off jax import check so it doesn't fail due to jaxlib not being installed.
+                        jax = prev2.jax.overridePythonAttrs (o: { pythonImportsCheck = []; doCheck = false; });
+                        # Use jaxlib-bin instead of jaxlib because it takes a long time to build XLA.
+                        jaxlib = prev2.jaxlib-bin;
+                        flax = prev2.flax.overridePythonAttrs (o: { doCheck = false; });
                     };
                 };
             };
@@ -48,9 +46,6 @@
                 config = {
                     allowUnfree = true;
                     cudaSupport = true;
-                    packageOverrides = pkgs: {
-                        linuxPackages = (import inputs.nixpkgs-with-nvidia-driver-fix {}).linuxPackages;
-                    };
                 };
             };
             mkPythonDeps = { pp, extraPackages }: with pp; [

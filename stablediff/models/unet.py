@@ -26,6 +26,7 @@ class CrossAttnDownBlock2d(nn.Module):
                 out_channels=self.out_channels,
                 dropout_prob=self.dropout,
                 dtype=self.dtype,
+                name=f'resnets_{i}'
             )(hidden_states, temb, deterministic=deterministic)
 
             hidden_states = Transformer2dModel(
@@ -36,11 +37,14 @@ class CrossAttnDownBlock2d(nn.Module):
                 use_linear_projection=self.use_linear_projection,
                 only_cross_attention=self.only_cross_attention,
                 dtype=self.dtype,
+                name=f'attentions_{i}'
             )(hidden_states, encoder_hidden_states, deterministic=deterministic)
             output_states += (hidden_states,)
 
         if self.add_downsample:
-            hidden_states = Downsample2d(self.out_channels, dtype=self.dtype)(hidden_states)
+            hidden_states = Downsample2d(
+                self.out_channels, dtype=self.dtype, name='downsamplers_0'
+            )(hidden_states)
             output_states += (hidden_states,)
         return hidden_states, output_states
     
@@ -63,11 +67,14 @@ class DownBlock2d(nn.Module):
                 out_channels=self.out_channels,
                 dropout_prob=self.dropout,
                 dtype=self.dtype,
+                name=f'resnets_{i}'
             )(hidden_states, temb, deterministic=deterministic)
             output_states += (hidden_states,)
         
         if self.add_downsample:
-            hidden_states = Downsample2d(self.out_channels, dtype=self.dtype)(hidden_states)
+            hidden_states = Downsample2d(
+                self.out_channels, dtype=self.dtype, name='downsamplers_0'
+            )(hidden_states)
             output_states += (hidden_states,)
         return hidden_states, output_states
 
@@ -108,6 +115,7 @@ class CrossAttnUpBlock2d(nn.Module):
                 out_channels=self.out_channels,
                 dropout_prob=self.dropout,
                 dtype=self.dtype,
+                name=f'resnets_{i}'
             )(hidden_states, temb, deterministic=deterministic)
 
             hidden_states = Transformer2dModel(
@@ -118,10 +126,13 @@ class CrossAttnUpBlock2d(nn.Module):
                 use_linear_projection=self.use_linear_projection,
                 only_cross_attention=self.only_cross_attention,
                 dtype=self.dtype,
+                name=f'attentions_{i}'
             )(hidden_states, encoder_hidden_states, deterministic=deterministic)
 
         if self.add_upsample:
-            hidden_states = Upsample2d(self.out_channels, dtype=self.dtype)(hidden_states)
+            hidden_states = Upsample2d(
+                self.out_channels, dtype=self.dtype, name='upsamplers_0'
+            )(hidden_states)
         return hidden_states
     
 # Refactored - done but untested
@@ -156,10 +167,13 @@ class UpBlock2d(nn.Module):
                 out_channels=self.out_channels,
                 dropout_prob=self.dropout,
                 dtype=self.dtype,
+                name=f'resnets_{i}'
             )(hidden_states, temb, deterministic=deterministic)
 
         if self.add_upsample:
-            hidden_states = Upsample2d(self.out_channels, dtype=self.dtype)(hidden_states)
+            hidden_states = Upsample2d(
+                self.out_channels, dtype=self.dtype, name='upsamplers_0'
+            )(hidden_states)
         return hidden_states
 
 # Refactored - done but untested
@@ -179,9 +193,10 @@ class UNetMidBlock2dCrossAttn(nn.Module):
             out_channels=self.in_channels,
             dropout_prob=self.dropout,
             dtype=self.dtype,
+            name='resnets_0'
         )(hidden_states, temb)
 
-        for _ in range(self.num_layers-1):
+        for i in range(self.num_layers-1):
             hidden_states = Transformer2dModel(
                 in_channels=self.in_channels,
                 n_heads=self.attn_num_head_channels,
@@ -189,6 +204,7 @@ class UNetMidBlock2dCrossAttn(nn.Module):
                 depth=1,
                 use_linear_projection=self.use_linear_projection,
                 dtype=self.dtype,
+                name=f'attentions_{i}'
             )(hidden_states, encoder_hidden_states, deterministic=deterministic)
 
             hidden_states = ResnetBlock2d(
@@ -196,6 +212,7 @@ class UNetMidBlock2dCrossAttn(nn.Module):
                 out_channels=self.in_channels,
                 dropout_prob=self.dropout,
                 dtype=self.dtype,
+                name=f'resnets_{i+1}'
             )(hidden_states, temb, deterministic=deterministic)
 
         return hidden_states

@@ -69,31 +69,44 @@ class BasicTransformerBlock(nn.Module):
 
     @nn.compact
     def __call__(self, hidden_states, context, deterministic=True):
+        def attention_module(name):
+            module = AttentionBlock(
+                self.dim, self.n_heads, self.d_head, self.dropout, dtype=self.dtype, name=name
+            )
+            return module
+        
         # self attention (or cross_attention if only_cross_attention is True)
         residual = hidden_states
-        hidden_states = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype)(hidden_states)
-        attention1 = AttentionBlock(
-            self.dim, self.n_heads, self.d_head, self.dropout, dtype=self.dtype
-        )
+        hidden_states = nn.LayerNorm(
+            epsilon=1e-5, dtype=self.dtype, name='norm1'
+        )(hidden_states)
         if self.only_cross_attention:
-            hidden_states = attention1(hidden_states, context, deterministic=deterministic)
+            hidden_states = attention_module(name='attn1')(
+                hidden_states, context, deterministic=deterministic
+            )
         else:
-            hidden_states = attention1(hidden_states, context, deterministic=deterministic)
+            hidden_states = attention_module(name='attn1')(
+                hidden_states, deterministic=deterministic
+            )
         hidden_states = hidden_states + residual
 
         # cross attention
         residual = hidden_states
-        hidden_states = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype)(hidden_states)
-        hidden_states =  AttentionBlock(
-            self.dim, self.n_heads, self.d_head, self.dropout, dtype=self.dtype
-        )(hidden_states, context, deterministic=deterministic)
+        hidden_states = nn.LayerNorm(
+            epsilon=1e-5, dtype=self.dtype, name='norm2'
+        )(hidden_states)
+        hidden_states =  attention_module(name='attn2')(
+            hidden_states, context, deterministic=deterministic
+        )
         hidden_states = hidden_states + residual
 
         # feed forward
         residual = hidden_states
-        hidden_states = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype)(hidden_states)
+        hidden_states = nn.LayerNorm(
+            epsilon=1e-5, dtype=self.dtype, name='norm3'
+        )(hidden_states)
         hidden_states = GluFeedForward(
-            dim=self.dim, dropout=self.dropout, dtype=self.dtype
+            dim=self.dim, dropout=self.dropout, dtype=self.dtype, name='ff'
         )(hidden_states, deterministic=deterministic)
         hidden_states = hidden_states + residual
 
@@ -119,10 +132,12 @@ class Transformer2dModel(nn.Module):
         
         # project in
         residual = hidden_states
-        hidden_states = nn.GroupNorm(num_groups=32, epsilon=1e-5)(hidden_states)
+        hidden_states = nn.GroupNorm(num_groups=32, epsilon=1e-5, name='norm')(hidden_states)
         if self.use_linear_projection:
             hidden_states = hidden_states.reshape(batch, height * width, channels)
-            hidden_states = nn.Dense(inner_dim, dtype=self.dtype)(hidden_states)
+            hidden_states = nn.Dense(
+                inner_dim, dtype=self.dtype, name='proj_in'
+            )(hidden_states)
         else:
             hidden_states = nn.Conv(
                 inner_dim,
@@ -130,6 +145,7 @@ class Transformer2dModel(nn.Module):
                 strides=(1, 1),
                 padding="VALID",
                 dtype=self.dtype,
+                name='conv_in'
             )(hidden_states)
             hidden_states = hidden_states.reshape(batch, height * width, channels)
 
@@ -142,11 +158,14 @@ class Transformer2dModel(nn.Module):
                 dropout=self.dropout,
                 only_cross_attention=self.only_cross_attention,
                 dtype=self.dtype,
+                name='transformer_blocks_0'
             )(hidden_states, context, deterministic=deterministic)
 
         # project out
         if self.use_linear_projection:
-            hidden_states = nn.Dense(inner_dim, dtype=self.dtype)(hidden_states)
+            hidden_states = nn.Dense(
+                inner_dim, dtype=self.dtype, name='proj_out'
+            )(hidden_states)
             hidden_states = hidden_states.reshape(batch, height, width, channels)
         else:
             hidden_states = hidden_states.reshape(batch, height, width, channels)
@@ -156,6 +175,7 @@ class Transformer2dModel(nn.Module):
                 strides=(1, 1),
                 padding="VALID",
                 dtype=self.dtype,
+                name='conv_out'
             )(hidden_states)
 
         hidden_states = hidden_states + residual
@@ -188,6 +208,6 @@ class GegluFeedForward(nn.Module):
     @nn.compact
     def __call__(self, hidden_states, deterministic=True):
         inner_dim = self.dim * 4
-        hidden_states = nn.Dense(inner_dim * 2, dtype=self.dtype)(hidden_states)
+        hidden_states = nn.Dense(inner_dim * 2, dtype=self.dtype, name='proj')(hidden_states)
         hidden_linear, hidden_gelu = jnp.split(hidden_states, 2, axis=2)
         return hidden_linear * nn.gelu(hidden_gelu)

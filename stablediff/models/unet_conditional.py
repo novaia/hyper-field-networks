@@ -16,6 +16,25 @@ from .unet import (
     UpBlock2d,
 )
 
+def get_model_from_config(config, dtype):
+    model = UNet2dConditionalModel(
+        sample_size=config['sample_size'],
+        in_channels=config['in_channels'],
+        out_channels=config['out_channels'],
+        down_block_types=config['down_block_types'],
+        up_block_types=config['up_block_types'],
+        only_cross_attention=config['dual_cross_attention'],
+        block_out_channels=config['block_out_channels'],
+        layers_per_block=config['layers_per_block'],
+        attention_head_dim=config['attention_head_dim'],
+        cross_attention_dim=config['cross_attention_dim'],
+        use_linear_projection=config['use_linear_projection'],
+        flip_sin_to_cos=config['flip_sin_to_cos'],
+        freq_shift=config['freq_shift'],
+        dtype=dtype
+    )
+    return model
+
 # Refactored - done but untested
 @flax.struct.dataclass
 class UNet2dConditionalOutput(BaseOutput):
@@ -96,7 +115,11 @@ class UNet2dConditionalModel(nn.Module):
             flip_sin_to_cos=self.flip_sin_to_cos, 
             freq_shift=self.freq_shift
         )(timesteps)
-        t_emb = TimestepEmbedding(time_embed_dim, dtype=self.dtype)(t_emb)
+        t_emb = TimestepEmbedding(
+            time_embed_dim, 
+            dtype=self.dtype, 
+            name='time_embedding'
+        )(t_emb)
 
         # 2. pre-process
         sample = jnp.transpose(sample, (0, 2, 3, 1))
@@ -106,6 +129,7 @@ class UNet2dConditionalModel(nn.Module):
             strides=(1, 1),
             padding=((1, 1), (1, 1)),
             dtype=self.dtype,
+            name='conv_in'
         )(sample)
 
         # 3. down
@@ -127,6 +151,7 @@ class UNet2dConditionalModel(nn.Module):
                     use_linear_projection=self.use_linear_projection,
                     only_cross_attention=only_cross_attention[i],
                     dtype=self.dtype,
+                    name=f'down_blocks_{i}'
                 )(sample, t_emb, encoder_hidden_states, deterministic=not train)
             else:
                 sample, res_samples = DownBlock2d(
@@ -136,6 +161,7 @@ class UNet2dConditionalModel(nn.Module):
                     num_layers=self.layers_per_block,
                     add_downsample=not is_final_block,
                     dtype=self.dtype,
+                    name=f'down_blocks_{i}'
                 )(sample, t_emb, deterministic=not train)
             down_block_res_samples += res_samples
 
@@ -146,6 +172,7 @@ class UNet2dConditionalModel(nn.Module):
             attn_num_head_channels=attention_head_dim[-1],
             use_linear_projection=self.use_linear_projection,
             dtype=self.dtype,
+            name='mid_block'
         )(sample, t_emb, encoder_hidden_states, deterministic=not train)
 
         # 5. up
@@ -176,6 +203,7 @@ class UNet2dConditionalModel(nn.Module):
                     use_linear_projection=self.use_linear_projection,
                     only_cross_attention=only_cross_attention[i],
                     dtype=self.dtype,
+                    name=f'up_blocks_{i}'
                 )(
                     sample,
                     temb=t_emb,
@@ -192,6 +220,7 @@ class UNet2dConditionalModel(nn.Module):
                     add_upsample=not is_final_block,
                     dropout=self.dropout,
                     dtype=self.dtype,
+                    name=f'up_blocks_{i}'
                 )(
                     sample, 
                     temb=t_emb, 
@@ -200,7 +229,7 @@ class UNet2dConditionalModel(nn.Module):
                 )
 
         # 6. post-process
-        sample = nn.GroupNorm(num_groups=32, epsilon=1e-5)(sample)
+        sample = nn.GroupNorm(num_groups=32, epsilon=1e-5, name='conv_norm_out')(sample)
         sample = nn.silu(sample)
         sample = nn.Conv(
             self.out_channels,
@@ -208,6 +237,7 @@ class UNet2dConditionalModel(nn.Module):
             strides=(1, 1),
             padding=((1, 1), (1, 1)),
             dtype=self.dtype,
+            name='conv_out'
         )(sample)
         sample = jnp.transpose(sample, (0, 3, 1, 2))
 

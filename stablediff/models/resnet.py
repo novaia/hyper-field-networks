@@ -21,6 +21,7 @@ class Upsample2d(nn.Module):
             strides=(1, 1),
             padding=((1, 1), (1, 1)),
             dtype=self.dtype,
+            name='conv'
         )(hidden_states)
         return hidden_states
     
@@ -39,6 +40,7 @@ class Downsample2d(nn.Module):
             strides=(2, 2),
             padding=((1, 1), (1, 1)),  # padding="VALID",
             dtype=self.dtype,
+            name='conv'
         )(hidden_states)
         return hidden_states
     
@@ -54,7 +56,7 @@ class ResnetBlock2d(nn.Module):
     def __call__(self, hidden_states, temb, deterministic=True):
         out_channels = self.in_channels if self.out_channels is None else self.out_channels
         residual = hidden_states
-        hidden_states = nn.GroupNorm(num_groups=32, epsilon=1e-5)(hidden_states)
+        hidden_states = nn.GroupNorm(num_groups=32, epsilon=1e-5, name='norm1')(hidden_states)
         hidden_states = nn.swish(hidden_states)
         hidden_states = nn.Conv(
             out_channels,
@@ -62,13 +64,14 @@ class ResnetBlock2d(nn.Module):
             strides=(1, 1),
             padding=((1, 1), (1, 1)),
             dtype=self.dtype,
+            name='conv1'
         )(hidden_states)
 
-        temb = nn.Dense(out_channels, dtype=self.dtype)(nn.swish(temb))
+        temb = nn.Dense(out_channels, dtype=self.dtype, name='time_emb_proj')(nn.swish(temb))
         temb = jnp.expand_dims(jnp.expand_dims(temb, 1), 1)
         hidden_states = hidden_states + temb
 
-        hidden_states = nn.GroupNorm(num_groups=32, epsilon=1e-5)(hidden_states)
+        hidden_states = nn.GroupNorm(num_groups=32, epsilon=1e-5, name='norm2')(hidden_states)
         hidden_states = nn.swish(hidden_states)
         hidden_states = nn.Dropout(self.dropout_prob)(hidden_states, deterministic)
         hidden_states = nn.Conv(
@@ -77,6 +80,7 @@ class ResnetBlock2d(nn.Module):
             strides=(1, 1),
             padding=((1, 1), (1, 1)),
             dtype=self.dtype,
+            name='conv2'
         )(hidden_states)
 
         shortcut = self.use_nin_shortcut
@@ -89,5 +93,6 @@ class ResnetBlock2d(nn.Module):
                 strides=(1, 1),
                 padding="VALID",
                 dtype=self.dtype,
+                name='conv3'
             )(residual)
         return hidden_states + residual

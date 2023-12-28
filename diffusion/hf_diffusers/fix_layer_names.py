@@ -1,20 +1,11 @@
 # Temp script for fixing layer names.
 
-from stablediff.models.unet_conditional import get_model_from_config
+from diffusion.hf_diffusers.models.unet_conditional import get_model_from_config
 
 import jax
 import jax.numpy as jnp
 
 import json
-
-def get_all_keys(keys, weight_dict, output_file):
-    for key in keys:
-        new_weight_dict = weight_dict[key]
-        if isinstance(new_weight_dict, dict):
-            get_all_keys(new_weight_dict.keys(), new_weight_dict, output_file)
-        with open(output_file, 'a') as f:
-            f.write(key + '\n')
-    return
 
 def main():
     config_path = 'configs/stable_diffusion_2_unet.json'
@@ -38,9 +29,20 @@ def main():
     timesteps = jnp.ones((1,), dtype=dtype)
     encoder_hidden_states = jnp.zeros((1, 1, config['cross_attention_dim']), dtype=dtype)
     random_params = model.init(rngs, samples, timesteps, encoder_hidden_states)['params']
+    layer_name = 'down_blocks_0'
+    layer_name2 = 'attentions_0'
+    layer_name3 = 'transformer_blocks_0'
+    layer_name4 = 'ff'
+    print('Random params:\n', sorted(list(random_params[layer_name][layer_name2][layer_name3][layer_name4].keys())))
+    #print('Random params:\n', sorted(list(random_params[layer_name][layer_name2][layer_name3].keys())))
+    #print('Random params:\n', sorted(list(random_params[layer_name][layer_name2].keys())))
+    #print('Random params:\n', sorted(list(random_params[layer_name].keys())))
+
     loaded_params = dict(jnp.load(model_path, allow_pickle=True).tolist())
-    get_all_keys(sorted(list(random_params.keys())), random_params, 'data/random_params_keys.txt')
-    get_all_keys(sorted(list(loaded_params.keys())), loaded_params, 'data/loaded_params_keys.txt')
+    print('Loaded params:\n', sorted(list(loaded_params[layer_name][layer_name2][layer_name3][layer_name4].keys())))
+    #print('Loaded params:\n', sorted(list(loaded_params[layer_name][layer_name2][layer_name3].keys())))
+    #print('Loaded params:\n', sorted(list(loaded_params[layer_name][layer_name2].keys())))
+    #print('Loaded params:\n', sorted(list(loaded_params[layer_name].keys())))
 
 if __name__ == '__main__':
     main()

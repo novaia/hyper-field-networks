@@ -13,6 +13,22 @@ from flax.core.frozen_dict import FrozenDict
 
 from .output import BaseOutput
 
+def get_model_from_config(config, dtype):
+    model = AutoencoderKl(
+        in_channels=config['in_channels'],
+        out_channels=config['out_channels'],
+        down_block_types=config['down_block_types'],
+        up_block_types=config['up_block_types'],
+        layers_per_block=config['layers_per_block'],
+        act_fn=config['act_fn'],
+        latent_channels=config['latent_channels'],
+        norm_num_groups=config['norm_num_groups'],
+        sample_size=config['sample_size'],
+        block_out_channels=config['block_out_channels'],
+        dtype=dtype
+    )
+    return model
+
 # Refactored - done but untested
 @flax.struct.dataclass
 class DecoderOutput(BaseOutput):

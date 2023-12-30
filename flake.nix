@@ -2,6 +2,7 @@
     description = "3D character generation.";
     inputs = {
         nixpkgs.url = "github:nixos/nixpkgs/23.11";
+        nixpkgs-with-nvidia-driver-fix.url = "github:nixos/nixpkgs/pull/222762/head";
         flake-utils.url = "github:numtide/flake-utils";
         nixgl = {
             url = "github:guibou/nixgl";
@@ -46,6 +47,9 @@
                 config = {
                     allowUnfree = true;
                     cudaSupport = true;
+                    packageOverrides = pkgs: {
+                        linuxPackages = (import inputs.nixpkgs-with-nvidia-driver-fix {}).linuxPackages;
+                    };
                 };
             };
             mkPythonDeps = { pp, extraPackages }: with pp; [

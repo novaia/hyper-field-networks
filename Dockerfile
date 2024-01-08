@@ -3,33 +3,33 @@ ARG NO_RECS="--no-install-recommends"
 RUN apt-get update -y \ 
     && apt-get install $NO_RECS -y \
         # general dependencies
-        wget=1.20.3-1ubuntu2 \
+        wget \
         # blender dependencies
-        libfreetype6=2.10.1-2ubuntu0.3 \
-        libglu1-mesa=9.0.1-1build1 \
-        libxi6=2:1.7.10-0ubuntu1 \
-        libxrender1=1:0.9.10-1 \
-        xz-utils=5.2.4-1ubuntu1.1 \
+        libfreetype6 \
+        libglu1-mesa \
+        libxi6 \
+        libxrender1 \
+        xz-utils \
         xvfb \
-        libxkbcommon-x11-0=0.10.0-1 \
+        libxkbcommon-x11-0 \
         # volume-rendering-jax dependencies
-        libfmt-dev=6.1.2+ds-2 \
+        libfmt-dev \
         # python3 and pip
-        python3-dev=3.8.2-0ubuntu2 \
-        python3-pip=20.0.2-5ubuntu1.9 \
+        python3-dev \
+        python3-pip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade to gcc-11 and g++-11, then install cmake.
 RUN apt-get update -y \
     && DEBIAN_FRONTEND=noninteractive apt-get install $NO_RECS -y \
-        software-properties-common=0.99.9.12 \
+        software-properties-common \
     && DEBIAN_FRONTEND=noninteractive add-apt-repository -y \
         ppa:ubuntu-toolchain-r/test \
     && apt-get update -y \
     && apt-get install $NO_RECS -y \
-        gcc-11=11.4.0-2ubuntu1~20.04 \
-        g++-11=11.4.0-2ubuntu1~20.04 \
+        gcc-11 \
+        g++-11 \
     # Set gcc-11 as the default gcc version and g++-11 as the default g++ version.
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100 \
@@ -39,7 +39,7 @@ RUN apt-get update -y \
     # Install cmake from kitware.
     && apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" \
     && apt-get update -y \
-    && apt-get install $NO_RECS -y cmake=3.27.7-0kitware1ubuntu20.04.1 \
+    && apt-get install $NO_RECS -y cmake \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -111,7 +111,7 @@ def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
                 )
 
         # also add unexpected weight so that warning is thrown
-        flax_state_dict[flax_key] = jnp.asarray(flax_tensor)
+        flax_state_dict[flax_key] = np.asarray(flax_tensor)
 
     return unflatten_dict(flax_state_dict)
 
@@ -129,7 +129,7 @@ def main():
     
     with open(args.model_path, 'rb') as f:
         model_weights = f.read()
-    model_weights = torch_load(model_weights, device='cpu')
+    model_weights = torch_load(model_weights)
 
     if args.model_type == 'unet':
         model = UNet2dConditionalModel(

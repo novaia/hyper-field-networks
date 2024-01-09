@@ -68,6 +68,7 @@
             optax
             flax
             matplotlib
+            torch-bin
         ] ++ extraPackages;
         commonShellHook = ''
             [[ "$-" == *i* ]] && exec "$SHELL"

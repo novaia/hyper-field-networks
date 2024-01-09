@@ -28,10 +28,6 @@
         pyVer = "310";
         py = "python${pyVer}";
         jaxOverlays = final: prev: {
-            # avoid rebuilding opencv4 with cuda for tensorflow-datasets
-            opencv4 = prev.opencv4.override {
-                enableCuda = false;
-            };
             ${py} = prev.${py}.override {
                 packageOverrides = finalScope: prevScope: {
                     jax = prevScope.jax.overridePythonAttrs (o: { doCheck = false; });
@@ -40,11 +36,6 @@
                         buildInputs = o.buildInputs ++ [ prevScope.pyyaml ];
                         doCheck = false;
                     });
-                    tensorflow = prevScope.tensorflow.override {
-                        # we only use tensorflow-datasets for data loading, it does not need to be built
-                        # with cuda support (building with cuda support is too demanding).
-                        cudaSupport = false;
-                    };
                 };
             };
         };
@@ -71,32 +62,14 @@
             };
         };
         mkPythonDeps = { pp, extraPackages }: with pp; [
-            ipython
-            tqdm
-            icecream
             pillow
-            ipdb
-            colorama
-            imageio
-            ffmpeg-python
-            pydantic
-            natsort
-            GitPython
-
-            tensorflow
-            keras
             jaxlib-bin
             jax
             optax
             flax
-
-            pillow
             matplotlib
         ] ++ extraPackages;
         commonShellHook = ''
-            export PYTHONBREAKPOINT=ipdb.set_trace
-            export PYTHONDONTWRITEBYTECODE=1
-            export PYTHONUNBUFFERED=1
             [[ "$-" == *i* ]] && exec "$SHELL"
         '';
     in rec {
@@ -111,6 +84,7 @@
                     extraPackages = with pp; [
                         pkgs.volume-rendering-jax
                         pkgs.jax-tcnn
+                        pkgs.safetensors
                     ];
                 }))
             ];

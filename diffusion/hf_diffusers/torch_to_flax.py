@@ -21,11 +21,29 @@ def rename_key(key):
         key = key.replace(pat, "_".join(pat.split(".")))
     return key
 
-# Rename PyTorch weight names to corresponding Flax weight names and reshape tensor 
-# if necessary.
+# Adapted from https://github.com/huggingface/transformers/blob/c603c80f46881ae18b2ca50770ef65fa4033eacd/src/transformers/modeling_flax_pytorch_utils.py#L69
+# and https://github.com/patil-suraj/stable-diffusion-jax/blob/main/stable_diffusion_jax/convert_diffusers_to_jax.py
 def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dict):
+    """Rename PT weight names to corresponding Flax weight names and reshape tensor if necessary"""
     # conv norm or layer norm
     renamed_pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
+
+    # rename attention layers
+    if len(pt_tuple_key) > 1:
+        for rename_from, rename_to in (
+            ("to_out_0", "proj_attn"),
+            ("to_k", "key"),
+            ("to_v", "value"),
+            ("to_q", "query"),
+        ):
+            if pt_tuple_key[-2] == rename_from:
+                weight_name = pt_tuple_key[-1]
+                weight_name = "kernel" if weight_name == "weight" else weight_name
+                renamed_pt_tuple_key = pt_tuple_key[:-2] + (rename_to, weight_name)
+                if renamed_pt_tuple_key in random_flax_state_dict:
+                    assert random_flax_state_dict[renamed_pt_tuple_key].shape == pt_tensor.T.shape
+                    return renamed_pt_tuple_key, pt_tensor.T
+
     if (
         any("norm" in str_ for str_ in pt_tuple_key)
         and (pt_tuple_key[-1] == "bias")
@@ -34,18 +52,12 @@ def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dic
     ):
         renamed_pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
         return renamed_pt_tuple_key, pt_tensor
-    elif (
-        pt_tuple_key[-1] in ["weight", "gamma"] 
-        and pt_tuple_key[:-1] + ("scale",) in random_flax_state_dict
-    ):
+    elif pt_tuple_key[-1] in ["weight", "gamma"] and pt_tuple_key[:-1] + ("scale",) in random_flax_state_dict:
         renamed_pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
         return renamed_pt_tuple_key, pt_tensor
 
     # embedding
-    if (
-        pt_tuple_key[-1] == "weight" 
-        and pt_tuple_key[:-1] + ("embedding",) in random_flax_state_dict
-    ):
+    if pt_tuple_key[-1] == "weight" and pt_tuple_key[:-1] + ("embedding",) in random_flax_state_dict:
         pt_tuple_key = pt_tuple_key[:-1] + ("embedding",)
         return renamed_pt_tuple_key, pt_tensor
 
@@ -73,7 +85,6 @@ def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dic
 
     return pt_tuple_key, pt_tensor
 
-
 def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
     # Step 1: Convert pytorch tensor to numpy
     pt_state_dict = {k: v.numpy() for k, v in pt_state_dict.items()}
@@ -90,19 +101,18 @@ def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
         pt_tuple_key = tuple(renamed_pt_key.split("."))
 
         # Correctly rename weight parameters
-        flax_key, flax_tensor = rename_key_and_reshape_tensor(
-            pt_tuple_key, pt_tensor, random_flax_state_dict
-        )
+        flax_key, flax_tensor = rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dict)
 
         if flax_key in random_flax_state_dict:
             if flax_tensor.shape != random_flax_state_dict[flax_key].shape:
                 raise ValueError(
-                    f'PyTorch checkpoint seems to be incorrect. Weight {pt_key} was expected '
-                    f'be of shape {random_flax_state_dict[flax_key].shape}, but is '
-                    f'{flax_tensor.shape}.'
+                    f"PyTorch checkpoint seems to be incorrect. Weight {pt_key} was expected to be of shape "
+                    f"{random_flax_state_dict[flax_key].shape}, but is {flax_tensor.shape}."
                 )
+
         # also add unexpected weight so that warning is thrown
-        flax_state_dict[flax_key] = np.asarray(flax_tensor)
+        flax_state_dict[flax_key] = jnp.asarray(flax_tensor)
+
     return unflatten_dict(flax_state_dict)
 
 def main():
@@ -119,7 +129,7 @@ def main():
     
     with open(args.model_path, 'rb') as f:
         model_weights = f.read()
-    model_weights = torch_load(model_weights)
+    model_weights = torch_load(model_weights, device='cpu')
 
     if args.model_type == 'unet':
         model = UNet2dConditionalModel(

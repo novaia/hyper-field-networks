@@ -50,10 +50,10 @@ def main():
     loaded_params = dict(jnp.load(model_path, allow_pickle=True).tolist())
     print('Loaded params:\n', loaded_params.keys())
     
-    #tx = optax.sgd(learning_rate=1.0)
-    #state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-    #y = state.apply_fn({'params': state.params}, sample, timesteps, encoder_hidden_states)
-    #print('Output shape', y.shape)
+    tx = optax.sgd(learning_rate=1.0)
+    state = TrainState.create(apply_fn=model.apply, params=loaded_params, tx=tx)
+    y = state.apply_fn({'params': state.params}, samples, timesteps, encoder_hidden_states)
+    print('Output shape', y.shape)
 
 if __name__ == '__main__':
     main()

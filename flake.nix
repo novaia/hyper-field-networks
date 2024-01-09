@@ -59,10 +59,14 @@
                 optax
                 flax
             ] ++ extraPackages;
-            commonShellHook = '''';
+            commonShellHook = ''
+                [[ "$-" == *i* ]] && exec "$SHELL"
+            '';
         in rec {
             default = cudaDevShell;
-            cudaDevShell = cudaPkgs.mkShell {
+            cudaDevShell = let 
+                isWsl = builtins.pathExists /usr/lib/wsl/lib;
+            in cudaPkgs.mkShell {
                 name = "cuda";
                 buildInputs = [
                     (cudaPkgs.${py}.withPackages (pp: mkPythonDeps {
@@ -74,10 +78,21 @@
                         ];
                     }))
                 ];
+                # REF:
+                #   <https://github.com/google/jax/issues/5723#issuecomment-1339655621>
+                XLA_FLAGS = with builtins; let
+                    nvidiaDriverVersion =
+                        head (match ".*Module  ([0-9\\.]+)  .*" (readFile /proc/driver/nvidia/version));
+                    nvidiaDriverVersionMajor = lib.toInt (head (splitVersion nvidiaDriverVersion));
+                in lib.optionalString
+                    (!isWsl && nvidiaDriverVersionMajor <= 470)
+                    "--xla_gpu_force_compilation_parallelism=1";
                 shellHook = ''
                     source <(sed -Ee '/\$@/d' ${lib.getExe cudaPkgs.nixgl.nixGLIntel})
-                    source <(sed -Ee '/\$@/d' ${lib.getExe cudaPkgs.nixgl.auto.nixGLNvidia}*)
-                '' + "\n" + commonShellHook;
+                '' + (if isWsl
+                    then ''export LD_LIBRARY_PATH=/usr/lib/wsl/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}''
+                    else ''source <(sed -Ee '/\$@/d' ${lib.getExe cudaPkgs.nixgl.auto.nixGLNvidia}*)''
+                ) + "\n" + commonShellHook;
             };
         };
         packages = deps.packages basePkgs;

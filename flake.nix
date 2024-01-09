@@ -62,7 +62,7 @@
             };
         };
         mkPythonDeps = { pp, extraPackages }: with pp; [
-            pillow
+            pyyaml
             jaxlib-bin
             jax
             optax

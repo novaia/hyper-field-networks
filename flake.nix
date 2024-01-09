@@ -58,7 +58,7 @@
                 jax
                 optax
                 flax
-            ] ++ extraPackages;
+			] ++ extraPackages;
             commonShellHook = '''';
         in rec {
             default = cudaDevShell;
@@ -69,8 +69,9 @@
                         inherit pp;
                         extraPackages = with pp; [
                             pkgs.volume-rendering-jax
-                            pkgs.jax-tcnn
-                        ];
+                        	pkgs.jax-tcnn
+                        	pkgs.safetensors
+						];
                     }))
                 ];
                 shellHook = ''

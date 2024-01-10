@@ -31,7 +31,7 @@
             ${py} = prev.${py}.override {
                 packageOverrides = finalScope: prevScope: {
                     jax = prevScope.jax.overridePythonAttrs (o: { doCheck = false; });
-                    jaxlib = prevScope.jaxlib-bin;
+                    jaxlib = prevScope.jaxlibWithCuda;
                     flax = prevScope.flax.overridePythonAttrs (o: {
                         buildInputs = o.buildInputs ++ [ prevScope.pyyaml ];
                         doCheck = false;

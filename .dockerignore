@@ -1,3 +1,6 @@
 */*/README.md
 */*/LICENSE.txt
 */*/build/
+data/
+wandb/
+.git

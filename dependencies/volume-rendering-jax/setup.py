@@ -51,7 +51,7 @@ class CMakeBuildExt(build_ext):
                 "Debug" if self.debug else "Release"
             ),
             "-DCMAKE_PREFIX_PATH={}".format(pybind11.get_cmake_dir()),
-            "-G Ninja",
+            "-G Unix Makefiles",
         ]
         os.makedirs(self.build_temp, exist_ok=True)
         subprocess.check_call(

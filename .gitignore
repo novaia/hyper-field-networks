@@ -1,5 +1,6 @@
 data/
 dependencies/build/
+binaries/
 .vscode/
 
 # Byte-compiled / optimized / DLL files

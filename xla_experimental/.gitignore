@@ -1,7 +1,0 @@
-xla
-xla_extension
-bazel-bin
-bazel-out
-bazel-testlogs
-bazel-xla_experimental
-build

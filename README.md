@@ -28,35 +28,25 @@ Use PyTest to run the tests in the tests directory:
 pytest tests
 ```
 
-## Nix Environment
+## Development Environment
+It is recommneded to use the Docker development environment.
+The Nix development environment is currently experimental.
 
+### Nix
 Entering development shell:
 ```
-NIXPKGS_ALLOW_UNFREE=1 nix develop --impure
+bash devshell.sh
 ```
 
-## Docker Environment
-
+### Docker
 Building image:
 ```
-docker-compose build
+bash docker_build.sh
 ```
 
-Starting container/environment:
+Running the container:
 ```
-docker-compose up -d
-```
-
-Opening a shell in container:
-```
-docker-compose exec pcg bash
-```
-
-Instead of opening a shell, you can also go to http://localhost:7070/ to access a Jupyter Lab instance running inside the container.
-
-Stopping container/environment:
-```
-docker-compose down
+bash docker_run.sh
 ```
 
 To open VS Code inside the container, first make sure you have the Dev Containers extension installed and have the container running.

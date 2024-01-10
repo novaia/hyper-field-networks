@@ -63,7 +63,7 @@
         };
         mkPythonDeps = { pp, extraPackages }: with pp; [
             pyyaml
-            jaxlib-bin
+            jaxlibWithCuda
             jax
             optax
             flax
@@ -86,6 +86,8 @@
                         pkgs.volume-rendering-jax
                         pkgs.jax-tcnn
                         pkgs.safetensors
+                        pkgs.cudaPackages.cudnn_8_6_0
+                        pkgs.cudaPackages.libcublas
                     ];
                 }))
             ];

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04 AS base-dependencies
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 ARG NO_RECS="--no-install-recommends"
 RUN apt-get update -y \ 
     && apt-get install $NO_RECS -y \
@@ -43,7 +43,6 @@ RUN apt-get update -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-FROM base-dependencies AS blender-install
 # Install blender.
 ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
 ARG BLENDER_PACKAGE_URL="https://download.blender.org/release/Blender3.6/blender-3.6.3-linux-x64.tar.xz"
@@ -60,18 +59,7 @@ RUN tar -xJf /tmp/${BLENDER_PACKAGE_NAME}.tar.xz -C /tmp/ \
     && mv /tmp/${BLENDER_PACKAGE_NAME} ${BLENDER_PATH}
 ENV PATH="$PATH:$BLENDER_PATH"
 
-FROM blender-install AS tiny-cuda-nn-build
-COPY ./dependencies/ /project/dependencies/
-# Build tiny-cuda-nn.
-RUN cd /project/dependencies/tiny-cuda-nn \
-    && cmake . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    && cmake --build build --config RelWithDebInfo -j \
-    # Symlink the static libary to /usr/lib/.
-    && ln -s \
-        /project/dependencies/tiny-cuda-nn/build/libtiny-cuda-nn.a \
-        /usr/lib/libtiny-cuda-nn.a
-
-FROM tiny-cuda-nn-build AS final
+# Install python packages.
 ARG JAX_PACKAGE_URL="https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
 ARG DALI_PACKAGE_URL="https://developer.download.nvidia.com/compute/redist "
 ARG NO_CACHE="--no-cache-dir"
@@ -92,5 +80,3 @@ RUN python3 -m pip install $NO_CACHE --upgrade pip \
         --upgrade nvidia-dali-cuda120
 
 WORKDIR project
-EXPOSE 7070
-ENTRYPOINT ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root", "--no-browser", "--NotebookApp.token=''", "--NotebookApp.password=''"]

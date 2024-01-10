@@ -1,2 +1,2 @@
 mkdir -p data/blender_versions &&
-docker build -f Dockerfile -t 3d-gen-ai .
+docker build -f Dockerfile -t g3dm .

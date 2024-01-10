@@ -1,4 +1,5 @@
-# proc-gen
+# 3D Gen AI
+Experiments in 3D generative AI.
 
 ## Useful Commands
 

@@ -1,5 +1,5 @@
-# 3D Gen AI
-Experiments in 3D generative AI.
+# g3dm
+Experiments in generative 3D modelling.
 
 ## Useful Commands
 

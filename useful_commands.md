@@ -17,3 +17,8 @@ Generating dataset of CIFAR10 NGP Images:
 ```
 python3 -m fields.train_multiple.ngp_image --config_path configs/ngp_image.json --input_path data/CIFAR10 --output_path data/ngp_images/ngp_cifar10
 ```
+
+Converting PyTorch Diffusers model to Flax:
+```
+python3 -m diffusion.hf_diffusers.torch_to_flax --config_path configs/stable_diffusion_2_unet.json --model_path data/models/stable_diffusion_2_unet.safetensors --output_path data/models/stable_diffusion_2_unet_flax.npy --model_type unet
+```

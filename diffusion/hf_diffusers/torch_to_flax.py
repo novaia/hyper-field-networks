@@ -109,7 +109,7 @@ def convert_pytorch_param_dict_to_flax(loaded_torch_params, random_flax_params):
         # Also add unexpected weight so that warning is thrown.
         converted_params[flax_key] = np.asarray(flax_tensor)
 
-    return unflatten_dict(flax_state_dict)
+    return unflatten_dict(converted_params)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -132,10 +132,11 @@ def main():
 
     model = get_model_from_config(config, jnp.float32)
     random_params = init_model_params(model, config, jax.random.PRNGKey(0))
-    print('finished initializing random params')
+    print('Finished initializing random Flax params.')
     with open(args.model_path, 'rb') as f:
         loaded_params = torch_load(f.read())
-    converted_params = convert_pytorch_state_dict_to_flax(loaded_params, random_params, model)
+    print('Finished loading PyTorch params.')
+    converted_params = convert_pytorch_param_dict_to_flax(loaded_params, random_params)
     print(converted_params.keys())
     jnp.save(args.output_path, converted_params, allow_pickle=True)
 

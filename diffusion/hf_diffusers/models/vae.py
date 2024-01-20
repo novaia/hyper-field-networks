@@ -34,7 +34,7 @@ def init_model_params(model, config, key):
     sample = jnp.zeros(sample_shape, dtype=jnp.float32)
     params_rng, dropout_rng, gaussian_rng = jax.random.split(rng, 3)
     rngs = {'params': params_rng, 'drouput': dropout_rng, 'gaussian': gaussian_rng}
-    return model.init(rngs, sample)['params']
+    return jax.jit(model.init)(rngs, sample)['params']
 
 # Refactored - done but untested
 @flax.struct.dataclass

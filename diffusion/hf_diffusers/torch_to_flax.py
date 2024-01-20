@@ -132,6 +132,7 @@ def main():
 
     model = get_model_from_config(config, jnp.float32)
     random_params = init_model_params(model, config, jax.random.PRNGKey(0))
+    print('finished initializing random params')
     with open(args.model_path, 'rb') as f:
         loaded_params = torch_load(f.read())
     converted_params = convert_pytorch_state_dict_to_flax(loaded_params, random_params, model)

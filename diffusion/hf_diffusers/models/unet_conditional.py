@@ -42,7 +42,7 @@ def init_model_params(model, config, key):
     encoder_hidden_states = jnp.zeros((1, 1, config['cross_attention_dim']), dtype=jnp.float32)
     params_rng, dropout_rng = jax.random.split(key)
     rngs = {'params': params_rng, 'dropout': dropout_rng}
-    return model.init(rngs, sample, timesteps, encoder_hidden_states)['params']
+    return jax.jit(model.init)(rngs, sample, timesteps, encoder_hidden_states)['params']
 
 # Refactored - done but untested
 @flax.struct.dataclass

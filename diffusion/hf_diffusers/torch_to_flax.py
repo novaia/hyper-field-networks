@@ -1,7 +1,6 @@
 from safetensors.torch import load as torch_load
 from safetensors.flax import save_file as flax_save_file
 import jax.numpy as jnp
-from .models.unet_conditional import UNet2dConditionalModel
 from .models.vae import AutoencoderKl
 import json
 
@@ -23,12 +22,12 @@ def rename_key(key):
 
 # Adapted from https://github.com/huggingface/transformers/blob/c603c80f46881ae18b2ca50770ef65fa4033eacd/src/transformers/modeling_flax_pytorch_utils.py#L69
 # and https://github.com/patil-suraj/stable-diffusion-jax/blob/main/stable_diffusion_jax/convert_diffusers_to_jax.py
+# Rename PyTorch param names to corresponding Flax param names and reshape tensor if necessary.
 def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dict):
-    """Rename PT weight names to corresponding Flax weight names and reshape tensor if necessary"""
-    # conv norm or layer norm
+    # Conv norm or layer norm.
     renamed_pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
 
-    # rename attention layers
+    # Rename attention layers.
     if len(pt_tuple_key) > 1:
         for rename_from, rename_to in (
             ("to_out_0", "proj_attn"),
@@ -56,62 +55,59 @@ def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dic
         renamed_pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
         return renamed_pt_tuple_key, pt_tensor
 
-    # embedding
+    # Embedding.
     if pt_tuple_key[-1] == "weight" and pt_tuple_key[:-1] + ("embedding",) in random_flax_state_dict:
         pt_tuple_key = pt_tuple_key[:-1] + ("embedding",)
         return renamed_pt_tuple_key, pt_tensor
 
-    # conv layer
+    # Conv layer.
     renamed_pt_tuple_key = pt_tuple_key[:-1] + ("kernel",)
     if pt_tuple_key[-1] == "weight" and pt_tensor.ndim == 4:
         pt_tensor = pt_tensor.transpose(2, 3, 1, 0)
         return renamed_pt_tuple_key, pt_tensor
 
-    # linear layer
+    # Linear layer.
     renamed_pt_tuple_key = pt_tuple_key[:-1] + ("kernel",)
     if pt_tuple_key[-1] == "weight":
         pt_tensor = pt_tensor.T
         return renamed_pt_tuple_key, pt_tensor
 
-    # old PyTorch layer norm weight
+    # Old PyTorch layer norm weight.
     renamed_pt_tuple_key = pt_tuple_key[:-1] + ("weight",)
     if pt_tuple_key[-1] == "gamma":
         return renamed_pt_tuple_key, pt_tensor
 
-    # old PyTorch layer norm bias
+    # Old PyTorch layer norm bias.
     renamed_pt_tuple_key = pt_tuple_key[:-1] + ("bias",)
     if pt_tuple_key[-1] == "beta":
         return renamed_pt_tuple_key, pt_tensor
 
     return pt_tuple_key, pt_tensor
 
-def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
-    # Step 1: Convert pytorch tensor to numpy
-    pt_state_dict = {k: v.numpy() for k, v in pt_state_dict.items()}
+def convert_pytorch_param_dict_to_flax(loaded_torch_params, random_flax_params):
+    # Convert PyTorch tensors to Numpy.
+    loaded_torch_params = {k: v.numpy() for k, v in loaded_torch_params.items()}
+    random_flax_params = flatten_dict(random_flax_params)
+    converted_params = {}
 
-    # Step 2: Since the model is stateless, get random Flax params
-    random_flax_params = flax_model.init_weights(PRNGKey(init_key))
+    # Some parameters names need to be changed in order to match Flax names.
+    for torch_key, torch_tensor in loaded_torch_params.items():
+        renamed_torch_key = rename_key(torch_key)
+        torch_tuple_key = tuple(renamed_torch_key.split("."))
 
-    random_flax_state_dict = flatten_dict(random_flax_params)
-    flax_state_dict = {}
+        # Correctly rename weight parameters.
+        flax_key, flax_tensor = rename_key_and_reshape_tensor(torch_tuple_key, torch_tensor, random_flax_params)
 
-    # Need to change some parameters name to match Flax names
-    for pt_key, pt_tensor in pt_state_dict.items():
-        renamed_pt_key = rename_key(pt_key)
-        pt_tuple_key = tuple(renamed_pt_key.split("."))
-
-        # Correctly rename weight parameters
-        flax_key, flax_tensor = rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dict)
-
-        if flax_key in random_flax_state_dict:
-            if flax_tensor.shape != random_flax_state_dict[flax_key].shape:
+        if flax_key in random_flax_params:
+            if flax_tensor.shape != random_flax_params[flax_key].shape:
                 raise ValueError(
-                    f"PyTorch checkpoint seems to be incorrect. Weight {pt_key} was expected to be of shape "
-                    f"{random_flax_state_dict[flax_key].shape}, but is {flax_tensor.shape}."
+                    f'PyTorch checkpoint seems to be incorrect. Weight {torch_key} was expected to be of shape '
+                    f'{random_flax_params[flax_key].shape}, but is {flax_tensor.shape}.'
                 )
 
-        # also add unexpected weight so that warning is thrown
-        flax_state_dict[flax_key] = np.asarray(flax_tensor)
+        # I have no idea what this comment means.
+        # Also add unexpected weight so that warning is thrown.
+        converted_params[flax_key] = np.asarray(flax_tensor)
 
     return unflatten_dict(flax_state_dict)
 
@@ -126,45 +122,21 @@ def main():
     with open(args.config_path, 'r') as f:
         config = json.load(f)
     print(json.dumps(config, indent=4))
-    
-    with open(args.model_path, 'rb') as f:
-        model_weights = f.read()
-    model_weights = torch_load(model_weights)
-
+   
     if args.model_type == 'unet':
-        model = UNet2dConditionalModel(
-            sample_size=config['sample_size'],
-            in_channels=config['in_channels'],
-            out_channels=config['out_channels'],
-            down_block_types=config['down_block_types'],
-            up_block_types=config['up_block_types'],
-            only_cross_attention=config['dual_cross_attention'], #TODO: double check this.
-            block_out_channels=config['block_out_channels'],
-            layers_per_block=config['layers_per_block'],
-            attention_head_dim=config['attention_head_dim'],
-            cross_attention_dim=config['cross_attention_dim'],
-            use_linear_projection=config['use_linear_projection'],
-            flip_sin_to_cos=config['flip_sin_to_cos'],
-            freq_shift=config['freq_shift']
-        )
+        from .models.unet_conditional import UNet2dConditionalModel, get_model_from_config, init_model_params
     elif args.model_type == 'vae':
-        model = AutoencoderKl(
-            in_channels=config['in_channels'],
-            out_channels=config['out_channels'],
-            down_block_types=config['down_block_types'],
-            up_block_types=config['up_block_types'],
-            layers_per_block=config['layers_per_block'],
-            act_fn=config['act_fn'],
-            latent_channels=config['latent_channels'],
-            norm_num_groups=config['norm_num_groups'],
-            sample_size=config['sample_size'],
-            block_out_channels=config['block_out_channels']
-        )
+        from .models.autoencoder_kl import AutoencoderKl, get_model_from_config, init_model_params
     else:
         raise ValueError('Unkown model type.')
-    model_weights = convert_pytorch_state_dict_to_flax(model_weights, model)
-    print(model_weights.keys())
-    jnp.save(args.output_path, model_weights, allow_pickle=True)
+
+    model = get_model_from_config(config, jnp.float32)
+    random_params = init_model_params(model, config, jax.random.PRNGKey(0))
+    with open(args.model_path, 'rb') as f:
+        loaded_params = torch_load(f.read())
+    converted_params = convert_pytorch_state_dict_to_flax(loaded_params, random_params, model)
+    print(converted_params.keys())
+    jnp.save(args.output_path, converted_params, allow_pickle=True)
 
 if __name__ == '__main__':
     main()

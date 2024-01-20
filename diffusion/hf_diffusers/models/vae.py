@@ -29,6 +29,13 @@ def get_model_from_config(config, dtype):
     )
     return model
 
+def init_model_params(model, config, key):
+    sample_shape = (1, config['in_channels'], config['sample_size'], config['sample_size'])
+    sample = jnp.zeros(sample_shape, dtype=jnp.float32)
+    params_rng, dropout_rng, gaussian_rng = jax.random.split(rng, 3)
+    rngs = {'params': params_rng, 'drouput': dropout_rng, 'gaussian': gaussian_rng}
+    return model.init(rngs, sample)['params']
+
 # Refactored - done but untested
 @flax.struct.dataclass
 class DecoderOutput(BaseOutput):
@@ -477,16 +484,6 @@ class AutoencoderKl(nn.Module):
             padding="VALID",
             dtype=self.dtype,
         )
-
-    def init_weights(self, rng: jax.random.PRNGKey) -> FrozenDict:
-        # init input tensors
-        sample_shape = (1, self.in_channels, self.sample_size, self.sample_size)
-        sample = jnp.zeros(sample_shape, dtype=jnp.float32)
-
-        params_rng, dropout_rng, gaussian_rng = jax.random.split(rng, 3)
-        rngs = {"params": params_rng, "dropout": dropout_rng, "gaussian": gaussian_rng}
-
-        return self.init(rngs, sample)["params"]
 
     def encode(self, sample, deterministic: bool = True, return_dict: bool = True):
         sample = jnp.transpose(sample, (0, 2, 3, 1))

@@ -13,6 +13,23 @@ from jax.random import PRNGKey
 
 import argparse
 
+def check_converted_param_keys(initial_flax_params, converted_flax_params):
+    params = jax.tree_util.tree_map(
+        lambda x: jax.device_put(x, jax.local_devices(backend='cpu')[0]), converted_flax_params
+    )
+    params = flatten_dict(params)
+    required_params = set(flatten_dict(initial_flax_params).keys())
+    #shape_state = flatten_dict(initial_flax_params)
+    missing_keys = required_params - set(params.keys())
+    unexpected_keys = set(params.keys()) - required_params
+    
+    assert len(missing_keys) == 0, (
+        f'The following keys are missing from the converted model: {missing_keys}'
+    )
+    assert len(unexpected_keys) == 0, (
+        f'The following unexpected keys were found in the converted model: {unexpected_keys}'
+    )
+
 def rename_key(key):
     regex = r"\w+[.]\d+"
     pats = re.findall(regex, key)
@@ -137,8 +154,10 @@ def main():
         loaded_params = torch_load(f.read())
     print('Finished loading PyTorch params.')
     converted_params = convert_pytorch_param_dict_to_flax(loaded_params, random_params)
-    print(converted_params.keys())
+    print('Finished converting model.')
     jnp.save(args.output_path, converted_params, allow_pickle=True)
+    print(f'Converted model was saved to {args.output_path}')
+    check_converted_param_keys(initial_flax_params=random_params, converted_flax_params=converted_params)
 
 if __name__ == '__main__':
     main()

@@ -23,6 +23,9 @@ def check_converted_param_keys(initial_flax_params, converted_flax_params):
     missing_keys = required_params - set(params.keys())
     unexpected_keys = set(params.keys()) - required_params
     
+    #print('Converted keys:')
+    #print(set(params.keys()))
+
     assert len(missing_keys) == 0, (
         f'The following keys are missing from the converted model: {missing_keys}'
     )
@@ -104,7 +107,7 @@ def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dic
 def convert_pytorch_param_dict_to_flax(loaded_torch_params, random_flax_params):
     # Convert PyTorch tensors to Numpy.
     loaded_torch_params = {k: v.numpy() for k, v in loaded_torch_params.items()}
-    random_flax_params = flatten_dict(random_flax_params)
+    flat_random_flax_params = flatten_dict(random_flax_params)
     converted_params = {}
 
     # Some parameters names need to be changed in order to match Flax names.
@@ -113,13 +116,15 @@ def convert_pytorch_param_dict_to_flax(loaded_torch_params, random_flax_params):
         torch_tuple_key = tuple(renamed_torch_key.split("."))
 
         # Correctly rename weight parameters.
-        flax_key, flax_tensor = rename_key_and_reshape_tensor(torch_tuple_key, torch_tensor, random_flax_params)
+        flax_key, flax_tensor = rename_key_and_reshape_tensor(
+            torch_tuple_key, torch_tensor, flat_random_flax_params
+        )
 
         if flax_key in random_flax_params:
-            if flax_tensor.shape != random_flax_params[flax_key].shape:
+            if flax_tensor.shape != flat_random_flax_params[flax_key].shape:
                 raise ValueError(
                     f'PyTorch checkpoint seems to be incorrect. Weight {torch_key} was expected to be of shape '
-                    f'{random_flax_params[flax_key].shape}, but is {flax_tensor.shape}.'
+                    f'{flat_random_flax_params[flax_key].shape}, but is {flax_tensor.shape}.'
                 )
 
         # I have no idea what this comment means.

@@ -1,14 +1,14 @@
 {
-    "num_hash_table_levels": 3,
-    "max_hash_table_entries": 512,
-    "hash_table_feature_dim": 2,
+    "num_hash_table_levels": 4,
+    "max_hash_table_entries": 1024,
+    "hash_table_feature_dim": 1,
     "coarsest_resolution": 4,
-    "finest_resolution": 32,
+    "finest_resolution": 64,
     "mlp_width": 64,
     "mlp_depth": 2,
     "learning_rate": 0.01,
     "epsilon": 0.000000000000001,
     "weight_decay_coefficient": 0.000001,
-    "batch_size": 1024,
-    "train_steps": 50
+    "batch_size": 2048,
+    "train_steps": 20000
 }

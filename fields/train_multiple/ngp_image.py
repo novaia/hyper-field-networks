@@ -34,7 +34,7 @@ def train(input_path:str, output_path:str, config:dict, render:bool):
             continue
         print(f'Generating NGP image for {path}...')
         
-        #state = state.replace(params=initial_params)
+        state = state.replace(params=initial_params)
         pil_image = Image.open(path)
         image = jnp.array(pil_image)
         image = jnp.array(image)/255.0

@@ -9,6 +9,6 @@
     "learning_rate": 0.01,
     "epsilon": 0.000000000000001,
     "weight_decay_coefficient": 0.000001,
-    "batch_size": 2048,
-    "train_steps": 20000
+    "batch_size": 4096,
+    "train_steps": 1000
 }

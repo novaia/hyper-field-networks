@@ -30,7 +30,7 @@ def train(input_path:str, output_path:str, config:dict, render:bool):
         output_bucket_path = f'{output_path}/{bucket_name}'
         output_file_name = os.path.join(output_bucket_path, f'{file_name[:-4]}.npy')
         if output_file_name in output_path_list:
-            print(f'Input file {path} already exists in output as {output_name}, skipping...')
+            print(f'Input file {path} already exists in output as {output_file_name}, skipping...')
             continue
         print(f'Generating NGP image for {path}...')
         

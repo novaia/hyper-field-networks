@@ -1,5 +1,5 @@
 # LADiT = Linear Attention Diffusion Transformer.
-# The purpose of this script is to train a LADiT model on vanilla image fields.
+# The purpose of this script is to train a LADiT model on neural image fields.
 import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
@@ -17,32 +17,37 @@ from functools import partial
 import json
 import wandb
     
-@jax.jit
-def train_step(state:TrainState, key:int, batch:jax.Array):
-    noise_key, diffusion_time_key = jax.random.split(key)
+@partial(jax.jit, static_argnames=['noise_clip', 'min_signal_rate', 'max_signal_rate'])
+def train_step(
+    state:TrainState, seed:int, batch:jax.Array, 
+    noise_clip:float, min_signal_rate:float, max_signal_rate:float
+):
+    # Add channel dim to batch.
+    batch = jnp.reshape(batch, (*batch.shape, 1))
+    noise_key, diffusion_time_key = jax.random.split(jax.random.PRNGKey(seed))
+    diffusion_times = jax.random.uniform(diffusion_time_key, (batch.shape[0], 1, 1))
+    noise_rates, signal_rates = diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate)
+    noise = jax.random.normal(noise_key, batch.shape)
+    # Clipping the noise prevents NaN gradients.
+    noise = jnp.clip(noises, -noise_clip, noise_clip)
+    noisy_batch = batch * signal_rates + noise * noise_rates
+    x = (noisy_batch, noise_rates**2)
 
     def loss_fn(params):
-        diffusion_times = jax.random.uniform(diffusion_time_key, (batch.shape[0], 1, 1))
-        noise_rates, signal_rates = diffusion_schedule(diffusion_times, 0.02, 0.95)
-        noise = jax.random.normal(noise_key, batch.shape)
-        noisy_batch = batch * signal_rates + noise * noise_rates
-        x = (noisy_batch, noise_rates**2)
         pred_noise = state.apply_fn({'params': params}, x)
         return jnp.mean((pred_noise - noise)**2)
-    
+
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grad = grad_fn(state.params)
-    grad = jax.tree_util.tree_map(jnp.nan_to_num, grad)
     state = state.apply_gradients(grads=grad)
     return loss, state
 
-def get_data_iterator(dataset_path, batch_size, num_threads=3):
+def get_data_iterator(file_paths, batch_size, num_threads=3):
     @pipeline_def
     def my_pipeline_def():
         data = fn.readers.numpy(
-            device='cpu', 
-            file_root=dataset_path, 
-            file_filter='*.npy', 
+            device='gpu', 
+            files=file_paths,
             shuffle_after_epoch=True,
             name='r'
         )
@@ -51,35 +56,27 @@ def get_data_iterator(dataset_path, batch_size, num_threads=3):
     iterator = DALIGenericIterator(pipelines=[my_pipeline], output_map=['x'], reader_name='r')
     return iterator
 
-def tokenize_batch(token_dim, batch):
-    context_length = int(jnp.ceil((batch.shape[1] * batch.shape[2]) / token_dim))
-    batch = jnp.resize(batch, (batch.shape[0], context_length, token_dim))
-    return batch
-
-def detokenize_batch(original_height, original_width, batch):
-    batch = jnp.resize(batch, (batch.shape[0], original_height, original_width))
-    return batch
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint_epoch', type=int, default=-1)
-    parser.add_argument('--render_only', type=bool, default=False)
+    parser.add_argument('--render_only', action='store_true')
     parser.add_argument('--train_epochs', type=int, default=1000)
     args = parser.parse_args()
 
     with open('configs/image_field_ladit.json', 'r') as f:
         config = json.load(f)
 
-    config['dataset'] = 'packed_cifar10_image_fields'
+    config['dataset'] = 'danbooru_ngp_images'
     experiment_id = 12
     experiment_name = f'experiment_{experiment_id}'
-    project_name = 'image_field_latid_cifar10'
+    project_name = 'image_field_latid_danbooru'
     project_path = os.path.join('data', project_name)
     checkpoint_path = os.path.join(project_path, 'checkpoints', experiment_name)
     image_path = os.path.join(project_path, 'images', experiment_name)
-    dataset_path = 'data/ngp_images/packed_cifar10_image_fields'
+    dataset_path = 'data/danbooru_ngp_images_flattened'
     config_path = 'configs/image_field.json'
     weight_map_path = os.path.join(dataset_path, 'weight_map.json')
+    dataset_file_paths = glob.glob(f'{dataset_path}/*/*.npy')
 
     if not os.path.exists(project_path): os.makedirs(project_path)
     if not os.path.exists(checkpoint_path): os.makedirs(checkpoint_path)
@@ -89,25 +86,18 @@ def main():
         json.dump(config, f, indent=4)
     wandb.init(project="image-field-ladit", config=config)
 
-    image_width = 32
-    image_height = 32
+    image_width = 128
+    image_height = 128
     num_render_only_images = 5
     num_train_preview_images = 5
     epochs_between_checkpoints = 5
-
-    data_iterator = get_data_iterator(dataset_path, config['batch_size'])
-    dummy_batch = data_iterator.next()['x']
-    original_batch_width = dummy_batch.shape[-1]
-    original_batch_height = dummy_batch.shape[-2]
-    tokenize_batch_fn = partial(tokenize_batch, token_dim=config['token_dim'])
-    detokenize_batch_fn = partial(
-        detokenize_batch, 
-        original_height=original_batch_height, 
-        original_width=original_batch_width
-    )
-    dummy_batch = tokenize_batch_fn(batch=dummy_batch)
-    context_length = dummy_batch.shape[-2]
-    print('Batch shape', dummy_batch.shape)
+    # TODO: shape index will need to be -2 if DALI loads samples as (n, l, c)
+    # instead of (n, l), where n is batch size, l is context length, and c is channel dim.
+    # For now I'm assuming it's the latter.
+    context_length = jnp.load(dataset_file_paths[0]).shape[-1]
+    min_signal_rate = config['min_signal_rate']
+    max_signal_rate = config['max_signal_rate']
+    noise_clip = config['noise_clip']
 
     model = Ladit(
         attention_dim=config['attention_dim'],
@@ -125,7 +115,7 @@ def main():
 
     tx = optax.adam(config['learning_rate'])
     rng = jax.random.PRNGKey(0)
-    x = (jnp.ones((1, context_length, config['token_dim'])), jnp.ones((1, 1, 1)))
+    x = (jnp.ones((1, context_length, 1)), jnp.ones((1, 1, 1)))
     params = model.init(rng, x)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
@@ -144,11 +134,10 @@ def main():
             context_length=context_length,
             token_dim=config['token_dim'],
             diffusion_schedule_fn=diffusion_schedule,
-            min_signal_rate=config['min_signal_rate'],
-            max_signal_rate=config['max_signal_rate'],
+            min_signal_rate=min_signal_rate,
+            max_signal_rate=max_signal_rate,
             seed=2
         )
-        generated_weights = detokenize_batch_fn(batch=generated_weights)
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
         for i in range(num_render_only_images):
@@ -162,14 +151,10 @@ def main():
             plt.imsave(os.path.join(image_path, f'render_only_{i}.png'), rendered_image)
         exit(0)
 
-    gpu = jax.devices('gpu')[0]
     for epoch in range(args.checkpoint_epoch+1, args.checkpoint_epoch+args.train_epochs+1):
         losses_this_epoch = []
         for step, batch in enumerate(data_iterator):
-            step_key = jax.random.PRNGKey(state.step)
-            batch = jax.device_put(batch['x'], gpu)
-            batch = tokenize_batch_fn(batch=batch)
-            loss, state = train_step(state, step_key, batch)
+            loss, state = train_step(state, step, batch, noise_clip, min_signal_rate, max_signal_rate)
             wandb.log({'loss': loss}, step=state.step)
             losses_this_epoch.append(loss)
 
@@ -192,7 +177,6 @@ def main():
             max_signal_rate=config['max_signal_rate'],
             seed=0
         )
-        generated_weights = detokenize_batch_fn(batch=generated_weights)
         print('Generated weights max:', jnp.max(generated_weights))
         print('Generated weights min:', jnp.min(generated_weights))
         

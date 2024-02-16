@@ -107,7 +107,9 @@ def main():
 
     model = create_model_from_config(config)
     state = create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
-    image = jnp.array(Image.open('data/CIFAR10/testairplane0003.jpg'))
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    print('Param count', param_count)
+    image = jnp.array(Image.open('data/full_cropped/0002/5002.jpg'))
     image = image / 255.0
     print('Image shape', image.shape)
     state = train_loop(config['train_steps'], state, image, config['batch_size'])

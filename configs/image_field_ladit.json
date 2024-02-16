@@ -13,5 +13,4 @@
     "feed_forward_dim": 128,
     "embedding_max_frequency": 1000.0,
     "remat": false,
-    "token_dim": 2
 }

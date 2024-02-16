@@ -95,6 +95,7 @@ def main():
     # instead of (n, l), where n is batch size, l is context length, and c is channel dim.
     # For now I'm assuming it's the latter.
     context_length = jnp.load(dataset_file_paths[0]).shape[-1]
+    token_dim = 1
     min_signal_rate = config['min_signal_rate']
     max_signal_rate = config['max_signal_rate']
     noise_clip = config['noise_clip']
@@ -102,7 +103,6 @@ def main():
     model = Ladit(
         attention_dim=config['attention_dim'],
         num_attention_heads=config['num_attention_heads'],
-        token_dim=config['token_dim'],
         embedding_dim=config['embedding_dim'],
         num_bocks=config['num_blocks'],
         feed_forward_dim=config['feed_forward_dim'],
@@ -132,7 +132,7 @@ def main():
             num_images=num_render_only_images, 
             diffusion_steps=config['diffusion_steps'], 
             context_length=context_length,
-            token_dim=config['token_dim'],
+            token_dim=token_dim,
             diffusion_schedule_fn=diffusion_schedule,
             min_signal_rate=min_signal_rate,
             max_signal_rate=max_signal_rate,
@@ -171,7 +171,7 @@ def main():
             num_images=num_train_preview_images, 
             diffusion_steps=config['diffusion_steps'], 
             context_length=context_length,
-            token_dim=config['token_dim'],
+            token_dim=token_dim,
             diffusion_schedule_fn=diffusion_schedule,
             min_signal_rate=config['min_signal_rate'],
             max_signal_rate=config['max_signal_rate'],

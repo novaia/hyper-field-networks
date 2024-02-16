@@ -170,7 +170,6 @@ class VanillaTransformer(nn.Module):
 class LinearAttentionDiffusionTransformer(nn.Module):
     attention_dim:int
     num_attention_heads:int
-    token_dim:int
     embedding_dim:int
     num_bocks:int
     feed_forward_dim:int
@@ -182,22 +181,29 @@ class LinearAttentionDiffusionTransformer(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        CustomDense = nn.remat(nn.Dense) if self.remat else nn.Dense
-        x, noise_variances = x
-        e = SinusoidalEmbedding(
-            self.token_dim, 
-            self.embedding_max_frequency,
-            dtype=self.quantized_dtype
-        )(noise_variances)
-        x = jnp.concatenate([x, e], axis=-2)
-        x = CustomDense(features=self.embedding_dim, dtype=self.quantized_dtype)(x)
+        x, t = x
+        
+        # Note: position_emb.shape[-1] + x.shape[-1] = time_embedding.shape[-1].
+        position_embedding_dim = embdding_dim - x.shape[-1]
+        assert position_embedding_dim > 0, (
+            f'position_embedding_dim must be greater than 0, got {position_embbedding_dim}. '
+            'Try increasing embedding_dim.'
+        )
         positions = jnp.arange(self.context_length+1)
-        e = nn.Embed(
+        position_emb = nn.Embed(
             num_embeddings=self.context_length+1, 
-            features=self.embedding_dim,
+            features=position_embedding_dim,
             dtype=self.quantized_dtype
         )(positions)
-        x = x + e
+        x = jnp.concatenate([x, position_emb], axis=-1)
+        
+        time_embedding = SinusoidalEmbedding(
+            self.embedding_dim, 
+            self.embedding_max_frequency,
+            dtype=self.quantized_dtype
+        )(t)
+        # Add the diffusion time token to the end of the sequence.
+        x = jnp.concatenate([x, time_embedding], axis=-2)
 
         x = LinearTransformer(
             num_blocks=self.num_bocks, 
@@ -209,12 +215,17 @@ class LinearAttentionDiffusionTransformer(nn.Module):
             normal_dtype=self.normal_dtype,
             remat=self.remat
         )(x)
+
+        # Remove the diffusion time token from the end of the sequence.
         x = x[:, :-1, :]
+        
+        CustomDense = nn.remat(nn.Dense) if self.remat else nn.Dense
         x = CustomDense(
             features=self.token_dim, dtype=self.quantized_dtype, 
             kernel_init=nn.initializers.zeros_init()
         )(x)
         return x
+
 Ladit = LinearAttentionDiffusionTransformer
 
 class AutoPositionalEmbedding(nn.Module):

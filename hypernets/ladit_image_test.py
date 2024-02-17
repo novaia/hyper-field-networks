@@ -84,7 +84,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/0'
+    output_directory = 'data/ladit_image_test/1'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
@@ -105,10 +105,10 @@ def main():
     noise_clip = 3.0
     learning_rate = 3e-4
 
-    attention_dim = 512
-    num_attention_heads = 16
+    attention_dim = 2048
+    num_attention_heads = 32
     embedding_dim = 256
-    num_blocks = 8
+    num_blocks = 12
     feed_forward_dim = 256
     embedding_max_frequency = 1000.0
     
@@ -123,7 +123,7 @@ def main():
         context_length=context_length,
         normal_dtype=jnp.float32,
         quantized_dtype=jnp.bfloat16,
-        remat=False
+        remat=True
     )
     
     t = jnp.ones((batch_size, 1, 1))

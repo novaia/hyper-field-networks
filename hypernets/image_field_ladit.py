@@ -95,6 +95,7 @@ def main():
     # instead of (n, l), where n is batch size, l is context length, and c is channel dim.
     # For now I'm assuming it's the latter.
     context_length = jnp.load(dataset_file_paths[0]).shape[-1]
+    # Token dim is 1 because each parameter of the image field is 1 token.
     token_dim = 1
     min_signal_rate = config['min_signal_rate']
     max_signal_rate = config['max_signal_rate']
@@ -104,6 +105,7 @@ def main():
         attention_dim=config['attention_dim'],
         num_attention_heads=config['num_attention_heads'],
         embedding_dim=config['embedding_dim'],
+        token_dim=token_dim,
         num_bocks=config['num_blocks'],
         feed_forward_dim=config['feed_forward_dim'],
         embedding_max_frequency=config['embedding_max_frequency'],

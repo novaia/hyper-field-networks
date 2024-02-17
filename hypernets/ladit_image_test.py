@@ -103,17 +103,23 @@ def main():
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     noise_clip = 3.0
-    
     learning_rate = 3e-4
+
+    attention_dim = 512
+    num_attention_heads = 16
+    embedding_dim = 256
+    num_blocks = 8
+    feed_forward_dim = 256
+    embedding_max_frequency = 1000.0
     
     model = Ladit(
-        attention_dim=512,
-        num_attention_heads=16,
-        embedding_dim=256,
-        num_bocks=8,
-        feed_forward_dim=256,
+        attention_dim=attention_dim,
+        num_attention_heads=num_attention_heads,
+        embedding_dim=embedding_dim,
+        num_bocks=num_blocks,
+        feed_forward_dim=feed_forward_dim,
         token_dim=token_dim,
-        embedding_max_frequency=1000.0,
+        embedding_max_frequency=embedding_max_frequency,
         context_length=context_length,
         normal_dtype=jnp.float32,
         quantized_dtype=jnp.bfloat16,
@@ -134,8 +140,26 @@ def main():
         file_paths, batch_size, image_width, image_height, 
         context_length, token_dim, 3
     )
-
-    wandb.init(project='ladit-image-test', config={'param_count': param_count})
+    
+    wandb_config = {
+        'batch_size': batch_size,
+        'token_dim': token_dim,
+        'image_width': image_width,
+        'image_height': image_height,
+        'context_length': context_length,
+        'min_signal_rate': min_signal_rate,
+        'max_signal_rate': max_signal_rate,
+        'noise_clip': noise_clip,
+        'learning_rate': learning_rate,
+        'param_count': param_count,
+        'attention_dim': attention_dim,
+        'num_attention_heads': num_attention_heads,
+        'embedding_dim': embedding_dim,
+        'num_blocks': num_blocks,
+        'feed_forward_dim': feed_forward_dim,
+        'embedding_max_frequency': embedding_max_frequency
+    }
+    wandb.init(project='ladit-image-test', config=wandb_config)
     wandb_loss_accumulation_steps = 300
     steps_since_loss_report = 0
     wandb_accumulated_loss = []

@@ -5,11 +5,14 @@ from flax.training.train_state import TrainState
 import optax
 import matplotlib.pyplot as plt
 import os
+import glob
 from hypernets.common.nn import Ladit
+from hypernets.common.diffusion import diffusion_schedule, ddim_sample
 import argparse
-import orbax.checkpoint as ocp
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
+from nvidia.dali.plugin.base_iterator import LastBatchPolicy
+from nvidia.dali import types as dali_types
 from functools import partial
 import json
 import wandb
@@ -19,10 +22,11 @@ def get_data_iterator(
     context_length, token_dim, num_threads=3
 ):
     @pipeline_def
-    def my_pipeline_def():
+    def my_pipeline_def(
+        files, image_width, image_height, context_length, token_dim
+    ):
         image_files = fn.readers.file(
-            files=files, 
-            file_root=file_root, 
+            files=files,
             read_ahead=True, 
             shuffle_after_epoch=True, 
             device='cpu'
@@ -30,19 +34,34 @@ def get_data_iterator(
         images = fn.decoders.image(
             image_files, 
             device='mixed', 
-            output_type=dali_types.GRAY, 
+            output_type=dali_types.RGB, 
             preallocate_height_hint=image_height,
             preallocate_width_hint=image_width
         )
+        scale_constant = dali_types.Constant(127.5).float32()
+        shift_constant = dali_types.Constant(1.0).float32()
+        normalized = (images / scale_constant) - shift_constant
         tokens = fn.reshape(
-            images, 
+            normalized, 
             shape=[context_length, token_dim], 
             device='gpu'
-        ) 
+        )
         return tokens
-    my_pipeline = my_pipeline_def(batch_size=batch_size, num_threads=num_threads, device_id=0)
-    iterator = DALIGenericIterator(pipelines=[my_pipeline], output_map=['x'], reader_name='r')
-    return iterator
+
+    data_pipeline = my_pipeline_def(
+        files=file_paths,
+        image_height=image_height,
+        image_width=image_width,
+        batch_size=batch_size,
+        context_length=context_length,
+        token_dim=token_dim,
+        num_threads=num_threads, 
+        device_id=0
+    )
+    data_iterator = DALIGenericIterator(
+        pipelines=[data_pipeline], output_map=['x'], last_batch_policy=LastBatchPolicy.DROP
+    )
+    return data_iterator
 
 @partial(jax.jit, static_argnames=['min_signal_rate', 'max_signal_rate', 'noise_clip'])
 def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed):
@@ -69,7 +88,9 @@ def main():
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
-    file_paths = glob.glob('data/flattened-cifar-10/*.jpg')
+    file_root = 'data/flattened-cifar-10'
+    file_paths = glob.glob(f'{file_root}/*.jpg')
+    
     batch_size = 32
     steps_per_epoch = len(file_paths) // batch_size
     num_epochs = 100
@@ -84,8 +105,8 @@ def main():
     noise_clip = 3.0
     
     learning_rate = 3e-4
-
-    model = LinearAttentionDiffusionTransformer(
+    
+    model = Ladit(
         attention_dim=512,
         num_attention_heads=16,
         embedding_dim=256,
@@ -98,15 +119,23 @@ def main():
         quantized_dtype=jnp.bfloat16,
         remat=False
     )
-
-    x = jnp.ones((batch_size, context_length, token_dim))
+    
     t = jnp.ones((batch_size, 1, 1))
+    x = jnp.ones((batch_size, context_length, token_dim))
     tx = optax.adam(learning_rate=learning_rate, mu_dtype=jnp.bfloat16)
     rng = jax.random.PRNGKey(0)
     params = model.init(rng, x, t)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+    
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    print('Param count:', param_count)
+    
+    data_iterator = get_data_iterator(
+        file_paths, batch_size, image_width, image_height, 
+        context_length, token_dim, 3
+    )
 
-    wandb.init(project='ladit-image-test', config=None)
+    wandb.init('ladit-image-test', config={'param_count': param_count})
     wandb_loss_accumulation_steps = 300
     steps_since_loss_report = 0
     wandb_accumulated_loss = []
@@ -119,16 +148,16 @@ def main():
             )
             losses_this_epoch.append(loss)
             wandb_accumulated_loss.append(loss)
-            steps_since_last_loss_report += 1
-            if(steps_since_last_loss_report == wandb_loss_accumulation_steps):
-                steps_since_last_loss_report = 0
+            steps_since_loss_report  += 1
+            if(steps_since_loss_report == wandb_loss_accumulation_steps):
+                steps_since_loss_report = 0
                 wandb_average_loss = sum(wandb_accumulated_loss) / len(wandb_accumulated_loss)
                 wandb_accumulated_loss = []
                 wandb.log({'loss': wandb_average_loss}, step=state.step)
-
+        
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         wandb.log({'average_epoch_loss': average_loss}, step = state.step)
-        
+
         num_samples = 10
         samples = ddim_sample(
             state=state, 
@@ -146,7 +175,7 @@ def main():
         samples = (samples + 1.0) / 2.0
         samples = jnp.clip(samples, 0.0, 1.0)
         for i in range(num_samples):
-            plt.imsave(os.path.join(output_directory, f'epoch{epoch}_image{i}.png', samples[i])
+            plt.imsave(os.path.join(output_directory, f'epoch{epoch}_image{i}.png'), samples[i])
 
 if __name__ == '__main__':
     main()

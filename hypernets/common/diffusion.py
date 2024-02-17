@@ -11,45 +11,45 @@ def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
-def reverse_diffusion(
-    apply_fn, 
-    params,
-    num_images, 
-    diffusion_steps, 
-    context_length,
-    token_dim, 
-    diffusion_schedule_fn,
-    min_signal_rate,
-    max_signal_rate,
-    seed, 
-    initial_noise = None,
+def ddim_sample(
+    state, 
+    num_samples:int, 
+    diffusion_steps:int, 
+    diffusion_schedule,
+    token_dim:int, 
+    context_length:int,
+    min_signal_rate:float,
+    max_signal_rate:float,
+    noise_clip:float,
+    seed:int, 
 ):
-    if initial_noise == None:
-        initial_noise = jax.random.normal(
-            jax.random.PRNGKey(seed), 
-            shape=(num_images, context_length, token_dim)
+    @jax.jit
+    def inference_fn(state, noisy_batch, diffusion_times):
+        return jax.lax.stop_gradient(
+            state.apply_fn({'params': state.params}, noisy_batch, diffusion_times)
         )
+    
+    initial_noise = jax.random.normal(
+        jax.random.PRNGKey(seed), 
+        shape=(num_samples, context_length, token_dim)
+    )
+    initial_noise = jnp.clip(initial_noise, -noise_clip, noise_clip)
     step_size = 1.0 / diffusion_steps
     
-    next_noisy_images = initial_noise
+    next_noisy_batch = initial_noise
     for step in range(diffusion_steps):
-        noisy_images = next_noisy_images
+        noisy_batch = next_noisy_batch
         
-        diffusion_times = jnp.ones((num_images, 1, 1)) - step * step_size
-        noise_rates, signal_rates = diffusion_schedule_fn(
+        diffusion_times = jnp.ones((num_samples, 1, 1)) - step * step_size
+        noise_rates, signal_rates = diffusion_schedule(
             diffusion_times, min_signal_rate, max_signal_rate
         )
-        pred_noises = jax.lax.stop_gradient(
-            apply_fn(
-                {'params': params}, 
-                [noisy_images, noise_rates**2], 
-            )
-        )
-        pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
+        pred_noises = inference_fn(state, noisy_batch, noise_rates**2)
+        pred_batch = (noisy_batch - noise_rates * pred_noises) / signal_rates
         
         next_diffusion_times = diffusion_times - step_size
-        next_noise_rates, next_signal_rates = diffusion_schedule_fn(
+        next_noise_rates, next_signal_rates = diffusion_schedule(
             next_diffusion_times, min_signal_rate, max_signal_rate
         )
-        next_noisy_images = (next_signal_rates * pred_images + next_noise_rates * pred_noises)
-    return pred_images
+        next_noisy_batch = (next_signal_rates * pred_batch + next_noise_rates * pred_noises)
+    return pred_batch

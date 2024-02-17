@@ -135,7 +135,7 @@ def main():
         context_length, token_dim, 3
     )
 
-    wandb.init('ladit-image-test', config={'param_count': param_count})
+    wandb.init(project='ladit-image-test', config={'param_count': param_count})
     wandb_loss_accumulation_steps = 300
     steps_since_loss_report = 0
     wandb_accumulated_loss = []

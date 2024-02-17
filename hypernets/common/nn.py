@@ -173,6 +173,7 @@ class LinearAttentionDiffusionTransformer(nn.Module):
     embedding_dim:int
     num_bocks:int
     feed_forward_dim:int
+    token_dim:int
     embedding_max_frequency:float
     context_length:int
     normal_dtype:Any
@@ -180,30 +181,25 @@ class LinearAttentionDiffusionTransformer(nn.Module):
     remat:bool
 
     @nn.compact
-    def __call__(self, x):
-        x, t = x
-        
-        # Note: position_emb.shape[-1] + x.shape[-1] = time_embedding.shape[-1].
-        position_embedding_dim = embdding_dim - x.shape[-1]
-        assert position_embedding_dim > 0, (
-            f'position_embedding_dim must be greater than 0, got {position_embbedding_dim}. '
-            'Try increasing embedding_dim.'
-        )
-        positions = jnp.arange(self.context_length+1)
-        position_emb = nn.Embed(
-            num_embeddings=self.context_length+1, 
-            features=position_embedding_dim,
-            dtype=self.quantized_dtype
-        )(positions)
-        x = jnp.concatenate([x, position_emb], axis=-1)
-        
+    def __call__(self, x, t):
+        half_embedding_dim = self.embedding_dim // 2
+        x = nn.Dense(half_embedding_dim)(x)
         time_embedding = SinusoidalEmbedding(
-            self.embedding_dim, 
+            half_embedding_dim, 
             self.embedding_max_frequency,
             dtype=self.quantized_dtype
         )(t)
         # Add the diffusion time token to the end of the sequence.
         x = jnp.concatenate([x, time_embedding], axis=-2)
+
+        positions = jnp.arange(self.context_length+1)
+        position_emb = nn.Embed(
+            num_embeddings=self.context_length+1, 
+            features=half_embedding_dim,
+            dtype=self.quantized_dtype
+        )(positions)
+        position_emb = jnp.broadcast_to(position_emb, x.shape)
+        x = jnp.concatenate([x, position_emb], axis=-1)
 
         x = LinearTransformer(
             num_blocks=self.num_bocks, 

@@ -84,7 +84,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/1'
+    output_directory = 'data/ladit_image_test/2'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
@@ -93,7 +93,7 @@ def main():
     
     batch_size = 32
     steps_per_epoch = len(file_paths) // batch_size
-    num_epochs = 100
+    num_epochs = 1000
 
     image_width = 32
     image_height = 32
@@ -106,10 +106,10 @@ def main():
     learning_rate = 3e-4
 
     attention_dim = 2048
-    num_attention_heads = 32
-    embedding_dim = 256
-    num_blocks = 12
-    feed_forward_dim = 256
+    num_attention_heads = 16
+    embedding_dim = 128
+    num_blocks = 24
+    feed_forward_dim = 128
     embedding_max_frequency = 1000.0
     
     model = Ladit(

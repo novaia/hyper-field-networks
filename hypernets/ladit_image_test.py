@@ -108,7 +108,7 @@ def main():
     attention_dim = 2048
     num_attention_heads = 16
     embedding_dim = 128
-    num_blocks = 24
+    num_blocks = 12
     feed_forward_dim = 128
     embedding_max_frequency = 1000.0
     

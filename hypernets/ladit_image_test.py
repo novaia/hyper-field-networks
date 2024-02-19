@@ -84,7 +84,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/2'
+    output_directory = 'data/ladit_image_test/4'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
@@ -103,7 +103,15 @@ def main():
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     noise_clip = 3.0
-    learning_rate = 3e-4
+    init_learning_rate = 1e-8
+    learning_rate = 1e-5
+    # Cifar-10 has 60k samples.
+    lr_warmup_steps = (60_000//batch_size)*10
+    lr_transition_steps = (60_0000//batch_size)*5
+    lr_decay_rate = 0.9
+    adam_b1 = 0.9
+    adam_b2 = 0.9
+    adam_eps = 1e-7
 
     attention_dim = 2048
     num_attention_heads = 16
@@ -128,7 +136,11 @@ def main():
     
     t = jnp.ones((batch_size, 1, 1))
     x = jnp.ones((batch_size, context_length, token_dim))
-    tx = optax.adam(learning_rate=learning_rate, mu_dtype=jnp.bfloat16)
+    lr_schedule = optax.warmup_exponential_decay_schedule(
+        init_value=init_learning_rate, peak_value=learning_rate, warmup_steps=lr_warmup_steps, 
+        transition_steps=lr_transition_steps, decay_rate=lr_decay_rate
+    )
+    tx = optax.adam(learning_rate=lr_schedule, b1=adam_b1, b2=adam_b2, eps=adam_eps)
     rng = jax.random.PRNGKey(0)
     params = model.init(rng, x, t)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
@@ -151,6 +163,13 @@ def main():
         'max_signal_rate': max_signal_rate,
         'noise_clip': noise_clip,
         'learning_rate': learning_rate,
+        'init_learning_rate': init_learning_rate,
+        'lr_warmup_steps': lr_warmup_steps,
+        'lr_decay_rate': lr_decay_rate,
+        'lr_transition_steps': lr_transition_steps,
+        'adam_b1': adam_b1,
+        'adam_b2': adam_b2,
+        'adam_eps': adam_eps,
         'param_count': param_count,
         'attention_dim': attention_dim,
         'num_attention_heads': num_attention_heads,
@@ -180,7 +199,7 @@ def main():
                 wandb.log({'loss': wandb_average_loss}, step=state.step)
         
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
-        wandb.log({'average_epoch_loss': average_loss}, step = state.step)
+        wandb.log({'average_epoch_loss': average_loss, 'current_lr': lr_schedule(state.step)}, step = state.step)
 
         num_samples = 10
         samples = ddim_sample(

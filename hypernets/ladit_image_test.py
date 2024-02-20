@@ -84,7 +84,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/4'
+    output_directory = 'data/ladit_image_test/5'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
@@ -104,10 +104,10 @@ def main():
     max_signal_rate = 0.95
     noise_clip = 3.0
     init_learning_rate = 1e-8
-    learning_rate = 1e-5
+    learning_rate = 1e-3
     # Cifar-10 has 60k samples.
-    lr_warmup_steps = (60_000//batch_size)*10
-    lr_transition_steps = (60_0000//batch_size)*5
+    lr_warmup_steps = (60_000//batch_size)*15
+    lr_transition_steps = (60_0000//batch_size)*3
     lr_decay_rate = 0.9
     adam_b1 = 0.9
     adam_b2 = 0.9

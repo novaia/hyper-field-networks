@@ -84,7 +84,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/5'
+    output_directory = 'data/ladit_image_test/6'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
@@ -104,14 +104,15 @@ def main():
     max_signal_rate = 0.95
     noise_clip = 3.0
     init_learning_rate = 1e-8
-    learning_rate = 1e-3
+    learning_rate = 1e-4
     # Cifar-10 has 60k samples.
     lr_warmup_steps = (60_000//batch_size)*15
     lr_transition_steps = (60_0000//batch_size)*3
     lr_decay_rate = 0.9
     adam_b1 = 0.9
     adam_b2 = 0.9
-    adam_eps = 1e-7
+    adam_eps = 1e-6
+    weight_decay = 1e-3
 
     attention_dim = 2048
     num_attention_heads = 16
@@ -140,7 +141,7 @@ def main():
         init_value=init_learning_rate, peak_value=learning_rate, warmup_steps=lr_warmup_steps, 
         transition_steps=lr_transition_steps, decay_rate=lr_decay_rate
     )
-    tx = optax.adam(learning_rate=lr_schedule, b1=adam_b1, b2=adam_b2, eps=adam_eps)
+    tx = optax.adamw(learning_rate=lr_schedule, weight_decay=weight_decay, b1=adam_b1, b2=adam_b2, eps=adam_eps)
     rng = jax.random.PRNGKey(0)
     params = model.init(rng, x, t)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
@@ -170,6 +171,7 @@ def main():
         'adam_b1': adam_b1,
         'adam_b2': adam_b2,
         'adam_eps': adam_eps,
+        'weight_decay': weight_decay,
         'param_count': param_count,
         'attention_dim': attention_dim,
         'num_attention_heads': num_attention_heads,

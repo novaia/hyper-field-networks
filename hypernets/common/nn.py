@@ -79,7 +79,6 @@ class MultiHeadLinearAttention(nn.Module):
         # TODO: double check that these are the correct axes. 
         # There might be cross batch contamination.
         x = nn.DenseGeneral(features=self.output_dim, axis=(0, -1), name='out')(x)
-        x = nn.gelu(x)
         return x
     
 class FeedForward(nn.Module):

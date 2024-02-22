@@ -214,7 +214,7 @@ def main():
             min_signal_rate=min_signal_rate,
             max_signal_rate=max_signal_rate,
             noise_clip=noise_clip,
-            seed=epoch
+            seed=0
         )
         samples = jnp.reshape(samples, (10, image_width, image_height, 3))
         samples = (samples + 1.0) / 2.0

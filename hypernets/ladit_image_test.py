@@ -84,7 +84,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/7'
+    output_directory = 'data/ladit_image_test/8'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
@@ -113,6 +113,7 @@ def main():
     adam_b2 = 0.95
     adam_eps = 1e-8
     weight_decay = 1e-3
+    grad_clip_norm = 1.0
 
     attention_dim = 512
     num_attention_heads = 32
@@ -141,7 +142,16 @@ def main():
         init_value=init_learning_rate, peak_value=learning_rate, warmup_steps=lr_warmup_steps, 
         transition_steps=lr_transition_steps, decay_rate=lr_decay_rate
     )
-    tx = optax.adamw(learning_rate=lr_schedule, weight_decay=weight_decay, b1=adam_b1, b2=adam_b2, eps=adam_eps)
+    tx = optax.chain(
+        optax.adaptive_grad_clip(grad_clip_norm),
+        optax.adamw(
+            learning_rate=lr_schedule, 
+            weight_decay=weight_decay, 
+            b1=adam_b1, 
+            b2=adam_b2, 
+            eps=adam_eps
+        )
+    )
     rng = jax.random.PRNGKey(0)
     params = model.init(rng, x, t)['params']
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
@@ -172,6 +182,7 @@ def main():
         'adam_b2': adam_b2,
         'adam_eps': adam_eps,
         'weight_decay': weight_decay,
+        'grad_clip_norm': grad_clip_norm,
         'param_count': param_count,
         'attention_dim': attention_dim,
         'num_attention_heads': num_attention_heads,

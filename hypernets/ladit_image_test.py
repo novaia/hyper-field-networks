@@ -80,19 +80,19 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
 
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
-    grad = jax.tree_util.tree_map(jnp.nan_to_num, grad)
+    grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
     state = state.apply_gradients(grads=grads)
     return loss, state
 
 def main():
-    output_directory = 'data/ladit_image_test/8'
+    output_directory = 'data/ladit_image_test/9'
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
 
     file_root = 'data/flattened-cifar-10'
     file_paths = glob.glob(f'{file_root}/*.jpg')
     
-    batch_size = 64
+    batch_size = 4
     steps_per_epoch = len(file_paths) // batch_size
     num_epochs = 1000
 
@@ -104,16 +104,16 @@ def main():
     min_signal_rate = 0.02
     max_signal_rate = 0.95
     noise_clip = 3.0
-    init_learning_rate = 1e-8
-    learning_rate = 1e-3
+    init_learning_rate = 1e-5
+    learning_rate = 1e-4
     # Cifar-10 has 60k samples.
-    lr_warmup_steps = (60_000//batch_size)*2
-    lr_transition_steps = (60_0000//batch_size)*3
+    lr_warmup_steps = (60_000//batch_size)*5
+    lr_transition_steps = (60_0000//batch_size)*5
     lr_decay_rate = 0.9
     adam_b1 = 0.9
-    adam_b2 = 0.95
+    adam_b2 = 0.999
     adam_eps = 1e-8
-    weight_decay = 1e-3
+    weight_decay = 1e-6
     grad_clip_norm = 1.0
 
     attention_dim = 512
@@ -134,7 +134,7 @@ def main():
         context_length=context_length,
         normal_dtype=jnp.float32,
         quantized_dtype=jnp.bfloat16,
-        remat=True
+        remat=False
     )
     
     t = jnp.ones((batch_size, 1, 1))

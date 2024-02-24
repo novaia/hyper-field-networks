@@ -80,6 +80,7 @@ def train_step(state, batch, min_signal_rate, max_signal_rate, noise_clip, seed)
 
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
+    grad = jax.tree_util.tree_map(jnp.nan_to_num, grad)
     state = state.apply_gradients(grads=grads)
     return loss, state
 

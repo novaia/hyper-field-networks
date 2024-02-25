@@ -85,7 +85,6 @@
                     extraPackages = with pp; [
                         pkgs.volume-rendering-jax
                         pkgs.jax-tcnn
-                        pkgs.safetensors
                     ];
                 }))
             ];

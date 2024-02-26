@@ -14,9 +14,9 @@ def train(input_path:str, output_path:str, config:dict, render:bool):
         os.makedirs(output_path)
         output_path_list = []
     else:
-        output_path_list = glob.glob(f'{output_path}/*/*.npy')
+        output_path_list = glob.glob(f'{output_path}/*.npy')
     #input_path_list = os.listdir(input_path)
-    input_path_list = glob.glob(f'{input_path}/*/*.jpg')
+    input_path_list = glob.glob(f'{input_path}/*.png')
     model = ngp_image.create_model_from_config(config)
     state = ngp_image.create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
     initial_params = copy.deepcopy(state.params)

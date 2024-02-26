@@ -33,7 +33,7 @@ class NGPImage(nn.Module):
         x = FeedForward(
             num_layers=self.mlp_depth,
             hidden_dim=self.mlp_width,
-            output_dim=3,
+            output_dim=4,
             activation=nn.relu
         )(x)
         x = nn.sigmoid(x)
@@ -81,7 +81,7 @@ def render_image(state:TrainState, image_height:int, image_width:int) -> jax.Arr
     )
     x = jnp.stack([height_indices.flatten(), width_indices.flatten()], axis=-1)
     predicted_colors = jax.vmap(state.apply_fn, in_axes=(None, 0))({'params': state.params}, x)
-    rendered_image = jnp.reshape(predicted_colors, (image_height, image_width, 3))
+    rendered_image = jnp.reshape(predicted_colors, (image_height, image_width, 4))
     rendered_image = jnp.transpose(rendered_image, (1, 0, 2))
     return rendered_image
 
@@ -109,11 +109,12 @@ def main():
     state = create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     print('Param count', param_count)
-    image = jnp.array(Image.open('data/full_cropped/0002/5002.jpg'))
+    image = jnp.array(Image.open('data/mnist_png/data/f0.png'))
     image = image / 255.0
     print('Image shape', image.shape)
     state = train_loop(config['train_steps'], state, image, config['batch_size'])
     rendered_image = render_image(state, image.shape[0], image.shape[1])
+    rendered_image = jax.device_put(rendered_image, jax.devices('cpu')[0])
     print('Rendered image shape', rendered_image.shape)
     plt.imsave('data/ngp_image.png', rendered_image)
 

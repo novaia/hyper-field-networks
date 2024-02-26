@@ -1,4 +1,8 @@
-import numpy as jnp
+import numpy as np
+from jax import numpy as jnp
+import jax
+from fields import ngp_image
+import matplotlib.pyplot as plt
 import argparse
 import os
 import json
@@ -10,7 +14,7 @@ def generate_param_map(module, start_pos=0):
         if isinstance(sub_module, dict):
             param_map[key], start_pos = generate_param_map(sub_module, start_pos)
         else:
-            flat_dim = jnp.ravel(sub_module).shape[0]
+            flat_dim = np.ravel(sub_module).shape[0]
             param_map[key] = {
                 'shape': sub_module.shape, 
                 'flat_dim': flat_dim,
@@ -22,7 +26,7 @@ def generate_param_map(module, start_pos=0):
 
 def flatten_params(module, param_map, num_params):
     # Breaking recursion's purity by adding state here makes things simpler.
-    flat_params = jnp.zeros((num_params))
+    flat_params = np.zeros((num_params))
     def __recurse(__module, __param_map):
         for key in __module.keys():
             sub_module = __module[key]
@@ -31,7 +35,7 @@ def flatten_params(module, param_map, num_params):
                 __recurse(sub_module, sub_map)
             else:
                 start_pos = sub_map['start_pos']
-                flat_params[start_pos : start_pos + sub_map['flat_dim']] = jnp.ravel(sub_module)
+                flat_params[start_pos : start_pos + sub_map['flat_dim']] = np.ravel(sub_module)
     __recurse(module, param_map)
     return flat_params
 
@@ -43,25 +47,28 @@ def unflatten_params(flat_params, param_map):
             unflat_params[key] = unflatten_params(flat_params, sub_map)
         else:
             start_pos = sub_map['start_pos']
-            unflat_params[key] = jnp.reshape(
+            # Params must be cast back to jax array in order to be used by model.
+            unflat_params[key] = jnp.array(np.reshape(
                 flat_params[start_pos : start_pos + sub_map['flat_dim']], 
                 sub_map['shape']
-            )
+            ))
     return unflat_params
 
-def main():
-    test_tree = {
-        'layer_a': {
-            'layer_b': jnp.ones((5, 5))
-        },
-        'layer_c': jnp.ones((2, 3))
-    }
-    param_map, num_params = generate_param_map(test_tree) 
+def test():
+    with open('configs/ngp_image.json', 'r') as f:
+        config = json.load(f)
+    params = dict(jnp.load('data/mnist_ingp/0.npy', allow_pickle=True).tolist())
+    param_map, num_params = generate_param_map(params)
     print(json.dumps(param_map, indent=4))
-    flat_params = flatten_params(test_tree, param_map, num_params)
-    print(flat_params.shape)
+    flat_params = flatten_params(params, param_map, num_params)
     unflat_params = unflatten_params(flat_params, param_map)
-    print(unflat_params)
+    
+    model = ngp_image.create_model_from_config(config)
+    state = ngp_image.create_train_state(model, 1e-2, jax.random.PRNGKey(0))
+    state = state.replace(params = unflat_params)
+    rendered_image = ngp_image.render_image(state, 28, 28)
+    rendered_image = jax.device_put(rendered_image, jax.devices('cpu')[0])
+    plt.imsave('data/test_render.png', rendered_image)
 
 if __name__ == '__main__':
-    main()
+    test()

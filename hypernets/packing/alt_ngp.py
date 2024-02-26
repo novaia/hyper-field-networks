@@ -3,22 +3,21 @@ import argparse
 import os
 import json
 
-def _generate_leaf_map(leaf):
-    leaf_map = 
-    return leaf_map
-
-def generate_weight_map(module):
+def generate_weight_map(module, start_pos=0):
     weight_map = {}
     for key in module.keys():
         sub_module = module[key]
         if isinstance(sub_module, dict):
-            weight_map[key] = generate_weight_map(sub_module)
+            weight_map[key], start_pos = generate_weight_map(sub_module, start_pos)
         else:
+            flat_dim = jnp.ravel(sub_module).shape[0]
             weight_map[key] = {
-                'shape': leaf.shape, 
-                'flat_dim': jnp.ravel(leaf).shape[0]
+                'shape': sub_module.shape, 
+                'flat_dim': flat_dim,
+                'start_pos': start_pos
             }
-    return weight_map
+            start_pos += flat_dim
+    return weight_map, start_pos
 
 def main():
     test_tree = {

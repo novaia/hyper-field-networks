@@ -70,5 +70,26 @@ def test():
     rendered_image = jax.device_put(rendered_image, jax.devices('cpu')[0])
     plt.imsave('data/test_render.png', rendered_image)
 
+def main():
+    input_dir = 'data/mnist_ingp'
+    output_dir = 'data/mnist_ingp_flat'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    map_was_saved = False
+    input_list = os.listdir(input_dir)
+    for path in input_list:
+        if not path.endswith('.npy'):
+            continue
+        params = dict(jnp.load(os.path.join(input_dir, path), allow_pickle=True).tolist())
+        param_map, num_params = generate_param_map(params)
+        if map_was_saved == False:
+            print(json.dumps(param_map, indent=4))
+            with open(os.path.join(output_dir, 'param_map.json'), 'w') as f:
+                json.dump(param_map, f, indent=4)
+            map_was_saved = True
+        flat_params = flatten_params(params, param_map, num_params)
+        jnp.save(os.path.join(output_dir, path), flat_params)
+
 if __name__ == '__main__':
-    test()
+    main()

@@ -23,17 +23,31 @@ def generate_param_map(module, start_pos=0):
 def flatten_params(module, param_map, num_params):
     # Breaking recursion's purity by adding state here makes things simpler.
     flat_params = jnp.zeros((num_params))
-    def _recurse(__module, __param_map):
+    def __recurse(__module, __param_map):
         for key in __module.keys():
             sub_module = __module[key]
             sub_map = __param_map[key]
             if isinstance(sub_module, dict):
-                _recurse(sub_module, sub_map)
+                __recurse(sub_module, sub_map)
             else:
                 start_pos = sub_map['start_pos']
                 flat_params[start_pos : start_pos + sub_map['flat_dim']] = jnp.ravel(sub_module)
-    _recurse(module, param_map)
+    __recurse(module, param_map)
     return flat_params
+
+def unflatten_params(flat_params, param_map):
+    unflat_params = {}
+    for key in param_map:
+        sub_map = param_map[key]
+        if 'start_pos' not in sub_map.keys():
+            unflat_params[key] = unflatten_params(flat_params, sub_map)
+        else:
+            start_pos = sub_map['start_pos']
+            unflat_params[key] = jnp.reshape(
+                flat_params[start_pos : start_pos + sub_map['flat_dim']], 
+                sub_map['shape']
+            )
+    return unflat_params
 
 def main():
     test_tree = {
@@ -46,6 +60,8 @@ def main():
     print(json.dumps(param_map, indent=4))
     flat_params = flatten_params(test_tree, param_map, num_params)
     print(flat_params.shape)
+    unflat_params = unflatten_params(flat_params, param_map)
+    print(unflat_params)
 
 if __name__ == '__main__':
     main()

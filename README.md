@@ -8,7 +8,7 @@ pytest tests
 ```
 
 ## Development Environment
-It is recommneded to use the Docker development environment.
+It is recommended to use the Docker development environment.
 The Nix development environment is currently experimental.
 
 ### Nix

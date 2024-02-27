@@ -13,6 +13,7 @@ from nvidia.dali.plugin.jax import DALIGenericIterator
 from nvidia.dali.plugin.base_iterator import LastBatchPolicy
 from nvidia.dali import types as dali_types
 
+from functools import partial
 from typing import Any, Callable
 import json
 import os
@@ -193,7 +194,7 @@ def ddim_sample(
         next_noisy_batch = (next_signal_rates * pred_batch + next_noise_rates * pred_noises)
     return pred_batch
 
-@jax.jit
+@partial(jax.jit, static_argnames=['batch_size'])
 def train_step(state, batch, batch_size, seed):
     noise_key, diffusion_time_key = jax.random.split(key, 2)
     noises = jax.random.normal(noise_key, batch.shape, dtype=jnp.float32)
@@ -209,6 +210,13 @@ def train_step(state, batch, batch_size, seed):
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
     return loss, state
+
+def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, context_length, token_dim):
+    for epoch in range(num_epochs):
+        for step in range(steps_per_epoch):
+            batch = next(data_iterator)['x']
+            loss, state = train_step(state, batch, batch_size, state.step)
+            print(loss)
 
 def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     dataset_list = os.listdir(dataset_path)
@@ -253,6 +261,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
 def main():
     config_path = 'configs/if_dit.json'
     dataset_path = 'data/mnist_ingp_flat'
+    num_epochs = 100
 
     with open('configs/if_dit.json', 'r') as f:
         config = json.load(f)
@@ -292,6 +301,16 @@ def main():
         )
     )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+    
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    config['param_count'] = param_count
+    print('Param count:', param_count)
+    
+    train_loop(
+        state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
+        data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 
+        token_dim=token_dim
+    )
 
 if __name__ == '__main__':
     main()

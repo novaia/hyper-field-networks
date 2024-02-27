@@ -263,6 +263,23 @@ def main():
     print('Token dim:', token_dim)
     print('Context length:', context_length)
     print('Steps per epoch:', steps_per_epoch)
-
+    
+    activation_fn = nn.gelu
+    config['activation_fn'] = 'gelu'
+    quantized_dtype = jnp.bfloat16
+    config['quantized_dtype'] = 'bf16'
+    model = DiffusionTransformer(
+        attention_dim=config['attention_dim'],
+        num_attention_heads=config['num_attention_heads'],
+        embedding_dim=config['embedding_dim'],
+        feed_forward_dim=config['feed_forward_dim'],
+        num_blocks=config['num_blocks'],
+        token_dim=token_dim,
+        context_length=context_length,
+        activation_fn=activation_fn,
+        normal_dtype=jnp.float32,
+        quantized_dtype=quantized_dtype,
+        remat=config['remat']
+    )
 if __name__ == '__main__':
     main()

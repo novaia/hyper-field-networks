@@ -1,5 +1,12 @@
 {
     "batch_size": 32,
     "token_dim": 1,
-    "learning_rate": 0.0003
+    "learning_rate": 0.0003,
+    "attention_dim": 256,
+    "num_attention_heads": 16,
+    "embedding_dim": 32,
+    "feed_forward_dim": 32,
+    "num_blocks": 16,
+    "token_dim": 1,
+    "remat": false
 }

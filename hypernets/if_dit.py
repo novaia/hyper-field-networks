@@ -8,6 +8,7 @@ from flax.training.train_state import TrainState
 import optax
 from hypernets.common.nn import VanillaTransformer
 from matplotlib import pyplot as plt
+import wandb
 
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
@@ -213,8 +214,8 @@ def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, co
             loss, state = train_step(state, batch, batch_size, state.step)
             losses_this_epoch.append(loss)
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
-        print(average_loss)
-        #wandb.log({'loss': average_loss}, state.step)
+        #print(average_loss)
+        wandb.log({'loss': average_loss}, state.step)
         samples = ddim_sample(
             state=state,
             num_samples=10,
@@ -273,10 +274,10 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/dit_runs/0'
+    output_dir = 'data/dit_runs/1'
     config_path = 'configs/if_dit.json'
     dataset_path = 'data/mnist_numpy_flat/data'
-    num_epochs = 100
+    num_epochs = 1000
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -325,6 +326,7 @@ def main():
     config['param_count'] = param_count
     print('Param count:', param_count)
     
+    wandb.init(project='if-dit', config=config)
     train_loop(
         state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
         data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 

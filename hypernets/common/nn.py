@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Callable
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
@@ -84,14 +84,15 @@ class MultiHeadLinearAttention(nn.Module):
 class FeedForward(nn.Module):
     hidden_dim:int
     output_dim:int
+    activation_fn:Callable = nn.gelu
     dtype:Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
         x = nn.Dense(features=self.hidden_dim, dtype=self.dtype)(x)
-        x = nn.gelu(x)
+        x = self.activation_fn(x)
         x = nn.Dense(features=self.output_dim, dtype=self.dtype)(x)
-        x = nn.gelu(x)
+        x = self.activation_fn(x)
         return x
 
 class LinearTransformer(nn.Module):
@@ -138,7 +139,9 @@ class VanillaTransformer(nn.Module):
     attention_dim:int
     residual_dim:int
     feed_forward_dim:int
+    activation_fn:Callable
     remat:bool = False
+    dtype:Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
@@ -151,17 +154,22 @@ class VanillaTransformer(nn.Module):
         
         for _ in range(self.num_blocks):
             residual = x
-            x = nn.LayerNorm()(x)
+            x = nn.LayerNorm(dtype=self.dtype)(x)
             x = CustomAttention(
                 num_heads=self.num_heads,
                 qkv_features=self.attention_dim, 
-                out_features=self.residual_dim
+                out_features=self.residual_dim,
+                dtype=self.dtype
             )(x)
-            x = nn.gelu(x)
             x = x + residual
             residual = x
-            x = nn.LayerNorm()(x)
-            x = CustomFeedForward(self.feed_forward_dim, self.residual_dim)(x)
+            x = nn.LayerNorm(dtype=self.dtype)(x)
+            x = CustomFeedForward(
+                self.feed_forward_dim, 
+                self.residual_dim, 
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
+            )(x)
             x = x + residual
         return x
 

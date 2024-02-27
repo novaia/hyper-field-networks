@@ -134,21 +134,11 @@ class DiffusionTransformer(nn.Module):
         return x
 
 
-def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
-    start_angle = jnp.arccos(max_signal_rate)
-    end_angle = jnp.arccos(min_signal_rate)
-
-    diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
-
-    signal_rates = jnp.cos(diffusion_angles)
-    noise_rates = jnp.sin(diffusion_angles)
-    return noise_rates, signal_rates
-
 def diffusion_schedule(t):
     start_angle = jnp.arccos(1.0)
     end_angle = jnp.arccos(0.0)
 
-    diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
+    diffusion_angles = start_angle + t * (end_angle - start_angle)
 
     signal_rates = jnp.cos(diffusion_angles)
     noise_rates = jnp.sin(diffusion_angles)
@@ -196,14 +186,17 @@ def ddim_sample(
 
 @partial(jax.jit, static_argnames=['batch_size'])
 def train_step(state, batch, batch_size, seed):
-    noise_key, diffusion_time_key = jax.random.split(key, 2)
+    noise_key, diffusion_time_key = jax.random.split(jax.random.PRNGKey(seed), 2)
     noises = jax.random.normal(noise_key, batch.shape, dtype=jnp.float32)
     diffusion_times = jax.random.uniform(diffusion_time_key, (batch_size, 1))
     noise_rates, signal_rates = diffusion_schedule(diffusion_times)
-    noisy_batch = signal_rates * batch + noise_rates * noises
+    noisy_batch = (
+        jnp.expand_dims(signal_rates, axis=1) * batch 
+        + jnp.expand_dims(noise_rates, axis=1) * noises
+    )
 
     def loss_fn(params):
-        pred_noises = state.apply_fn({'params': params}, noisy_images, noise_rates**2)
+        pred_noises = state.apply_fn({'params': params}, noisy_batch, noise_rates**2)
         return jnp.mean((pred_noises - noises)**2)
 
     grad_fn = jax.value_and_grad(loss_fn)

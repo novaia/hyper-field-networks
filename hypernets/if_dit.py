@@ -6,7 +6,15 @@ from jax import numpy as jnp
 from flax import linen as nn
 from flax.training.train_state import TrainState
 from hypernets.common.nn import VanillaTransformer
+
+from nvidia.dali import pipeline_def, fn
+from nvidia.dali.plugin.jax import DALIGenericIterator
+from nvidia.dali.plugin.base_iterator import LastBatchPolicy
+from nvidia.dali import types as dali_types
+
 from typing import Any, Callable
+import json
+import os
 
 class SinusoidalEmbedding(nn.Module):
     embedding_dim:int
@@ -207,7 +215,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     assert len(valid_dataset_list) > 0, f'Could not find any .npy files in {dataset_path}'
     
     dummy_sample = jnp.load(os.path.join(dataset_path, valid_dataset_list[0]))
-    print(dummy_sample.shape)
+    print('Sample shape:', dummy_sample.shape)
     context_length = dummy_sample.shape[0]
 
     @pipeline_def
@@ -226,8 +234,35 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
             device='gpu'
         )
         return tokens
+    
+    data_pipeline = my_pipeline_def(
+        file_root=dataset_path,
+        batch_size=batch_size,
+        context_length=context_length,
+        token_dim=token_dim,
+        num_threads=num_threads, 
+        device_id=0
+    )
     data_iterator = DALIGenericIterator(
         pipelines=[data_pipeline], output_map=['x'], last_batch_policy=LastBatchPolicy.DROP
     )
     num_batches = len(valid_dataset_list) // batch_size
     return data_iterator, num_batches, context_length
+
+def main():
+    config_path = 'configs/if_dit.json'
+    dataset_path = 'data/mnist_ingp_flat'
+
+    with open('configs/if_dit.json', 'r') as f:
+        config = json.load(f)
+    token_dim = config['token_dim']
+    batch_size = config['batch_size']
+
+    data_iterator, steps_per_epoch, context_length = \
+        get_data_iterator(dataset_path, token_dim, batch_size)
+    print('Token dim:', token_dim)
+    print('Context length:', context_length)
+    print('Steps per epoch:', steps_per_epoch)
+
+if __name__ == '__main__':
+    main()

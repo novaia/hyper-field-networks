@@ -7,6 +7,7 @@ from flax import linen as nn
 from flax.training.train_state import TrainState
 import optax
 from hypernets.common.nn import VanillaTransformer
+from matplotlib import pyplot as plt
 
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator
@@ -222,6 +223,9 @@ def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, co
             context_length=context_length,
             seed=0
         )
+        samples = jnp.reshape(samples, [10, 28, 28])
+        for i, sample in enumerate(samples):
+            plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), sample)
 
 def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     dataset_list = os.listdir(dataset_path)
@@ -230,7 +234,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     
     dummy_sample = jnp.load(os.path.join(dataset_path, valid_dataset_list[0]))
     print('Sample shape:', dummy_sample.shape)
-    context_length = dummy_sample.shape[0]
+    context_length = int(dummy_sample.shape[0] / token_dim)
 
     @pipeline_def
     def my_pipeline_def(file_root, context_length, token_dim):
@@ -242,6 +246,11 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
             name='r'
         )
         numpy_data = numpy_data.gpu()
+        #temp
+        scale_constant = dali_types.Constant(127.5).float32()
+        shift_constant = dali_types.Constant(1.0).float32()
+        numpy_data = (numpy_data / scale_constant) - shift_constant
+        
         tokens = fn.reshape(
             numpy_data, 
             shape=[context_length, token_dim], 
@@ -266,7 +275,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
 def main():
     output_dir = 'data/dit_runs/0'
     config_path = 'configs/if_dit.json'
-    dataset_path = 'data/mnist_ingp_flat'
+    dataset_path = 'data/mnist_numpy_flat/data'
     num_epochs = 100
 
     if not os.path.exists(output_dir):

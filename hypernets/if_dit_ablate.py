@@ -1,6 +1,7 @@
-# Image Field Diffusion Transformer.
-# The purpose of this script is to test a full-attention diffusion transformer
-# on the task of image field synthesis.
+# The purpose of this script is to experiment with global skip connections
+# for the diffusion transformer architecture. The code was copied from if_dit.py
+# so that development on that script can continue while I wait for the experimental
+# results of this one.
 import jax
 from jax import numpy as jnp
 from flax import linen as nn

@@ -122,3 +122,72 @@ class DiffusionTransformer(nn.Module):
         x = x * (1 - skip_weight) + skip * (skip_weight)
         #print('output', x.shape)
         return x
+
+
+def diffusion_schedule(diffusion_times, min_signal_rate, max_signal_rate):
+    start_angle = jnp.arccos(max_signal_rate)
+    end_angle = jnp.arccos(min_signal_rate)
+
+    diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
+
+    signal_rates = jnp.cos(diffusion_angles)
+    noise_rates = jnp.sin(diffusion_angles)
+    return noise_rates, signal_rates
+
+def diffusion_schedule(t):
+    start_angle = jnp.arccos(1.0)
+    end_angle = jnp.arccos(0.0)
+
+    diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
+
+    signal_rates = jnp.cos(diffusion_angles)
+    noise_rates = jnp.sin(diffusion_angles)
+    return noise_rates, signal_rates
+
+@jax.jit
+def train_step(state, batch, batch_size, seed):
+    noise_key, diffusion_time_key = jax.random.split(key, 2)
+    noises = jax.random.normal(noise_key, batch.shape, dtype=jnp.float32)
+    diffusion_times = jax.random.uniform(diffusion_time_key, (batch_size, 1))
+    noise_rates, signal_rates = diffusion_schedule(diffusion_times)
+    noisy_batch = signal_rates * batch + noise_rates * noises
+
+    def loss_fn(params):
+        pred_noises = state.apply_fn({'params': params}, noisy_images, noise_rates**2)
+        return jnp.mean((pred_noises - noises)**2)
+
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
+    state = state.apply_gradients(grads=grads)
+    return loss, state
+
+def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
+    dataset_list = os.listdir(dataset_path)
+    valid_dataset_list = [path for path in dataset_list if path.endswith('.npy')]
+    assert len(valid_dataset_list) > 0, f'Could not find any .npy files in {dataset_path}'
+    
+    dummy_sample = jnp.load(os.path.join(dataset_path, valid_dataset_list[0]))
+    print(dummy_sample.shape)
+    context_length = dummy_sample.shape[0]
+
+    @pipeline_def
+    def my_pipeline_def(file_root, context_length, token_dim):
+        numpy_data = fn.readers.numpy(
+            device='cpu', 
+            file_root=file_root, 
+            file_filter='*.npy', 
+            shuffle_after_epoch=True,
+            name='r'
+        )
+        numpy_data = numpy_data.gpu()
+        tokens = fn.reshape(
+            numpy_data, 
+            shape=[context_length, token_dim], 
+            device='gpu'
+        )
+        return tokens
+    data_iterator = DALIGenericIterator(
+        pipelines=[data_pipeline], output_map=['x'], last_batch_policy=LastBatchPolicy.DROP
+    )
+    num_batches = len(valid_dataset_list) // batch_size
+    return data_iterator, num_batches, context_length

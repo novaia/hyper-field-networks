@@ -135,8 +135,8 @@ class DiffusionTransformer(nn.Module):
 
 
 def diffusion_schedule(t):
-    start_angle = jnp.arccos(1.0)
-    end_angle = jnp.arccos(0.0)
+    start_angle = jnp.arccos(0.999)
+    end_angle = jnp.arccos(0.001)
 
     diffusion_angles = start_angle + t * (end_angle - start_angle)
 
@@ -150,8 +150,6 @@ def ddim_sample(
     diffusion_steps:int, 
     token_dim:int, 
     context_length:int,
-    min_signal_rate:float,
-    max_signal_rate:float,
     seed:int 
 ):
     @jax.jit
@@ -171,17 +169,19 @@ def ddim_sample(
         noisy_batch = next_noisy_batch
         
         diffusion_times = jnp.ones((num_samples, 1)) - step * step_size
-        noise_rates, signal_rates = diffusion_schedule(
-            diffusion_times, min_signal_rate, max_signal_rate
-        )
+        noise_rates, signal_rates = diffusion_schedule(diffusion_times)
         pred_noises = inference_fn(state, noisy_batch, noise_rates**2)
-        pred_batch = (noisy_batch - noise_rates * pred_noises) / signal_rates
+        pred_batch = (
+            (noisy_batch - jnp.expand_dims(noise_rates, axis=1) * pred_noises) 
+            / jnp.expand_dims(signal_rates, axis=1)
+        )
         
         next_diffusion_times = diffusion_times - step_size
-        next_noise_rates, next_signal_rates = diffusion_schedule(
-            next_diffusion_times, min_signal_rate, max_signal_rate
+        next_noise_rates, next_signal_rates = diffusion_schedule(next_diffusion_times)
+        next_noisy_batch = (
+            jnp.expand_dims(next_signal_rates, axis=1) * pred_batch 
+            + jnp.expand_dims(next_noise_rates, axis=1) * pred_noises
         )
-        next_noisy_batch = (next_signal_rates * pred_batch + next_noise_rates * pred_noises)
     return pred_batch
 
 @partial(jax.jit, static_argnames=['batch_size'])
@@ -204,12 +204,24 @@ def train_step(state, batch, batch_size, seed):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
-def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, context_length, token_dim):
+def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, context_length, token_dim, output_dir):
     for epoch in range(num_epochs):
+        losses_this_epoch = []
         for step in range(steps_per_epoch):
             batch = next(data_iterator)['x']
             loss, state = train_step(state, batch, batch_size, state.step)
-            print(loss)
+            losses_this_epoch.append(loss)
+        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
+        print(average_loss)
+        #wandb.log({'loss': average_loss}, state.step)
+        samples = ddim_sample(
+            state=state,
+            num_samples=10,
+            diffusion_steps=20,
+            token_dim=token_dim,
+            context_length=context_length,
+            seed=0
+        )
 
 def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     dataset_list = os.listdir(dataset_path)
@@ -252,9 +264,13 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
+    output_dir = 'data/dit_runs/0'
     config_path = 'configs/if_dit.json'
     dataset_path = 'data/mnist_ingp_flat'
     num_epochs = 100
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     with open('configs/if_dit.json', 'r') as f:
         config = json.load(f)
@@ -287,6 +303,7 @@ def main():
     t = jnp.ones((batch_size, 1))
     params = model.init(jax.random.PRNGKey(388), x, t)['params']
     tx = optax.chain(
+        optax.zero_nans(),
         optax.adaptive_grad_clip(clipping=config['grad_clip']),
         optax.adamw(
             learning_rate=config['learning_rate'], 
@@ -302,7 +319,7 @@ def main():
     train_loop(
         state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
         data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 
-        token_dim=token_dim
+        token_dim=token_dim, output_dir=output_dir
     )
 
 if __name__ == '__main__':

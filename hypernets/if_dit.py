@@ -7,6 +7,8 @@ from flax import linen as nn
 from flax.training.train_state import TrainState
 import optax
 from hypernets.common.nn import VanillaTransformer
+from hypernets.packing.alt_ngp import unflatten_params
+from fields import ngp_image
 from matplotlib import pyplot as plt
 import wandb
 
@@ -206,7 +208,11 @@ def train_step(state, batch, batch_size, seed):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
-def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, context_length, token_dim, output_dir):
+def train_loop(
+    state, num_epochs, steps_per_epoch, data_iterator, 
+    batch_size, context_length, token_dim, output_dir,
+    field_state, image_width, image_height, field_param_map
+):
     for epoch in range(num_epochs):
         losses_this_epoch = []
         for step in range(steps_per_epoch):
@@ -224,9 +230,12 @@ def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, co
             context_length=context_length,
             seed=0
         )
-        samples = jnp.reshape(samples, [10, 28, 28])
         for i, sample in enumerate(samples):
-            plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), sample)
+            field_params = unflatten_params(flat_params=sample, param_map=field_param_map)
+            field_state = field_state.replace(params=field_params)
+            field_render = ngp_image.render_image(field_state, image_height, image_width)
+            field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+            plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), field_render)
 
 def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     dataset_list = os.listdir(dataset_path)
@@ -247,11 +256,6 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
             name='r'
         )
         numpy_data = numpy_data.gpu()
-        #temp
-        scale_constant = dali_types.Constant(127.5).float32()
-        shift_constant = dali_types.Constant(1.0).float32()
-        numpy_data = (numpy_data / scale_constant) - shift_constant
-        
         tokens = fn.reshape(
             numpy_data, 
             shape=[context_length, token_dim], 
@@ -274,15 +278,25 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/dit_runs/1'
+    output_dir = 'data/if_dit_runs/2'
     config_path = 'configs/if_dit.json'
-    dataset_path = 'data/mnist_numpy_flat/data'
+    field_config_path = 'configs/ngp_image.json'
+    dataset_path = 'data/mnist_ingp_flat'
     num_epochs = 1000
+    # These are the dimensions of the images encoded by the neural fields.
+    # The neural field dataset is trained on MNIST so the dimensions are 28x28.
+    image_width = 28
+    image_height = 28
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    with open('configs/if_dit.json', 'r') as f:
+    with open(field_config_path, 'r') as f:
+        field_config = json.load(f)
+    with open(os.path.join(dataset_path, 'param_map.json'), 'r') as f:
+        field_param_map = json.load(f)
+
+    with open(config_path, 'r') as f:
         config = json.load(f)
     token_dim = config['token_dim']
     batch_size = config['batch_size']
@@ -326,11 +340,17 @@ def main():
     config['param_count'] = param_count
     print('Param count:', param_count)
     
-    wandb.init(project='if-dit', config=config)
+    field_model = ngp_image.create_model_from_config(field_config)
+    field_state = ngp_image.create_train_state(
+        model=field_model, learning_rate=1e-3, KEY=jax.random.PRNGKey(2)
+    )
+
+    wandb.init(project='if-dit-r', config=config)
     train_loop(
         state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
         data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 
-        token_dim=token_dim, output_dir=output_dir
+        token_dim=token_dim, output_dir=output_dir, field_state=field_state,
+        image_width=image_width, image_height=image_height, field_param_map=field_param_map
     )
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ import jax
 from jax import numpy as jnp
 from flax import linen as nn
 from flax.training.train_state import TrainState
+import optax
 from hypernets.common.nn import VanillaTransformer
 
 from nvidia.dali import pipeline_def, fn
@@ -49,8 +50,7 @@ class DiffusionTransformer(nn.Module):
     token_dim:int
     context_length:int
     activation_fn:Callable
-    normal_dtype:Any
-    quantized_dtype:Any
+    dtype:Any
     remat:bool
 
     @nn.compact
@@ -59,24 +59,23 @@ class DiffusionTransformer(nn.Module):
         position_embedding = nn.Embed(
             num_embeddings=self.context_length+1, 
             features=self.embedding_dim,
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(positions)
         position_embedding = jnp.expand_dims(position_embedding, axis=0)
         
         time_embedding = SinusoidalEmbedding(
             self.embedding_dim,
-            self.embedding_max_frequency,
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(t)
         #print('time_embedding', time_embedding.shape)
         time_embedding = nn.Dense(
             self.embedding_dim, 
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(time_embedding)
         time_embedding = self.activation_fn(time_embedding)
         time_embedding = nn.Dense(
             self.embedding_dim,
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(time_embedding)
         time_embedding = self.activation_fn(time_embedding)
         time_embedding = nn.LayerNorm()(time_embedding)
@@ -84,27 +83,30 @@ class DiffusionTransformer(nn.Module):
         skip = x
         skip_weight = nn.Dense(
             self.embedding_dim,
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(time_embedding)
         skip_weight = self.activation_fn(skip_weight)
-        skip_weight = nn.Dense(1, dtype=self.quantized_dtype)(skip_weight)
+        skip_weight = nn.Dense(1, dtype=self.dtype)(skip_weight)
         skip_weight = nn.sigmoid(skip_weight)
+        skip_weight = jnp.expand_dims(skip_weight, axis=1)
+        #print('skip_weight', skip_weight.shape)
 
         #print('x', x.shape)
         x = nn.Dense(
             self.embedding_dim, 
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(x)
         x = self.activation_fn(x)
         x = nn.Dense(
             self.embedding_dim, 
-            dtype=self.quantized_dtype
+            dtype=self.dtype
         )(x)
         x = self.activation_fn(x)
         x = nn.LayerNorm()(x)
         #print('x', x.shape)
 
         # Add the diffusion time token to the end of the sequence.
+        time_embedding = jnp.expand_dims(time_embedding, axis=1)
         x = jnp.concatenate([x, time_embedding], axis=-2)
         x = x + position_embedding
         #print('x', x.shape)
@@ -112,19 +114,18 @@ class DiffusionTransformer(nn.Module):
         x = VanillaTransformer(
             num_blocks=self.num_blocks,
             attention_dim=self.attention_dim,
-            num_attention_heads=self.num_attention_heads,
+            num_heads=self.num_attention_heads,
             residual_dim=self.embedding_dim,
             feed_forward_dim=self.feed_forward_dim,
             activation_fn=self.activation_fn,
-            normal_dtype=self.normal_dtype,
-            quantized_dtype=self.quantized_dtype,
+            dtype=self.dtype,
             remat=self.remat
         )(x)
 
         # Remove the diffusion time token from the end of the sequence.
         x = x[:, :-1, :]
         x = nn.Dense(
-            features=self.token_dim, dtype=self.quantized_dtype, 
+            features=self.token_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()
         )(x)
         x = x * (1 - skip_weight) + skip * (skip_weight)
@@ -266,8 +267,8 @@ def main():
     
     activation_fn = nn.gelu
     config['activation_fn'] = 'gelu'
-    quantized_dtype = jnp.bfloat16
-    config['quantized_dtype'] = 'bf16'
+    dtype = jnp.bfloat16
+    config['dtype'] = 'bf16'
     model = DiffusionTransformer(
         attention_dim=config['attention_dim'],
         num_attention_heads=config['num_attention_heads'],
@@ -277,9 +278,20 @@ def main():
         token_dim=token_dim,
         context_length=context_length,
         activation_fn=activation_fn,
-        normal_dtype=jnp.float32,
-        quantized_dtype=quantized_dtype,
+        dtype=dtype,
         remat=config['remat']
     )
+    x = jnp.ones((batch_size, context_length, token_dim))
+    t = jnp.ones((batch_size, 1))
+    params = model.init(jax.random.PRNGKey(388), x, t)['params']
+    tx = optax.chain(
+        optax.adaptive_grad_clip(clipping=config['grad_clip']),
+        optax.adamw(
+            learning_rate=config['learning_rate'], 
+            weight_decay=config['weight_decay']
+        )
+    )
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+
 if __name__ == '__main__':
     main()

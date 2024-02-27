@@ -144,6 +144,46 @@ def diffusion_schedule(t):
     noise_rates = jnp.sin(diffusion_angles)
     return noise_rates, signal_rates
 
+def ddim_sample(
+    state, 
+    num_samples:int, 
+    diffusion_steps:int, 
+    token_dim:int, 
+    context_length:int,
+    min_signal_rate:float,
+    max_signal_rate:float,
+    seed:int 
+):
+    @jax.jit
+    def inference_fn(state, noisy_batch, diffusion_times):
+        return jax.lax.stop_gradient(
+            state.apply_fn({'params': state.params}, noisy_batch, diffusion_times)
+        )
+    
+    initial_noise = jax.random.normal(
+        jax.random.PRNGKey(seed), 
+        shape=(num_samples, context_length, token_dim)
+    )
+    step_size = 1.0 / diffusion_steps
+    
+    next_noisy_batch = initial_noise
+    for step in range(diffusion_steps):
+        noisy_batch = next_noisy_batch
+        
+        diffusion_times = jnp.ones((num_samples, 1)) - step * step_size
+        noise_rates, signal_rates = diffusion_schedule(
+            diffusion_times, min_signal_rate, max_signal_rate
+        )
+        pred_noises = inference_fn(state, noisy_batch, noise_rates**2)
+        pred_batch = (noisy_batch - noise_rates * pred_noises) / signal_rates
+        
+        next_diffusion_times = diffusion_times - step_size
+        next_noise_rates, next_signal_rates = diffusion_schedule(
+            next_diffusion_times, min_signal_rate, max_signal_rate
+        )
+        next_noisy_batch = (next_signal_rates * pred_batch + next_noise_rates * pred_noises)
+    return pred_batch
+
 @jax.jit
 def train_step(state, batch, batch_size, seed):
     noise_key, diffusion_time_key = jax.random.split(key, 2)

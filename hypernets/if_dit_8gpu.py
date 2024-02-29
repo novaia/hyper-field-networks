@@ -1,9 +1,16 @@
 # The purpose of this script is to train the image field diffusion transformer
 # on multiple GPUs, with data sharding across the batch dimension.
-from flax import linen as nn
+import jax
 from jax import lax
+from jax import numpy as jnp
 from jax.sharding import Mesh, PartitionSpec, NamedSharding
 from jax.experimental import mesh_utils
+from flax import linen as nn
+from flax.training.train_state import TrainState
+import optax
+
+from functools import partial
+from typing import Optional, Callable, Any
 
 class SinusoidalEmbedding(nn.Module):
     embedding_dim:int
@@ -225,3 +232,23 @@ def train_step(state, batch, batch_size, seed):
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
     return loss, state
+
+def init_state(key, x_shape, t_shape, model, optimizer, input_sharding, mesh):
+    def init_fn(key, x, t, model, optimizer):
+        params = model.init(key, x, t)['params']
+        state = TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
+        return state
+    
+    x = jax.device_put(jnp.ones(x_shape), input_sharding)
+    t = jax.device_put(jnp.ones(t_shape), input_sharding)
+
+    state_sharding = nn.get_sharding(
+        jax.eval_shape(partial(init_fn, model=model, optimizer=optimizer), key, x, t), 
+        mesh
+    )
+    state = jax.jit(
+        init_fn, static_argnames=('model', 'optimizer'),
+        in_shardings=(NamedSharding(mesh, PartitionSpec(None)), input_sharding, input_sharding),
+        out_shardings=state_sharding
+    )(key, x, t, model, optimizer)
+    return state

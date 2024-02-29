@@ -214,8 +214,8 @@ def ddim_sample(
         )
     return pred_batch
 
-def train_step(state, batch, batch_size, seed):
-    noise_key, diffusion_time_key = jax.random.split(jax.random.PRNGKey(seed), 2)
+def train_step(state, batch, batch_size):
+    noise_key, diffusion_time_key = jax.random.split(jax.random.PRNGKey(state.step), 2)
     noises = jax.random.normal(noise_key, batch.shape, dtype=jnp.float32)
     diffusion_times = jax.random.uniform(diffusion_time_key, (batch_size, 1))
     noise_rates, signal_rates = diffusion_schedule(diffusion_times)
@@ -252,3 +252,53 @@ def init_state(key, x_shape, t_shape, model, optimizer, input_sharding, mesh):
         out_shardings=state_sharding
     )(key, x, t, model, optimizer)
     return state, state_sharding
+
+def main():
+    context_length = 128
+    token_dim = 1
+    batch_size = 32
+    num_batches = 40
+    x_train = jax.random.normal(
+        jax.random.PRNGKey(1212), 
+        (num_batches, batch_size, context_length, token_dim)
+    )
+
+    device_mesh = mesh_utils.create_device_mesh((8,))
+    mesh = Mesh(devices=device_mesh, axis_names=('data'))
+    input_sharding = NamedSharding(mesh, PartitionSpec('data'))
+
+    model = DiffusionTransformer(
+        attention_dim=128,
+        num_attention_heads=4,
+        embedding_dim=16,
+        num_blocks=2,
+        feed_forward_dim=32,
+        context_length=context_length,
+        token_dim=token_dim,
+        activation_fn=nn.relu,
+        dtype=jnp.float32,
+        remat=False
+    )
+    opt = optax.adam(learning_rate=3e-4)
+    state, state_sharding = init_state(
+        key=jax.random.PRNGKey(11), 
+        x_shape=(batch_size, context_length, token_dim),
+        t_shape=(batch_size, 1),
+        model=model,
+        optimizer=opt,
+        input_sharding=input_sharding,
+        mesh=mesh,
+    )
+
+    batch = x_train[0]
+    batch = jax.device_put(batch, input_sharding)
+    jit_train_step = jax.jit(
+        partial(train_step, batch_size=batch_size), 
+        in_shardings=(state_sharding, input_sharding),
+        out_shardings=(None, state_sharding)
+    )
+    loss, state = jit_train_step(state, batch)
+    print('loss:', loss)
+
+if __name__ == '__main__':
+    main()

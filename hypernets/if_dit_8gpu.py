@@ -251,4 +251,4 @@ def init_state(key, x_shape, t_shape, model, optimizer, input_sharding, mesh):
         in_shardings=(NamedSharding(mesh, PartitionSpec(None)), input_sharding, input_sharding),
         out_shardings=state_sharding
     )(key, x, t, model, optimizer)
-    return state
+    return state, state_sharding

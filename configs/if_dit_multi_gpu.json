@@ -1,0 +1,16 @@
+{
+    "batch_size": 512,
+    "token_dim": 1,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.0001,
+    "attention_dim": 16,
+    "num_attention_heads": 1,
+    "embedding_dim": 16,
+    "feed_forward_dim": 16,
+    "num_blocks": 2,
+    "token_dim": 1,
+    "grad_clip": 2.0,
+    "activation_fn": "gelu",
+    "dtype": "float32",
+    "remat": false
+}

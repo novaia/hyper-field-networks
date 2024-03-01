@@ -16,10 +16,18 @@ from nvidia.dali import types as dali_types
 
 from functools import partial
 from typing import Optional, Callable, Any
+import json
+import os
+
+from hypernets.common.config_utils import load_activation_fn, load_dtype
+from hypernets.packing.alt_ngp import unflatten_params
+from fields import ngp_image
+from matplotlib import pyplot as plt
+import wandb
 
 class SinusoidalEmbedding(nn.Module):
     embedding_dim:int
-    embedding_max_frequency:float
+    embedding_max_frequency:float = 1000.0
     embedding_min_frequency:float = 1.0
     dtype:Any = jnp.float32
 
@@ -238,6 +246,35 @@ def train_step(state, batch, batch_size):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
+def train_loop(
+    state, train_step_fn, num_epochs, steps_per_epoch, data_iterator, 
+    batch_size, context_length, token_dim, output_dir,
+    field_state, image_width, image_height, field_param_map
+):
+    for epoch in range(num_epochs):
+        losses_this_epoch = []
+        for step in range(steps_per_epoch):
+            batch = next(data_iterator)['x']
+            loss, state = train_step_fn(state, batch)
+            losses_this_epoch.append(loss)
+        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
+        #print(average_loss)
+        wandb.log({'loss': average_loss}, state.step)
+        samples = ddim_sample(
+            state=state,
+            num_samples=10,
+            diffusion_steps=20,
+            token_dim=token_dim,
+            context_length=context_length,
+            seed=0
+        )
+        for i, sample in enumerate(samples):
+            field_params = unflatten_params(flat_params=sample, param_map=field_param_map)
+            field_state = field_state.replace(params=field_params)
+            field_render = ngp_image.render_image(field_state, image_height, image_width)
+            field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+            plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), field_render)
+
 def init_state(key, x_shape, t_shape, model, optimizer, input_sharding, mesh):
     def init_fn(key, x, t, model, optimizer):
         params = model.init(key, x, t)['params']
@@ -289,53 +326,79 @@ def get_data_iterator(dataset_path, token_dim, batch_size, input_sharding, num_t
         batch_size=batch_size,
         context_length=context_length,
         token_dim=token_dim,
-        num_threads=num_threads, 
+        num_threads=num_threads,
+        device_id=0
     )
     data_iterator = DALIGenericIterator(
         pipelines=[data_pipeline], 
         output_map=['x'], 
         last_batch_policy=LastBatchPolicy.DROP,
-        sharding=input_sharidng
+        sharding=input_sharding
     )
     num_batches = len(valid_dataset_list) // batch_size
     return data_iterator, num_batches, context_length
 
 def main():
+    devices = jax.devices('gpu')
+    num_devices = len(devices)
+    print(f'Found {num_devices} GPU(s)')
+    print(devices)
+
+    output_dir = 'data/if_dit_runs/3'
     dataset_path = 'data/mnist_ingp_flat'
+    config_path = 'configs/if_dit_multi_gpu.json'
+    field_config_path = 'configs/ngp_image.json'
+    num_epochs = 1000
     # These are the dimensions of the images encoded by the neural fields.
     # The neural field dataset is trained on MNIST so the dimensions are 28x28.
     image_width = 28
     image_height = 28
    
-    context_length = 128
-    token_dim = 1
-    batch_size = 32
-    num_batches = 40
-    x_train = jax.random.normal(
-        jax.random.PRNGKey(1212), 
-        (num_batches, batch_size, context_length, token_dim)
-    )
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    device_mesh = mesh_utils.create_device_mesh((8,))
+    with open(field_config_path, 'r') as f:
+        field_config = json.load(f)
+    with open(os.path.join(dataset_path, 'param_map.json'), 'r') as f:
+        field_param_map = json.load(f)
+
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    config['num_devices'] = num_devices
+    token_dim = config['token_dim']
+    batch_size = config['batch_size']
+
+    device_mesh = mesh_utils.create_device_mesh((num_devices,))
     mesh = Mesh(devices=device_mesh, axis_names=('data'))
     input_sharding = NamedSharding(mesh, PartitionSpec('data'))
 
     data_iterator, steps_per_epoch, context_length = \
         get_data_iterator(dataset_path, token_dim, batch_size, input_sharding)
-
+    print('Token dim:', token_dim)
+    print('Context length:', context_length)
+    print('Steps per epoch:', steps_per_epoch)
+    
     model = DiffusionTransformer(
-        attention_dim=128,
-        num_attention_heads=4,
-        embedding_dim=16,
-        num_blocks=2,
-        feed_forward_dim=32,
-        context_length=context_length,
+        attention_dim=config['attention_dim'],
+        num_attention_heads=config['num_attention_heads'],
+        embedding_dim=config['embedding_dim'],
+        feed_forward_dim=config['feed_forward_dim'],
+        num_blocks=config['num_blocks'],
         token_dim=token_dim,
-        activation_fn=nn.relu,
-        dtype=jnp.float32,
-        remat=False
+        context_length=context_length,
+        activation_fn=load_activation_fn(config['activation_fn']),
+        dtype=load_dtype(config['dtype']),
+        remat=config['remat']
     )
-    opt = optax.adam(learning_rate=3e-4)
+    
+    opt = optax.chain(
+        optax.zero_nans(),
+        optax.adaptive_grad_clip(clipping=config['grad_clip']),
+        optax.adamw(
+            learning_rate=config['learning_rate'], 
+            weight_decay=config['weight_decay']
+        )
+    )
     state, state_sharding = init_state(
         key=jax.random.PRNGKey(11), 
         x_shape=(batch_size, context_length, token_dim),
@@ -346,15 +409,29 @@ def main():
         mesh=mesh,
     )
 
-    batch = x_train[0]
-    batch = jax.device_put(batch, input_sharding)
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    config['param_count'] = param_count
+    print('Param count:', param_count)
+    
+    field_model = ngp_image.create_model_from_config(field_config)
+    field_state = ngp_image.create_train_state(
+        model=field_model, learning_rate=1e-3, KEY=jax.random.PRNGKey(2)
+    )
+
     jit_train_step = jax.jit(
         partial(train_step, batch_size=batch_size), 
         in_shardings=(state_sharding, input_sharding),
         out_shardings=(None, state_sharding)
     )
-    loss, state = jit_train_step(state, batch)
-    print('loss:', loss)
+
+    wandb.init(project='if-dit-r', config=config)
+    train_loop(
+        state=state, train_step_fn=jit_train_step, num_epochs=num_epochs, 
+        steps_per_epoch=steps_per_epoch, data_iterator=data_iterator, 
+        batch_size=batch_size, context_length=context_length, 
+        token_dim=token_dim, output_dir=output_dir, field_state=field_state,
+        image_width=image_width, image_height=image_height, field_param_map=field_param_map
+    )
 
 if __name__ == '__main__':
     main()

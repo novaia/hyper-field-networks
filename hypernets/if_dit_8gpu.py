@@ -9,6 +9,11 @@ from flax import linen as nn
 from flax.training.train_state import TrainState
 import optax
 
+from nvidia.dali import pipeline_def, fn
+from nvidia.dali.plugin.jax import DALIGenericIterator
+from nvidia.dali.plugin.base_iterator import LastBatchPolicy
+from nvidia.dali import types as dali_types
+
 from functools import partial
 from typing import Optional, Callable, Any
 
@@ -253,7 +258,55 @@ def init_state(key, x_shape, t_shape, model, optimizer, input_sharding, mesh):
     )(key, x, t, model, optimizer)
     return state, state_sharding
 
+def get_data_iterator(dataset_path, token_dim, batch_size, input_sharding, num_threads=4):
+    dataset_list = os.listdir(dataset_path)
+    valid_dataset_list = [path for path in dataset_list if path.endswith('.npy')]
+    assert len(valid_dataset_list) > 0, f'Could not find any .npy files in {dataset_path}'
+    
+    dummy_sample = jnp.load(os.path.join(dataset_path, valid_dataset_list[0]))
+    print('Sample shape:', dummy_sample.shape)
+    context_length = int(dummy_sample.shape[0] / token_dim)
+
+    @pipeline_def
+    def my_pipeline_def(file_root, context_length, token_dim):
+        numpy_data = fn.readers.numpy(
+            device='cpu', 
+            file_root=file_root, 
+            file_filter='*.npy', 
+            shuffle_after_epoch=True,
+            name='r'
+        )
+        numpy_data = numpy_data.gpu()
+        tokens = fn.reshape(
+            numpy_data, 
+            shape=[context_length, token_dim], 
+            device='gpu'
+        )
+        return tokens
+    
+    data_pipeline = my_pipeline_def(
+        file_root=dataset_path,
+        batch_size=batch_size,
+        context_length=context_length,
+        token_dim=token_dim,
+        num_threads=num_threads, 
+    )
+    data_iterator = DALIGenericIterator(
+        pipelines=[data_pipeline], 
+        output_map=['x'], 
+        last_batch_policy=LastBatchPolicy.DROP,
+        sharding=input_sharidng
+    )
+    num_batches = len(valid_dataset_list) // batch_size
+    return data_iterator, num_batches, context_length
+
 def main():
+    dataset_path = 'data/mnist_ingp_flat'
+    # These are the dimensions of the images encoded by the neural fields.
+    # The neural field dataset is trained on MNIST so the dimensions are 28x28.
+    image_width = 28
+    image_height = 28
+   
     context_length = 128
     token_dim = 1
     batch_size = 32
@@ -266,6 +319,9 @@ def main():
     device_mesh = mesh_utils.create_device_mesh((8,))
     mesh = Mesh(devices=device_mesh, axis_names=('data'))
     input_sharding = NamedSharding(mesh, PartitionSpec('data'))
+
+    data_iterator, steps_per_epoch, context_length = \
+        get_data_iterator(dataset_path, token_dim, batch_size, input_sharding)
 
     model = DiffusionTransformer(
         attention_dim=128,

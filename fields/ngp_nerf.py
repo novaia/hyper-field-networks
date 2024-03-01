@@ -10,8 +10,8 @@ import numpy as np
 import optax
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from fields.common.nn import \
-    TcnnMultiResolutionHashEncoding, FeedForward, fourth_order_sh_encoding, trunc_exp
+from fields.common.nn import FeedForward, fourth_order_sh_encoding, trunc_exp
+from fields.common.nn_cuda import TcnnMultiResolutionHashEncoding
 from fields.common.dataset import NerfDataset, load_nerf_dataset
 from fields.common.matrices import get_z_axis_camera_orbit_matrix
 from volrendjax import \

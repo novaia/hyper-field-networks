@@ -213,6 +213,8 @@ def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, co
             context_length=context_length,
             seed=0
         )
+        samples = (samples + 1.0) / 2.0
+        samples = jnp.clip(samples, 0.0, 1.0)
         samples = jnp.reshape(samples, [10, 28, 28])
         for i, sample in enumerate(samples):
             plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), sample)
@@ -263,7 +265,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/dit_runs/1'
+    output_dir = 'data/dit_runs/3'
     config_path = 'configs/if_dit.json'
     dataset_path = 'data/mnist_numpy_flat/data'
     num_epochs = 1000

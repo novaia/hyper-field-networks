@@ -278,7 +278,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/if_dit_runs/2'
+    output_dir = 'data/if_dit_runs/4'
     config_path = 'configs/if_dit.json'
     field_config_path = 'configs/ngp_image.json'
     dataset_path = 'data/mnist_ingp_flat'

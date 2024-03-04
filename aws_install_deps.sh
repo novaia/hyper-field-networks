@@ -6,4 +6,4 @@ python3 -m pip install -y \
     --extra-index-url $DALI_PACKAGE_URL \
     --upgrade nvidia-dali-cuda120
 
-python3 -m pip install requirements.txt
+python3 -m pip install -r requirements.txt

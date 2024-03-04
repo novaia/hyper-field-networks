@@ -344,9 +344,9 @@ def main():
     print(f'Found {num_devices} GPU(s)')
     print(devices)
 
-    output_dir = 'data/if_dit_runs/3'
-    dataset_path = 'data/mnist_ingp_flat'
-    config_path = 'configs/if_dit_multi_gpu.json'
+    output_dir = 'data/if_dit_runs/multi-v100-1'
+    dataset_path = 'data/mnist_ingp_flat/data'
+    config_path = 'configs/if_dit_multi_gpu_v100.json'
     field_config_path = 'configs/ngp_image.json'
     num_epochs = 1000
     # These are the dimensions of the images encoded by the neural fields.

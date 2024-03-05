@@ -295,7 +295,7 @@ def init_state(key, x_shape, t_shape, model, optimizer, input_sharding, mesh):
     )(key, x, t, model, optimizer)
     return state, state_sharding
 
-def get_data_iterator(dataset_path, token_dim, batch_size, input_sharding, num_threads=4):
+def get_data_iterator(dataset_path, token_dim, batch_size, input_sharding, devices, num_threads=4):
     dataset_list = os.listdir(dataset_path)
     valid_dataset_list = [path for path in dataset_list if path.endswith('.npy')]
     assert len(valid_dataset_list) > 0, f'Could not find any .npy files in {dataset_path}'
@@ -327,7 +327,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, input_sharding, num_t
         context_length=context_length,
         token_dim=token_dim,
         num_threads=num_threads,
-        device_id=0
+        device_id=devices
     )
     data_iterator = DALIGenericIterator(
         pipelines=[data_pipeline], 
@@ -373,7 +373,7 @@ def main():
     input_sharding = NamedSharding(mesh, PartitionSpec('data'))
 
     data_iterator, steps_per_epoch, context_length = \
-        get_data_iterator(dataset_path, token_dim, batch_size, input_sharding)
+        get_data_iterator(dataset_path, token_dim, batch_size, input_sharding, devices=devices)
     print('Token dim:', token_dim)
     print('Context length:', context_length)
     print('Steps per epoch:', steps_per_epoch)

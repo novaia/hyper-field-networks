@@ -1,0 +1,13 @@
+{
+    "batch_size": 32,
+    "token_dim": 4,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.0001,
+    "attention_dim": 512,
+    "num_attention_heads": 8,
+    "embedding_dim": 64,
+    "feed_forward_dim": 64,
+    "num_blocks": 12,
+    "grad_clip": 2.0,
+    "remat": false
+}

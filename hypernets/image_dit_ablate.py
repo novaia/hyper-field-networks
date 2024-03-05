@@ -238,11 +238,9 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
             name='r'
         )
         numpy_data = numpy_data.gpu()
-        #temp
         scale_constant = dali_types.Constant(127.5).float32()
         shift_constant = dali_types.Constant(1.0).float32()
         numpy_data = (numpy_data / scale_constant) - shift_constant
-        
         tokens = fn.reshape(
             numpy_data, 
             shape=[context_length, token_dim], 
@@ -265,8 +263,8 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/dit_runs/3'
-    config_path = 'configs/if_dit.json'
+    output_dir = 'data/dit_runs/4'
+    config_path = 'configs/image_dit.json'
     dataset_path = 'data/mnist_numpy_flat/data'
     num_epochs = 1000
 

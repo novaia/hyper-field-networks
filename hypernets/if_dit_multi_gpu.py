@@ -343,6 +343,7 @@ def main():
     num_devices = len(devices)
     print(f'Found {num_devices} GPU(s)')
     print(devices)
+    jax.config.update('jax_threefry_partitionable', True)
 
     output_dir = 'data/if_dit_runs/multi-v100-1'
     dataset_path = 'data/mnist_ingp_flat/data'

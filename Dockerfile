@@ -1,9 +1,5 @@
 FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 ARG NO_RECS="--no-install-recommends"
-ARG BLENDER_PACKAGE_NAME="blender-3.6.3-linux-x64"
-ARG BLENDER_PATH="/usr/local/blender"
-ENV PATH="$PATH:$BLENDER_PATH"
-COPY ./binaries/ /tmp/
 
 RUN apt-get update -y \ 
     && apt-get install $NO_RECS -y \
@@ -39,11 +35,7 @@ RUN apt-get update -y \
     && apt-get install $NO_RECS -y cmake \
     # Cleanup lists.
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    # Install blender.
-    && tar -xJf /tmp/${BLENDER_PACKAGE_NAME}.tar.xz -C /tmp/ \
-    && rm -f /tmp/${BLENDER_PACKAGE_NAME}.tar.xz \
-    && mv /tmp/${BLENDER_PACKAGE_NAME} ${BLENDER_PATH}
+    && rm -rf /var/lib/apt/lists/*
 
 
 # Install python packages.

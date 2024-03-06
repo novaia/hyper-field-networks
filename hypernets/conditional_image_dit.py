@@ -8,6 +8,7 @@ import optax
 from hypernets.common.nn import VanillaTransformer
 from matplotlib import pyplot as plt
 import wandb
+import pandas as pd
 
 from nvidia.dali import pipeline_def, fn
 from nvidia.dali.plugin.jax import DALIGenericIterator

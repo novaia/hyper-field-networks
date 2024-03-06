@@ -118,7 +118,6 @@ class DiffusionTransformer(nn.Module):
         #print('output', x.shape)
         return x
 
-
 def diffusion_schedule(t):
     start_angle = jnp.arccos(0.999)
     end_angle = jnp.arccos(0.001)

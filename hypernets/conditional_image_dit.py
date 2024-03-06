@@ -92,7 +92,10 @@ class DiffusionTransformer(nn.Module):
         for _ in range(self.num_blocks):
             residual = x
             x = nn.RMSNorm()(x)
-            x = nn.remat(nn.MultiHeadDotProductAttention)(
+            Attention = nn.MultiHeadDotProductAttention
+            if self.remat:
+                Attention = nn.remat(Attention)
+            x = Attention(
                 num_heads=self.num_attention_heads,
                 dtype=self.dtype,
                 qkv_features=self.attention_dim,

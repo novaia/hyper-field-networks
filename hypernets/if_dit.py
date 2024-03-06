@@ -222,14 +222,16 @@ def train_loop(
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         #print(average_loss)
         wandb.log({'loss': average_loss}, state.step)
+        num_samples = 10
         samples = ddim_sample(
             state=state,
-            num_samples=10,
+            num_samples=num_samples,
             diffusion_steps=20,
             token_dim=token_dim,
             context_length=context_length,
             seed=0
         )
+        samples = jnp.reshape(samples, (num_samples, context_length * token_dim))
         for i, sample in enumerate(samples):
             field_params = unflatten_params(flat_params=sample, param_map=field_param_map)
             field_state = field_state.replace(params=field_params)

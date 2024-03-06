@@ -92,15 +92,15 @@ class DiffusionTransformer(nn.Module):
         x = x + position_embedding
         #print('x', x.shape)
         
-        for _ in range num_blocks:
+        for _ in range(self.num_blocks):
             residual = x
             x = nn.RMSNorm()(x)
-            x = nn.remat(nn.MultiHeadAttention)(
-                num_heads=num_attention_heads,
+            x = nn.remat(nn.MultiHeadDotProductAttention)(
+                num_heads=self.num_attention_heads,
                 dtype=self.dtype,
                 qkv_features=self.attention_dim,
                 out_features=self.embedding_dim
-            )(inputs_q=x)
+            )(inputs_q=x, inputs_kv=x)
             x = x + residual
             residual = x
             x = nn.RMSNorm()(x)
@@ -260,7 +260,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
 
 def main():
     output_dir = 'data/if_dit_runs/6'
-    config_path = 'configs/if_dit.json'
+    config_path = 'configs/if_dit_remat.json'
     field_config_path = 'configs/ngp_image.json'
     dataset_path = 'data/mnist_ingp_flat'
     num_epochs = 1000

@@ -72,19 +72,7 @@ class DiffusionTransformer(nn.Module):
             self.embedding_dim,
             dtype=self.dtype
         )(t)
-        #print('time_embedding', time_embedding.shape)
-        time_embedding = nn.Dense(
-            self.embedding_dim, 
-            dtype=self.dtype
-        )(time_embedding)
-        time_embedding = self.activation_fn(time_embedding)
-        time_embedding = nn.Dense(
-            self.embedding_dim,
-            dtype=self.dtype
-        )(time_embedding)
-        time_embedding = self.activation_fn(time_embedding)
-        time_embedding = nn.LayerNorm()(time_embedding)
-        
+
         #print('x', x.shape)
         x = nn.Dense(
             self.embedding_dim, 
@@ -96,7 +84,6 @@ class DiffusionTransformer(nn.Module):
             dtype=self.dtype
         )(x)
         x = self.activation_fn(x)
-        x = nn.LayerNorm()(x)
         #print('x', x.shape)
 
         # Add the diffusion time token to the end of the sequence.
@@ -104,17 +91,23 @@ class DiffusionTransformer(nn.Module):
         x = jnp.concatenate([x, time_embedding], axis=-2)
         x = x + position_embedding
         #print('x', x.shape)
-
-        x = VanillaTransformer(
-            num_blocks=self.num_blocks,
-            attention_dim=self.attention_dim,
-            num_heads=self.num_attention_heads,
-            residual_dim=self.embedding_dim,
-            feed_forward_dim=self.feed_forward_dim,
-            activation_fn=self.activation_fn,
-            dtype=self.dtype,
-            remat=self.remat
-        )(x)
+        
+        for _ in range num_blocks:
+            residual = x
+            x = nn.RMSNorm()(x)
+            x = nn.remat(nn.MultiHeadAttention)(
+                num_heads=num_attention_heads,
+                dtype=self.dtype,
+                qkv_features=self.attention_dim,
+                out_features=self.embedding_dim
+            )(inputs_q=x)
+            x = x + residual
+            residual = x
+            x = nn.RMSNorm()(x)
+            x = nn.Dense(features=self.feed_forward_dim)(x)
+            x = self.activation_fn(x)
+            x = nn.Dense(features=self.embedding_dim)(x)
+            x = x + residual
 
         # Remove the diffusion time token from the end of the sequence.
         x = x[:, :-1, :]

@@ -60,14 +60,14 @@ class DiffusionTransformer(nn.Module):
 
     @nn.compact
     def __call__(self, x, t):
-        positions = jnp.arange(self.context_length+1)
-        position_embedding = nn.Embed(
-            num_embeddings=self.context_length+1, 
-            features=self.embedding_dim,
+        num_tokens = self.context_length + 1
+        positions = jnp.reshape(jnp.arange(num_tokens), (1, num_tokens, 1))
+        position_embedding = SinusoidalEmbedding(
+            embedding_dim=self.embedding_dim,
             dtype=self.dtype
         )(positions)
-        position_embedding = jnp.expand_dims(position_embedding, axis=0)
-        
+        #print('position_embedding', position_embedding.shape)
+
         time_embedding = SinusoidalEmbedding(
             self.embedding_dim,
             dtype=self.dtype
@@ -278,7 +278,7 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/if_dit_runs/5'
+    output_dir = 'data/if_dit_runs/6'
     config_path = 'configs/if_dit.json'
     field_config_path = 'configs/ngp_image.json'
     dataset_path = 'data/mnist_ingp_flat'
@@ -339,7 +339,7 @@ def main():
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     config['param_count'] = param_count
     print('Param count:', param_count)
-    
+
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(
         model=field_model, learning_rate=1e-3, KEY=jax.random.PRNGKey(2)

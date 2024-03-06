@@ -213,48 +213,30 @@ def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, co
         for i, sample in enumerate(samples):
             plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), sample)
 
-def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
-    dataset_list = os.listdir(dataset_path)
-    valid_dataset_list = [path for path in dataset_list if path.endswith('.npy')]
-    assert len(valid_dataset_list) > 0, f'Could not find any .npy files in {dataset_path}'
-    
-    dummy_sample = jnp.load(os.path.join(dataset_path, valid_dataset_list[0]))
-    print('Sample shape:', dummy_sample.shape)
-    context_length = int(dummy_sample.shape[0] / token_dim)
+def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
+    @pipeline_def(batch_size=batch_size, num_threads=4, device_id=0)
+    def wds_pipeline():
+        raw_image, ascii_label = fn.readers.webdataset(
+            paths=dataset_path, 
+            ext=['png', 'cls'], 
+            missing_component_behavior='error',
+        )
+        image = fn.decoders.image(raw_image, output_type=dali_types.GRAY).gpu()
+        image = fn.cast(image, dtype=dali_types.FLOAT)
+        image_scale = dali_types.Constant(127.5).float32()
+        image_shift = dali_types.Constant(1.0).float32()
+        image = (image / image_scale) - image_shift
+        ascii_shift = types.Constant(48).uint8().gpu()
+        label = ascii_label.gpu() - ascii_shift
+        return image, label
 
-    @pipeline_def
-    def my_pipeline_def(file_root, context_length, token_dim):
-        numpy_data = fn.readers.numpy(
-            device='cpu', 
-            file_root=file_root, 
-            file_filter='*.npy', 
-            shuffle_after_epoch=True,
-            name='r'
-        )
-        numpy_data = numpy_data.gpu()
-        scale_constant = dali_types.Constant(127.5).float32()
-        shift_constant = dali_types.Constant(1.0).float32()
-        numpy_data = (numpy_data / scale_constant) - shift_constant
-        tokens = fn.reshape(
-            numpy_data, 
-            shape=[context_length, token_dim], 
-            device='gpu'
-        )
-        return tokens
-    
-    data_pipeline = my_pipeline_def(
-        file_root=dataset_path,
-        batch_size=batch_size,
-        context_length=context_length,
-        token_dim=token_dim,
-        num_threads=num_threads, 
-        device_id=0
-    )
+    data_pipeline = wds_pipeline()
     data_iterator = DALIGenericIterator(
-        pipelines=[data_pipeline], output_map=['x'], last_batch_policy=LastBatchPolicy.DROP
+        pipelines=[data_pipeline], 
+        output_map=['x', 'y'], 
+        last_batch_policy=LastBatchPolicy.DROP
     )
-    num_batches = len(valid_dataset_list) // batch_size
-    return data_iterator, num_batches, context_length
+    return data_iterator
 
 def main():
     output_dir = 'data/dit_runs/4'
@@ -267,11 +249,15 @@ def main():
 
     with open('configs/if_dit.json', 'r') as f:
         config = json.load(f)
+    
+    image_height = 28
+    image_width = 28
     token_dim = config['token_dim']
+    context_length = (image_height * image_width) / token_dim
     batch_size = config['batch_size']
+    steps_per_epoch = 60_000
 
-    data_iterator, steps_per_epoch, context_length = \
-        get_data_iterator(dataset_path, token_dim, batch_size)
+    data_iterator = get_data_iterator(dataset_path, token_dim, batch_size)
     print('Token dim:', token_dim)
     print('Context length:', context_length)
     print('Steps per epoch:', steps_per_epoch)
@@ -294,7 +280,8 @@ def main():
     )
     x = jnp.ones((batch_size, context_length, token_dim))
     t = jnp.ones((batch_size, 1))
-    params = model.init(jax.random.PRNGKey(388), x, t)['params']
+    label = jnp.ones((batch_size, 1))
+    params = model.init(jax.random.PRNGKey(388), x, t, label)['params']
     tx = optax.chain(
         optax.zero_nans(),
         optax.adaptive_grad_clip(clipping=config['grad_clip']),

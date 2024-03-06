@@ -85,17 +85,6 @@ class DiffusionTransformer(nn.Module):
         time_embedding = self.activation_fn(time_embedding)
         time_embedding = nn.LayerNorm()(time_embedding)
         
-        skip = x
-        skip_weight = nn.Dense(
-            self.embedding_dim,
-            dtype=self.dtype
-        )(time_embedding)
-        skip_weight = self.activation_fn(skip_weight)
-        skip_weight = nn.Dense(1, dtype=self.dtype)(skip_weight)
-        skip_weight = nn.sigmoid(skip_weight)
-        skip_weight = jnp.expand_dims(skip_weight, axis=1)
-        #print('skip_weight', skip_weight.shape)
-
         #print('x', x.shape)
         x = nn.Dense(
             self.embedding_dim, 
@@ -133,7 +122,6 @@ class DiffusionTransformer(nn.Module):
             features=self.token_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()
         )(x)
-        x = x * (1 - skip_weight) + skip * (skip_weight)
         #print('output', x.shape)
         return x
 

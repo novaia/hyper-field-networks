@@ -212,9 +212,6 @@ def train_loop(
             context_length=context_length,
             seed=0
         )
-        print('context length:', context_length)
-        print('token_dim', token_dim)
-        print('samples shape:', samples.shape)
         samples = jnp.reshape(samples, (num_samples, context_length * token_dim))
         for i, sample in enumerate(samples):
             field_params = unflatten_params(flat_params=sample, param_map=field_param_map)

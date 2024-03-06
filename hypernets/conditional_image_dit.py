@@ -109,14 +109,14 @@ class DiffusionTransformer(nn.Module):
             x = nn.Dense(features=self.embedding_dim)(x)
             x = x + residual
 
-    # Remove the diffusion time token from the end of the sequence.
-    x = x[:, :-1, :]
-    x = nn.Dense(
-        features=self.token_dim, dtype=self.dtype, 
-        kernel_init=nn.initializers.zeros_init()
-    )(x)
-    #print('output', x.shape)
-    return x
+        # Remove the diffusion time token from the end of the sequence.
+        x = x[:, :-1, :]
+        x = nn.Dense(
+            features=self.token_dim, dtype=self.dtype, 
+            kernel_init=nn.initializers.zeros_init()
+        )(x)
+        #print('output', x.shape)
+        return x
 
 def diffusion_schedule(t):
     start_angle = jnp.arccos(0.999)

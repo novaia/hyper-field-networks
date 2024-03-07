@@ -162,7 +162,7 @@ def ddim_sample(
         
         diffusion_times = jnp.ones((num_samples, 1)) - step * step_size
         noise_rates, signal_rates = diffusion_schedule(diffusion_times)
-        pred_noises = inference_fn(state, noisy_batch, noise_rates**2, labels)
+        pred_noises = inference_fn(state, noisy_images, noise_rates**2, labels)
         pred_images = (
             (noisy_images - jnp.expand_dims(noise_rates, axis=1) * pred_noises) 
             / jnp.expand_dims(signal_rates, axis=1)
@@ -174,7 +174,7 @@ def ddim_sample(
             jnp.expand_dims(next_signal_rates, axis=1) * pred_images
             + jnp.expand_dims(next_noise_rates, axis=1) * pred_noises
         )
-    return pred_batch
+    return pred_images
 
 @partial(jax.jit, static_argnames=['batch_size'])
 def train_step(state, images, labels, batch_size, seed):
@@ -257,7 +257,7 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
     return data_iterator
 
 def main():
-    output_dir = 'data/dit_runs/5'
+    output_dir = 'data/dit_runs/6'
     config_path = 'configs/image_dit.json'
     dataset_path = 'data/mnist-webdataset-png/data.tar'
     num_epochs = 1000

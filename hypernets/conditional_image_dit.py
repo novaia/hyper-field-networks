@@ -265,7 +265,7 @@ def main():
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    with open('configs/if_dit.json', 'r') as f:
+    with open(config_path, 'r') as f:
         config = json.load(f)
     
     num_labels = 10

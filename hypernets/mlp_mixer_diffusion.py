@@ -43,7 +43,7 @@ class AdaLayerNorm(nn.Module):
     @nn.compact
     def __call__(self, x, ada_input):
         x = nn.LayerNorm(
-            use_bias=false, use_scale=false, 
+            use_bias=False, use_scale=False, 
             epsilon=self.epsilon, dtype=self.dtype
         )(x)
         ada_params = Mlp(
@@ -51,8 +51,8 @@ class AdaLayerNorm(nn.Module):
             activation_fn=self.activation_fn, dtype=self.dtype
         )(ada_input)
         ada_params = nn.Dense(features=2, dtype=self.dtype)(x)
-        scale = ada_params[..., 0]
-        bias = ada_params[..., 1]
+        scale = ada_params[..., 0:1]
+        bias = ada_params[..., 1:2]
         x = x * (1 + scale) + bias
         return x
 
@@ -82,6 +82,7 @@ class SinusoidalEmbedding(nn.Module):
 
 class DiffusionMlpMixer(nn.Module):
     dim: int
+    context_length: int
     output_dim: int
     num_labels: int
     num_blocks: int
@@ -102,8 +103,10 @@ class DiffusionMlpMixer(nn.Module):
             dim=self.dim, depth=3, 
             activation_fn=self.activation_fn, dtype=self.dtype
         )(x)
+        label_emb = jnp.expand_dims(label_emb, axis=1)
         x = jnp.concatenate([x, label_emb], axis=-2)
- 
+        num_tokens = self.context_length + 1
+
         def norm(x):
             return AdaLayerNorm(
                 dim=self.dim, depth=self.ada_ln_depth, 
@@ -111,11 +114,12 @@ class DiffusionMlpMixer(nn.Module):
             )(x, t_emb)
 
         def transpose(x):
-            return jnp.swap_axes(x, -1, -2)
+            return jnp.swapaxes(x, -1, -2)
 
-        def mlp(x):
+        def mlp(x, transposed):
+            dim = self.dim if not transposed else num_tokens
             return Mlp(
-                dim=self.dim, depth=self.mlp_depth, 
+                dim=dim, depth=self.mlp_depth, 
                 activation_fn=self.activation_fn, dtype=self.dtype
             )(x)
 
@@ -123,15 +127,40 @@ class DiffusionMlpMixer(nn.Module):
             residual = x
             x = norm(x)
             x = transpose(x)
-            x = mlp(x)
+            x = mlp(x, transposed=True)
             x = transpose(x)
             x = x + residual
             residual = x
             x = norm(x)
-            x = mlp(x)
+            x = mlp(x, transposed=False)
             x = x + residual
 
         x = nn.Dense(
             features=self.output_dim, dtype=self.dtype, 
-            kernel_init=nn.initializers.zero_init()
+            kernel_init=nn.initializers.zeros_init()
         )(x)
+
+def main():
+    batch_size = 4
+    context_length = 1024
+    model = DiffusionMlpMixer(
+        dim=128,
+        context_length=context_length,
+        output_dim=1,
+        ada_ln_depth=1,
+        num_labels=10,
+        num_blocks=16,
+        mlp_depth=3,
+        activation_fn=nn.gelu,
+        dtype=jnp.bfloat16
+    )
+    x = jnp.ones((batch_size, context_length, 1))
+    t = jnp.ones((batch_size, 1))
+    labels = jnp.ones((batch_size, 1), dtype=jnp.uint8)
+    params = model.init(jax.random.PRNGKey(121), x, t, labels)['params']
+    
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(params))
+    print(f'Param count: {param_count:,}')
+
+if __name__ == '__main__':
+    main()

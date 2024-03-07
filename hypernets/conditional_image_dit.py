@@ -52,26 +52,30 @@ class DiffusionTransformer(nn.Module):
     feed_forward_dim:int
     token_dim:int
     context_length:int
+    num_labels:int
     activation_fn:Callable
     dtype:Any
     remat:bool
 
     @nn.compact
-    def __call__(self, x, t):
-        num_tokens = self.context_length + 1
+    def __call__(self, x, t, label):
+        num_tokens = self.context_length + 2
         positions = jnp.reshape(jnp.arange(num_tokens), (1, num_tokens, 1))
         position_embedding = SinusoidalEmbedding(
             embedding_dim=self.embedding_dim,
             dtype=self.dtype
         )(positions)
-        #print('position_embedding', position_embedding.shape)
-
+        
         time_embedding = SinusoidalEmbedding(
             self.embedding_dim,
             dtype=self.dtype
         )(t)
 
-        #print('x', x.shape)
+        label_embedding = nn.Embed(
+            num_embeddings=self.num_labels,
+            features=self.embedding_dim
+        )(jnp.ravel(label))
+
         x = nn.Dense(
             self.embedding_dim, 
             dtype=self.dtype
@@ -82,13 +86,14 @@ class DiffusionTransformer(nn.Module):
             dtype=self.dtype
         )(x)
         x = self.activation_fn(x)
-        #print('x', x.shape)
 
         # Add the diffusion time token to the end of the sequence.
         time_embedding = jnp.expand_dims(time_embedding, axis=1)
         x = jnp.concatenate([x, time_embedding], axis=-2)
+        # Add the label token to the end of the sequence.
+        label_embedding = jnp.expand_dims(label_embedding, axis=1)
+        x = jnp.concatenate([x, label_embedding], axis=-2)
         x = x + position_embedding
-        #print('x', x.shape)
         
         for _ in range(self.num_blocks):
             residual = x
@@ -110,8 +115,8 @@ class DiffusionTransformer(nn.Module):
             x = nn.Dense(features=self.embedding_dim)(x)
             x = x + residual
 
-        # Remove the diffusion time token from the end of the sequence.
-        x = x[:, :-1, :]
+        # Remove the diffusion time token and label token from the end of the sequence.
+        x = x[:, :-2, :]
         x = nn.Dense(
             features=self.token_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()
@@ -131,6 +136,7 @@ def diffusion_schedule(t):
 
 def ddim_sample(
     state, 
+    labels,
     num_samples:int, 
     diffusion_steps:int, 
     token_dim:int, 
@@ -138,50 +144,51 @@ def ddim_sample(
     seed:int 
 ):
     @jax.jit
-    def inference_fn(state, noisy_batch, diffusion_times):
+    def inference_fn(state, noisy_images, diffusion_times, labels):
         return jax.lax.stop_gradient(
-            state.apply_fn({'params': state.params}, noisy_batch, diffusion_times)
+            state.apply_fn({'params': state.params}, noisy_images, diffusion_times, labels)
         )
     
+    labels = jnp.expand_dims(jnp.array(labels), axis=-1)
     initial_noise = jax.random.normal(
         jax.random.PRNGKey(seed), 
         shape=(num_samples, context_length, token_dim)
     )
     step_size = 1.0 / diffusion_steps
     
-    next_noisy_batch = initial_noise
+    next_noisy_images = initial_noise
     for step in range(diffusion_steps):
-        noisy_batch = next_noisy_batch
+        noisy_images = next_noisy_images
         
         diffusion_times = jnp.ones((num_samples, 1)) - step * step_size
         noise_rates, signal_rates = diffusion_schedule(diffusion_times)
-        pred_noises = inference_fn(state, noisy_batch, noise_rates**2)
-        pred_batch = (
-            (noisy_batch - jnp.expand_dims(noise_rates, axis=1) * pred_noises) 
+        pred_noises = inference_fn(state, noisy_batch, noise_rates**2, labels)
+        pred_images = (
+            (noisy_images - jnp.expand_dims(noise_rates, axis=1) * pred_noises) 
             / jnp.expand_dims(signal_rates, axis=1)
         )
         
         next_diffusion_times = diffusion_times - step_size
         next_noise_rates, next_signal_rates = diffusion_schedule(next_diffusion_times)
-        next_noisy_batch = (
-            jnp.expand_dims(next_signal_rates, axis=1) * pred_batch 
+        next_noisy_images = (
+            jnp.expand_dims(next_signal_rates, axis=1) * pred_images
             + jnp.expand_dims(next_noise_rates, axis=1) * pred_noises
         )
     return pred_batch
 
 @partial(jax.jit, static_argnames=['batch_size'])
-def train_step(state, batch, batch_size, seed):
+def train_step(state, images, labels, batch_size, seed):
     noise_key, diffusion_time_key = jax.random.split(jax.random.PRNGKey(seed), 2)
-    noises = jax.random.normal(noise_key, batch.shape, dtype=jnp.float32)
+    noises = jax.random.normal(noise_key, images.shape, dtype=jnp.float32)
     diffusion_times = jax.random.uniform(diffusion_time_key, (batch_size, 1))
     noise_rates, signal_rates = diffusion_schedule(diffusion_times)
-    noisy_batch = (
-        jnp.expand_dims(signal_rates, axis=1) * batch 
+    noisy_images = (
+        jnp.expand_dims(signal_rates, axis=1) * images 
         + jnp.expand_dims(noise_rates, axis=1) * noises
     )
 
     def loss_fn(params):
-        pred_noises = state.apply_fn({'params': params}, noisy_batch, noise_rates**2)
+        pred_noises = state.apply_fn({'params': params}, noisy_images, noise_rates**2, labels)
         return jnp.mean((pred_noises - noises)**2)
 
     grad_fn = jax.value_and_grad(loss_fn)
@@ -189,19 +196,29 @@ def train_step(state, batch, batch_size, seed):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
-def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, context_length, token_dim, output_dir):
+def train_loop(
+    state, num_epochs, steps_per_epoch, data_iterator, 
+    batch_size, context_length, token_dim, output_dir,
+    image_width, image_height
+):
     for epoch in range(num_epochs):
         losses_this_epoch = []
         for step in range(steps_per_epoch):
-            batch = next(data_iterator)['x']
-            loss, state = train_step(state, batch, batch_size, state.step)
+            batch = next(data_iterator)
+            images = batch['images']
+            labels = batch['labels']
+            loss, state = train_step(
+                state, images=images, labels=labels, batch_size=batch_size, seed=state.step
+            )
             losses_this_epoch.append(loss)
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         #print(average_loss)
         wandb.log({'loss': average_loss}, state.step)
+        num_samples = 10
         samples = ddim_sample(
             state=state,
-            num_samples=10,
+            num_samples=num_samples,
+            labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             diffusion_steps=20,
             token_dim=token_dim,
             context_length=context_length,
@@ -209,7 +226,7 @@ def train_loop(state, num_epochs, steps_per_epoch, data_iterator, batch_size, co
         )
         samples = (samples + 1.0) / 2.0
         samples = jnp.clip(samples, 0.0, 1.0)
-        samples = jnp.reshape(samples, [10, 28, 28])
+        samples = jnp.reshape(samples, [num_samples, image_width, image_height])
         for i, sample in enumerate(samples):
             plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), sample)
 
@@ -226,22 +243,23 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
         image_scale = dali_types.Constant(127.5).float32()
         image_shift = dali_types.Constant(1.0).float32()
         image = (image / image_scale) - image_shift
-        ascii_shift = types.Constant(48).uint8().gpu()
+        image = fn.reshape(image, shape=(context_length, token_dim))
+        ascii_shift = dali_types.Constant(48).uint8()
         label = ascii_label.gpu() - ascii_shift
         return image, label
 
     data_pipeline = wds_pipeline()
     data_iterator = DALIGenericIterator(
         pipelines=[data_pipeline], 
-        output_map=['x', 'y'], 
+        output_map=['images', 'labels'], 
         last_batch_policy=LastBatchPolicy.DROP
     )
     return data_iterator
 
 def main():
-    output_dir = 'data/dit_runs/4'
+    output_dir = 'data/dit_runs/5'
     config_path = 'configs/image_dit.json'
-    dataset_path = 'data/mnist_numpy_flat/data'
+    dataset_path = 'data/mnist-webdataset-png/data.tar'
     num_epochs = 1000
 
     if not os.path.exists(output_dir):
@@ -250,14 +268,20 @@ def main():
     with open('configs/if_dit.json', 'r') as f:
         config = json.load(f)
     
+    num_labels = 10
     image_height = 28
     image_width = 28
     token_dim = config['token_dim']
-    context_length = (image_height * image_width) / token_dim
+    context_length = int((image_height * image_width) // token_dim)
     batch_size = config['batch_size']
     steps_per_epoch = 60_000
 
-    data_iterator = get_data_iterator(dataset_path, token_dim, batch_size)
+    data_iterator = get_data_iterator(
+        batch_size=batch_size,
+        context_length=context_length,
+        token_dim=token_dim,
+        dataset_path=dataset_path
+    )
     print('Token dim:', token_dim)
     print('Context length:', context_length)
     print('Steps per epoch:', steps_per_epoch)
@@ -274,13 +298,14 @@ def main():
         num_blocks=config['num_blocks'],
         token_dim=token_dim,
         context_length=context_length,
+        num_labels=num_labels,
         activation_fn=activation_fn,
         dtype=dtype,
         remat=config['remat']
     )
     x = jnp.ones((batch_size, context_length, token_dim))
     t = jnp.ones((batch_size, 1))
-    label = jnp.ones((batch_size, 1))
+    label = jnp.ones((batch_size, 1), dtype=jnp.uint8)
     params = model.init(jax.random.PRNGKey(388), x, t, label)['params']
     tx = optax.chain(
         optax.zero_nans(),
@@ -300,7 +325,8 @@ def main():
     train_loop(
         state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
         data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 
-        token_dim=token_dim, output_dir=output_dir
+        token_dim=token_dim, output_dir=output_dir, 
+        image_width=image_width, image_height=image_height
     )
 
 if __name__ == '__main__':

@@ -158,7 +158,12 @@ def main():
     t = jnp.ones((batch_size, 1))
     labels = jnp.ones((batch_size, 1), dtype=jnp.uint8)
     params = model.init(jax.random.PRNGKey(121), x, t, labels)['params']
-    
+    opt = optax.chain(
+        optax.zero_nans(),
+        optax.adaptive_grad_clip(clipping=3.0),
+        optax.adam(learning_rate=3e-4)
+    )
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(params))
     print(f'Param count: {param_count:,}')
 

@@ -134,7 +134,8 @@ class DiffusionMlpMixer(nn.Module):
             x = norm(x)
             x = mlp(x, transposed=False)
             x = x + residual
-
+        
+        x = x[:, :-1, :]
         x = nn.Dense(
             features=self.output_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()

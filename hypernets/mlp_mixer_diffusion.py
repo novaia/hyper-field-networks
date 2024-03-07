@@ -139,14 +139,169 @@ class DiffusionMlpMixer(nn.Module):
             features=self.output_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()
         )(x)
+        return x
+
+def diffusion_schedule(t):
+    start_angle = jnp.arccos(0.999)
+    end_angle = jnp.arccos(0.001)
+
+    diffusion_angles = start_angle + t * (end_angle - start_angle)
+
+    signal_rates = jnp.cos(diffusion_angles)
+    noise_rates = jnp.sin(diffusion_angles)
+    return noise_rates, signal_rates
+
+def ddim_sample(
+    state, 
+    labels,
+    num_samples:int, 
+    diffusion_steps:int, 
+    token_dim:int, 
+    context_length:int,
+    seed:int 
+):
+    @jax.jit
+    def inference_fn(state, noisy_images, diffusion_times, labels):
+        return jax.lax.stop_gradient(
+            state.apply_fn({'params': state.params}, noisy_images, diffusion_times, labels)
+        )
+    
+    labels = jnp.expand_dims(jnp.array(labels), axis=-1)
+    initial_noise = jax.random.normal(
+        jax.random.PRNGKey(seed), 
+        shape=(num_samples, context_length, token_dim)
+    )
+    step_size = 1.0 / diffusion_steps
+    
+    next_noisy_images = initial_noise
+    for step in range(diffusion_steps):
+        noisy_images = next_noisy_images
+        
+        diffusion_times = jnp.ones((num_samples, 1)) - step * step_size
+        noise_rates, signal_rates = diffusion_schedule(diffusion_times)
+        pred_noises = inference_fn(state, noisy_images, noise_rates**2, labels)
+        pred_images = (
+            (noisy_images - jnp.expand_dims(noise_rates, axis=1) * pred_noises) 
+            / jnp.expand_dims(signal_rates, axis=1)
+        )
+        
+        next_diffusion_times = diffusion_times - step_size
+        next_noise_rates, next_signal_rates = diffusion_schedule(next_diffusion_times)
+        next_noisy_images = (
+            jnp.expand_dims(next_signal_rates, axis=1) * pred_images
+            + jnp.expand_dims(next_noise_rates, axis=1) * pred_noises
+        )
+    return pred_images
+
+
+@partial(jax.jit, static_argnames=['batch_size'])
+def train_step(state, images, labels, batch_size, seed):
+    noise_key, diffusion_time_key = jax.random.split(jax.random.PRNGKey(seed), 2)
+    noises = jax.random.normal(noise_key, images.shape, dtype=jnp.float32)
+    diffusion_times = jax.random.uniform(diffusion_time_key, (batch_size, 1))
+    noise_rates, signal_rates = diffusion_schedule(diffusion_times)
+    noisy_images = (
+        jnp.expand_dims(signal_rates, axis=1) * images 
+        + jnp.expand_dims(noise_rates, axis=1) * noises
+    )
+
+    def loss_fn(params):
+        pred_noises = state.apply_fn({'params': params}, noisy_images, noise_rates**2, labels)
+        return jnp.mean((pred_noises - noises)**2)
+
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
+    state = state.apply_gradients(grads=grads)
+    return loss, state
+
+def train_loop(
+    state, num_epochs, steps_per_epoch, data_iterator, 
+    batch_size, context_length, token_dim, output_dir,
+    image_width, image_height
+):
+    for epoch in range(num_epochs):
+        losses_this_epoch = []
+        for step in range(steps_per_epoch):
+            batch = next(data_iterator)
+            images = batch['images']
+            labels = batch['labels']
+            loss, state = train_step(
+                state, images=images, labels=labels, batch_size=batch_size, seed=state.step
+            )
+            losses_this_epoch.append(loss)
+        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
+        print(f'Epoch {epoch}, loss: {average_loss}')
+        #wandb.log({'loss': average_loss}, state.step)
+        num_samples = 10
+        samples = ddim_sample(
+            state=state,
+            num_samples=num_samples,
+            labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            diffusion_steps=20,
+            token_dim=token_dim,
+            context_length=context_length,
+            seed=0
+        )
+        samples = (samples + 1.0) / 2.0
+        samples = jnp.clip(samples, 0.0, 1.0)
+        samples = jnp.reshape(samples, [num_samples, image_width, image_height])
+        for i, sample in enumerate(samples):
+            plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), sample)
+
+
+def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
+    @pipeline_def(batch_size=batch_size, num_threads=4, device_id=0)
+    def wds_pipeline():
+        raw_image, ascii_label = fn.readers.webdataset(
+            paths=dataset_path, 
+            ext=['png', 'cls'], 
+            missing_component_behavior='error',
+        )
+        image = fn.decoders.image(raw_image, output_type=dali_types.GRAY).gpu()
+        image = fn.cast(image, dtype=dali_types.FLOAT)
+        image_scale = dali_types.Constant(127.5).float32()
+        image_shift = dali_types.Constant(1.0).float32()
+        image = (image / image_scale) - image_shift
+        image = fn.reshape(image, shape=(context_length, token_dim))
+        ascii_shift = dali_types.Constant(48).uint8()
+        label = ascii_label.gpu() - ascii_shift
+        return image, label
+
+    data_pipeline = wds_pipeline()
+    data_iterator = DALIGenericIterator(
+        pipelines=[data_pipeline], 
+        output_map=['images', 'labels'], 
+        last_batch_policy=LastBatchPolicy.DROP
+    )
+    return data_iterator
 
 def main():
-    batch_size = 4
-    context_length = 1024
+    output_dir = 'data/mlp_mixer_diffusion_runs/1'
+    dataset_path = 'data/mnist-webdataset-png/data.tar'
+    num_epochs = 1000
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    batch_size = 32
+    steps_per_epoch = 60_000 // batch_size
+    print(f'Steps per epoch: {steps_per_epoch:,}')
+    token_dim = 1
+    image_width = 28
+    image_height = 28
+    context_length = int((image_width * image_height) // token_dim)
+
+    data_iterator = get_data_iterator(
+        batch_size=batch_size,
+        context_length=context_length,
+        token_dim=token_dim,
+        dataset_path=dataset_path
+    )
+
     model = DiffusionMlpMixer(
         dim=128,
         context_length=context_length,
-        output_dim=1,
+        output_dim=token_dim,
         ada_ln_depth=1,
         num_labels=10,
         num_blocks=16,
@@ -166,6 +321,12 @@ def main():
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(params))
     print(f'Param count: {param_count:,}')
+    train_loop(
+        state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
+        data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 
+        token_dim=token_dim, output_dir=output_dir, 
+        image_width=image_width, image_height=image_height
+    )
 
 if __name__ == '__main__':
     main()

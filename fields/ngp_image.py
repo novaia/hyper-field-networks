@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from typing import Tuple, Union
 import argparse
 import os
+from timeit import default_timer as timer
 
 class NGPImage(nn.Module):
     number_of_grid_levels: int # Corresponds to L in the paper.
@@ -20,6 +21,7 @@ class NGPImage(nn.Module):
     finest_resolution: int # Corresponds to N_max in the paper.
     mlp_width: int
     mlp_depth: int
+    output_channels: int
     
     @nn.compact
     def __call__(self, x):
@@ -33,7 +35,7 @@ class NGPImage(nn.Module):
         x = FeedForward(
             num_layers=self.mlp_depth,
             hidden_dim=self.mlp_width,
-            output_dim=4,
+            output_dim=self.output_channels,
             activation=nn.relu
         )(x)
         x = nn.sigmoid(x)
@@ -49,10 +51,28 @@ def train_loop(
         return state, loss
     return state
 
+def benchmark_train_loop(image, batch_size, steps, state):
+    image_height = image.shape[0]
+    image_width = image.shape[1]
+    channels = image.shape[2]
+    
+    # Warmup train_step.
+    loss, state = train_step(state=state, image=image, batch_size=batch_size, seed=state.step)
+
+    start = timer()
+    for step in range(steps):
+        loss, state = train_step(state=state, image=image, batch_size=batch_size, seed=state.step)
+    end = timer()
+    print('Elapsed time:', end - start)
+    print('Final loss:', loss)
+    rendered_image = render_image(state, image_width, image_height, channels=channels)
+    plt.imsave('data/ngp_image_benchmark_output.jpg', rendered_image)
+
 @partial(jax.jit, static_argnames=('batch_size'))
 def train_step(
-    state:TrainState, image:jax.Array, batch_size:int, KEY
+    state:TrainState, image:jax.Array, batch_size:int, seed
 ) -> Tuple[float, TrainState]:
+    KEY = jax.random.PRNGKey(seed)
     image_height = image.shape[0]
     image_width = image.shape[1]
     height_key, width_key = jax.random.split(KEY)
@@ -74,14 +94,14 @@ def create_train_state(model:nn.Module, learning_rate:float, KEY) -> TrainState:
     params = model.init(KEY, jnp.ones((1, 2)))['params']
     return TrainState.create(apply_fn=model.apply, params=params, tx=optax.adam(learning_rate))
 
-def render_image(state:TrainState, image_height:int, image_width:int) -> jax.Array:
+def render_image(state:TrainState, image_height:int, image_width:int, channels:int) -> jax.Array:
     height_indices, width_indices = jnp.meshgrid(
         jnp.arange(image_height)/image_height, 
         jnp.arange(image_width)/image_width
     )
     x = jnp.stack([height_indices.flatten(), width_indices.flatten()], axis=-1)
     predicted_colors = jax.vmap(state.apply_fn, in_axes=(None, 0))({'params': state.params}, x)
-    rendered_image = jnp.reshape(predicted_colors, (image_height, image_width, 4))
+    rendered_image = jnp.reshape(predicted_colors, (image_height, image_width, channels))
     rendered_image = jnp.transpose(rendered_image, (1, 0, 2))
     return rendered_image
 
@@ -93,30 +113,35 @@ def create_model_from_config(config:dict) -> NGPImage:
         coarsest_resolution=config['coarsest_resolution'],
         finest_resolution=config['finest_resolution'],
         mlp_width=config['mlp_width'],
-        mlp_depth=config['mlp_depth']
+        mlp_depth=config['mlp_depth'],
+        output_channels=config['channels']
     )
     return model
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='configs/ngp_image.json')
-    args = parser.parse_args()
+    #parser = argparse.ArgumentParser()
+    #parser.add_argument('--config', type=str, default='configs/ngp_image.json')
+    #args = parser.parse_args()
 
-    with open(args.config) as f:
+    with open('configs/ngp_image_robot_benchmark.json') as f:
         config = json.load(f)
 
+    image_path = 'data/robot.jpg'
+    image = Image.open(image_path)
+    image = jnp.array(image) / 255.0
+    print('Image shape:', image.shape)
+    num_pixels = image.shape[0]*image.shape[1]
+    print(f'Num pixels: {num_pixels:,}')
+
     model = create_model_from_config(config)
-    state = create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
-    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
-    print('Param count', param_count)
-    image = jnp.array(Image.open('data/mnist_png/data/f0.png'))
-    image = image / 255.0
-    print('Image shape', image.shape)
-    state = train_loop(config['train_steps'], state, image, config['batch_size'])
-    rendered_image = render_image(state, image.shape[0], image.shape[1])
-    rendered_image = jax.device_put(rendered_image, jax.devices('cpu')[0])
-    print('Rendered image shape', rendered_image.shape)
-    plt.imsave('data/ngp_image.png', rendered_image)
+    state = create_train_state(model, 1e-3, jax.random.PRNGKey(0))
+    num_params = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    print(f'Num params: {num_params:,}')
+    print('Param to pixel ratio:', num_params/num_pixels)
+    benchmark_train_loop(
+        image=image, batch_size=config['batch_size'], 
+        steps=config['train_steps'], state=state
+    )
 
 if __name__ == '__main__':
     main()

@@ -257,7 +257,7 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
     return data_iterator
 
 def main():
-    output_dir = 'data/dit_runs/6'
+    output_dir = 'data/dit_runs/7'
     config_path = 'configs/image_dit.json'
     dataset_path = 'data/mnist-webdataset-png/data.tar'
     num_epochs = 1000
@@ -274,7 +274,7 @@ def main():
     token_dim = config['token_dim']
     context_length = int((image_height * image_width) // token_dim)
     batch_size = config['batch_size']
-    steps_per_epoch = 60_000
+    steps_per_epoch = int(60_000 // batch_size)
 
     data_iterator = get_data_iterator(
         batch_size=batch_size,

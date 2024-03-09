@@ -44,6 +44,42 @@ class SinusoidalEmbedding(nn.Module):
         )
         return embeddings
 
+class Mlp(nn.Module):
+    dim: int
+    depth: int
+    activation_fn: Callable
+    dtype: Any = jnp.float32
+
+    @nn.compact
+    def __call__(self, x):
+        for _ in range(self.depth):
+            x = nn.Dense(features=self.dim, dtype=self.dtype)(x)
+            x = self.activation_fn(x)
+        return x
+
+class AdaLayerNorm(nn.Module):
+    dim: int
+    depth: int
+    activation_fn: Callable
+    epsilon: float = 1e-6
+    dtype: Any = jnp.float32
+
+    @nn.compact
+    def __call__(self, x, ada_input):
+        x = nn.LayerNorm(
+            use_bias=False, use_scale=False, 
+            epsilon=self.epsilon, dtype=self.dtype
+        )(x)
+        ada_params = Mlp(
+            dim=self.dim, depth=self.depth, 
+            activation_fn=self.activation_fn, dtype=self.dtype
+        )(ada_input)
+        ada_params = nn.Dense(features=2, dtype=self.dtype)(x)
+        scale = ada_params[..., 0:1]
+        bias = ada_params[..., 1:2]
+        x = x * (1 + scale) + bias
+        return x
+
 class DiffusionTransformer(nn.Module):
     attention_dim:int
     num_attention_heads:int
@@ -56,10 +92,12 @@ class DiffusionTransformer(nn.Module):
     activation_fn:Callable
     dtype:Any
     remat:bool
+    ada_ln_mlp_depth:int
+    ada_ln_mlp_width:int
 
     @nn.compact
     def __call__(self, x, t, label):
-        num_tokens = self.context_length + 2
+        num_tokens = self.context_length + 1
         positions = jnp.reshape(jnp.arange(num_tokens), (1, num_tokens, 1))
         position_embedding = SinusoidalEmbedding(
             embedding_dim=self.embedding_dim,
@@ -67,9 +105,10 @@ class DiffusionTransformer(nn.Module):
         )(positions)
         
         time_embedding = SinusoidalEmbedding(
-            self.embedding_dim,
+            self.ada_ln_mlp_width,
             dtype=self.dtype
         )(t)
+        time_embedding = jnp.expand_dims(time_embedding, axis=1)
 
         label_embedding = nn.Embed(
             num_embeddings=self.num_labels,
@@ -87,9 +126,6 @@ class DiffusionTransformer(nn.Module):
         )(x)
         x = self.activation_fn(x)
 
-        # Add the diffusion time token to the end of the sequence.
-        time_embedding = jnp.expand_dims(time_embedding, axis=1)
-        x = jnp.concatenate([x, time_embedding], axis=-2)
         # Add the label token to the end of the sequence.
         label_embedding = jnp.expand_dims(label_embedding, axis=1)
         x = jnp.concatenate([x, label_embedding], axis=-2)
@@ -97,7 +133,12 @@ class DiffusionTransformer(nn.Module):
         
         for _ in range(self.num_blocks):
             residual = x
-            x = nn.RMSNorm()(x)
+            x = AdaLayerNorm(
+                dim=self.ada_ln_mlp_width, 
+                depth=self.ada_ln_mlp_depth,
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
+            )(x, time_embedding)
             Attention = nn.MultiHeadDotProductAttention
             if self.remat:
                 Attention = nn.remat(Attention)
@@ -109,14 +150,19 @@ class DiffusionTransformer(nn.Module):
             )(inputs_q=x, inputs_kv=x)
             x = x + residual
             residual = x
-            x = nn.RMSNorm()(x)
+            x = AdaLayerNorm(
+                dim=self.ada_ln_mlp_width, 
+                depth=self.ada_ln_mlp_depth,
+                activation_fn=self.activation_fn,
+                dtype=self.dtype
+            )(x, time_embedding)
             x = nn.Dense(features=self.feed_forward_dim)(x)
             x = self.activation_fn(x)
             x = nn.Dense(features=self.embedding_dim)(x)
             x = x + residual
 
-        # Remove the diffusion time token and label token from the end of the sequence.
-        x = x[:, :-2, :]
+        # Remove the label token from the end of the sequence.
+        x = x[:, :-1, :]
         x = nn.Dense(
             features=self.token_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()
@@ -257,8 +303,13 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
     return data_iterator
 
 def main():
+    os.environ['XLA_FLAGS'] = (
+        '--xla_gpu_enable_triton_softmax_fusion=true '
+        '--xla_gpu_triton_gemm_any=True '
+    )
+
     output_dir = 'data/dit_runs/7'
-    config_path = 'configs/image_dit.json'
+    config_path = 'configs/conditional_image_dit.json'
     dataset_path = 'data/mnist-webdataset-png/data.tar'
     num_epochs = 1000
 
@@ -301,7 +352,9 @@ def main():
         num_labels=num_labels,
         activation_fn=activation_fn,
         dtype=dtype,
-        remat=config['remat']
+        remat=config['remat'],
+        ada_ln_mlp_depth=config['ada_ln_mlp_depth'],
+        ada_ln_mlp_width=config['ada_ln_mlp_width']
     )
     x = jnp.ones((batch_size, context_length, token_dim))
     t = jnp.ones((batch_size, 1))
@@ -319,7 +372,7 @@ def main():
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     config['param_count'] = param_count
-    print('Param count:', param_count)
+    print(f'Param count: {param_count:,}')
     
     wandb.init(project='if-dit', config=config)
     train_loop(

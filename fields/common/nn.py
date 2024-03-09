@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import math
-from typing import Callable
+from typing import Callable, Any
 
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
@@ -164,13 +164,14 @@ class FeedForward(nn.Module):
     hidden_dim: int
     output_dim: int
     activation: Callable
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
         for _ in range(self.num_layers):
-            x = nn.Dense(features=self.hidden_dim)(x)
+            x = nn.Dense(features=self.hidden_dim, dtype=self.dtype)(x)
             x = self.activation(x)
-        x = nn.Dense(features=self.output_dim)(x)
+        x = nn.Dense(features=self.output_dim, dtype=self.dtype)(x)
         return x
     
 # Calculates the fourth order spherical harmonic encoding for the given direction.

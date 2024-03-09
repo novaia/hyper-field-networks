@@ -36,7 +36,8 @@ class NGPImage(nn.Module):
             num_layers=self.mlp_depth,
             hidden_dim=self.mlp_width,
             output_dim=self.output_channels,
-            activation=nn.relu
+            activation=nn.relu,
+            dtype=jnp.bfloat16
         )(x)
         x = nn.sigmoid(x)
         return x
@@ -57,24 +58,24 @@ def benchmark_train_loop(image, batch_size, steps, state):
     channels = image.shape[2]
     
     # Warmup train_step.
-    loss, state = train_step(state=state, image=image, batch_size=batch_size, seed=state.step)
+    state = train_step(state=state, image=image, batch_size=batch_size)
 
     start = timer()
     for step in range(steps):
-        loss, state = train_step(state=state, image=image, batch_size=batch_size, seed=state.step)
+        state = train_step(state=state, image=image, batch_size=batch_size)
     end = timer()
     print('Elapsed time:', end - start)
-    print('Final loss:', loss)
+    #print('Final loss:', loss)
     rendered_image = render_image(state, image_width, image_height, channels=channels)
+    rendered_image = jnp.array(rendered_image, dtype=jnp.float32)
     plt.imsave('data/ngp_image_benchmark_output.jpg', rendered_image)
 
 @partial(jax.jit, static_argnames=('batch_size'))
-def train_step(
-    state:TrainState, image:jax.Array, batch_size:int, seed
-) -> Tuple[float, TrainState]:
-    KEY = jax.random.PRNGKey(seed)
+def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
     image_height = image.shape[0]
     image_width = image.shape[1]
+    
+    KEY = jax.random.PRNGKey(state.step)
     height_key, width_key = jax.random.split(KEY)
     height_indices = jax.random.randint(height_key, (batch_size,), 0, image_height)
     width_indices = jax.random.randint(width_key, (batch_size,), 0, image_width)
@@ -85,10 +86,11 @@ def train_step(
         predicted_colors = jax.vmap(state.apply_fn, in_axes=(None, 0))({'params': params}, x)
         return jnp.mean((predicted_colors - target_colors)**2)
     
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grads = grad_fn(state.params)
+    grad_fn = jax.grad(loss_fn)
+    grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
-    return loss, state
+    
+    return state
 
 def create_train_state(model:nn.Module, learning_rate:float, KEY) -> TrainState:
     params = model.init(KEY, jnp.ones((1, 2)))['params']

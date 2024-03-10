@@ -303,11 +303,6 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
     return data_iterator
 
 def main():
-    os.environ['XLA_FLAGS'] = (
-        '--xla_gpu_enable_triton_softmax_fusion=true '
-        '--xla_gpu_triton_gemm_any=True '
-    )
-
     output_dir = 'data/dit_runs/7'
     config_path = 'configs/conditional_image_dit.json'
     dataset_path = 'data/mnist-webdataset-png/data.tar'

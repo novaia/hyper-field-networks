@@ -7,7 +7,7 @@
     "num_attention_heads": 32,
     "embedding_dim": 512,
     "feed_forward_dim": 512,
-    "num_blocks": 11,
+    "num_blocks": 10,
     "grad_clip": 2.0,
     "remat": true,
     "ada_ln_mlp_depth": 2,

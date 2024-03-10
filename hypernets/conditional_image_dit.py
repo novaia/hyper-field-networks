@@ -140,6 +140,7 @@ class DiffusionTransformer(nn.Module):
             #    activation_fn=self.activation_fn,
             #    dtype=self.dtype
             #)(x, time_embedding)
+            x = nn.RMSNorm()(x)
             Attention = nn.MultiHeadDotProductAttention
             if self.remat:
                 Attention = nn.remat(Attention)
@@ -157,6 +158,7 @@ class DiffusionTransformer(nn.Module):
             #    activation_fn=self.activation_fn,
             #    dtype=self.dtype
             #)(x, time_embedding)
+            x = nn.RMSNorm()(x)
             x = nn.Dense(features=self.feed_forward_dim)(x)
             x = self.activation_fn(x)
             x = nn.Dense(features=self.embedding_dim)(x)
@@ -305,7 +307,7 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
     return data_iterator
 
 def main():
-    output_dir = 'data/dit_runs/9'
+    output_dir = 'data/dit_runs/10'
     config_path = 'configs/conditional_image_dit.json'
     dataset_path = 'data/mnist-webdataset-png/data.tar'
     num_epochs = 1000

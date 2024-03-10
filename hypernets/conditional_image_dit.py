@@ -97,7 +97,7 @@ class DiffusionTransformer(nn.Module):
 
     @nn.compact
     def __call__(self, x, t, label):
-        num_tokens = self.context_length + 1
+        num_tokens = self.context_length + 2
         positions = jnp.reshape(jnp.arange(num_tokens), (1, num_tokens, 1))
         position_embedding = SinusoidalEmbedding(
             embedding_dim=self.embedding_dim,
@@ -105,10 +105,9 @@ class DiffusionTransformer(nn.Module):
         )(positions)
         
         time_embedding = SinusoidalEmbedding(
-            self.ada_ln_mlp_width,
+            self.embedding_dim,
             dtype=self.dtype
         )(t)
-        time_embedding = jnp.expand_dims(time_embedding, axis=1)
 
         label_embedding = nn.Embed(
             num_embeddings=self.num_labels,
@@ -125,7 +124,9 @@ class DiffusionTransformer(nn.Module):
             dtype=self.dtype
         )(x)
         x = self.activation_fn(x)
-
+        
+        time_embedding = jnp.expand_dims(time_embedding, axis=1)
+        x = jnp.concatenate([x, time_embedding], axis=-2)
         # Add the label token to the end of the sequence.
         label_embedding = jnp.expand_dims(label_embedding, axis=1)
         x = jnp.concatenate([x, label_embedding], axis=-2)
@@ -133,12 +134,12 @@ class DiffusionTransformer(nn.Module):
         
         for _ in range(self.num_blocks):
             residual = x
-            x = AdaLayerNorm(
-                dim=self.ada_ln_mlp_width, 
-                depth=self.ada_ln_mlp_depth,
-                activation_fn=self.activation_fn,
-                dtype=self.dtype
-            )(x, time_embedding)
+            #x = AdaLayerNorm(
+            #    dim=self.ada_ln_mlp_width, 
+            #    depth=self.ada_ln_mlp_depth,
+            #    activation_fn=self.activation_fn,
+            #    dtype=self.dtype
+            #)(x, time_embedding)
             Attention = nn.MultiHeadDotProductAttention
             if self.remat:
                 Attention = nn.remat(Attention)
@@ -150,19 +151,19 @@ class DiffusionTransformer(nn.Module):
             )(inputs_q=x, inputs_kv=x)
             x = x + residual
             residual = x
-            x = AdaLayerNorm(
-                dim=self.ada_ln_mlp_width, 
-                depth=self.ada_ln_mlp_depth,
-                activation_fn=self.activation_fn,
-                dtype=self.dtype
-            )(x, time_embedding)
+            #x = AdaLayerNorm(
+            #    dim=self.ada_ln_mlp_width, 
+            #    depth=self.ada_ln_mlp_depth,
+            #    activation_fn=self.activation_fn,
+            #    dtype=self.dtype
+            #)(x, time_embedding)
             x = nn.Dense(features=self.feed_forward_dim)(x)
             x = self.activation_fn(x)
             x = nn.Dense(features=self.embedding_dim)(x)
             x = x + residual
 
         # Remove the label token from the end of the sequence.
-        x = x[:, :-1, :]
+        x = x[:, :-2, :]
         x = nn.Dense(
             features=self.token_dim, dtype=self.dtype, 
             kernel_init=nn.initializers.zeros_init()
@@ -283,6 +284,7 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
             paths=dataset_path, 
             ext=['png', 'cls'], 
             missing_component_behavior='error',
+            random_shuffle=True
         )
         image = fn.decoders.image(raw_image, output_type=dali_types.GRAY).gpu()
         image = fn.cast(image, dtype=dali_types.FLOAT)
@@ -303,7 +305,7 @@ def get_data_iterator(batch_size, context_length, token_dim, dataset_path):
     return data_iterator
 
 def main():
-    output_dir = 'data/dit_runs/7'
+    output_dir = 'data/dit_runs/9'
     config_path = 'configs/conditional_image_dit.json'
     dataset_path = 'data/mnist-webdataset-png/data.tar'
     num_epochs = 1000

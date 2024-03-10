@@ -1,5 +1,5 @@
 {
-    "batch_size": 8,
+    "batch_size": 4,
     "token_dim": 1,
     "learning_rate": 0.0003,
     "weight_decay": 0.0001,
@@ -7,7 +7,7 @@
     "num_attention_heads": 32,
     "embedding_dim": 512,
     "feed_forward_dim": 512,
-    "num_blocks": 12,
+    "num_blocks": 11,
     "grad_clip": 2.0,
     "remat": true,
     "ada_ln_mlp_depth": 2,

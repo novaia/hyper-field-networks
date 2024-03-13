@@ -76,16 +76,6 @@ for more details.
 ```
 
 ```bibtex
-@inproceedings{nerfstudio,
-    title={Nerfstudio: A Modular Framework for Neural Radiance Field Development},
-    author={Tancik, Matthew and Weber, Ethan and Ng, Evonne and Li, Ruilong and Yi, Brent and Kerr, Justin and Wang, Terrance and Kristoffersen, Alexander and Austin, Jake and Salahi, Kamyar and Ahuja, Abhik and McAllister, David and Kanazawa, Angjoo},
-    year={2023},
-    booktitle={ACM SIGGRAPH 2023 Conference Proceedings},
-    series={SIGGRAPH '23}
-}
-```
-
-```bibtex
 @software{Zhang_jaxngp_2023,
     author={Zhang, Gaoyang and Chen, Yingxi},
     month=may,
@@ -101,17 +91,6 @@ for more details.
     author={Ziya Erkoç and Fangchang Ma and Qi Shan and Matthias Nießner and Angela Dai},
     year={2023},
     eprint={2303.17015},
-    archivePrefix={arXiv},
-    primaryClass={cs.CV}
-}
-```
-
-```bibtex
-@article{kodaira2023streamdiffusion,
-    title={StreamDiffusion: A Pipeline-level Solution for Real-time Interactive Generation},
-    author={Akio Kodaira and Chenfeng Xu and Toshiki Hazama and Takanori Yoshimoto and Kohei Ohno and Shogo Mitsuhori and Soichi Sugano and Hanying Cho and Zhijian Liu and Kurt Keutzer},
-    year={2023},
-    eprint={2312.12491},
     archivePrefix={arXiv},
     primaryClass={cs.CV}
 }

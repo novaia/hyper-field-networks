@@ -216,6 +216,7 @@ def train_loop(
             field_params = unflatten_params(flat_params=sample, param_map=field_param_map)
             field_state = field_state.replace(params=field_params)
             field_render = ngp_image.render_image(field_state, image_height, image_width, channels)
+            field_render = jnp.array(field_render, dtype=jnp.float32)
             field_render = jax.device_put(field_render, jax.devices('cpu')[0])
             plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), field_render)
 

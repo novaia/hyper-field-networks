@@ -199,9 +199,10 @@ def train_loop(
             batch = next(data_iterator)['x']
             loss, state = train_step(state, batch, batch_size, state.step)
             losses_this_epoch.append(loss)
+            break
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         #print(average_loss)
-        wandb.log({'loss': average_loss}, state.step)
+        #wandb.log({'loss': average_loss}, state.step)
         num_samples = 10
         samples = ddim_sample(
             state=state,
@@ -261,7 +262,8 @@ def get_data_iterator(dataset_path, token_dim, batch_size, num_threads=4):
     return data_iterator, num_batches, context_length
 
 def main():
-    output_dir = 'data/if_dit_runs/8'
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '.99'
+    output_dir = 'data/if_dit_runs/9'
     config_path = 'configs/if_dit_remat.json'
     field_config_path = 'configs/ngp_image.json'
     dataset_path = 'data/mnist_ingp_flat'

@@ -191,7 +191,7 @@ def train_step(state, batch, batch_size, seed):
 def train_loop(
     state, num_epochs, steps_per_epoch, data_iterator, 
     batch_size, context_length, token_dim, output_dir,
-    field_state, image_width, image_height, field_param_map
+    field_state, image_width, image_height, channels, field_param_map
 ):
     for epoch in range(num_epochs):
         losses_this_epoch = []
@@ -215,7 +215,7 @@ def train_loop(
         for i, sample in enumerate(samples):
             field_params = unflatten_params(flat_params=sample, param_map=field_param_map)
             field_state = field_state.replace(params=field_params)
-            field_render = ngp_image.render_image(field_state, image_height, image_width)
+            field_render = ngp_image.render_image(field_state, image_height, image_width, channels)
             field_render = jax.device_put(field_render, jax.devices('cpu')[0])
             plt.imsave(os.path.join(output_dir, f'epoch{epoch}_image{i}.png'), field_render)
 
@@ -332,7 +332,8 @@ def main():
         state=state, num_epochs=num_epochs, steps_per_epoch=steps_per_epoch, 
         data_iterator=data_iterator, batch_size=batch_size, context_length=context_length, 
         token_dim=token_dim, output_dir=output_dir, field_state=field_state,
-        image_width=image_width, image_height=image_height, field_param_map=field_param_map
+        image_width=image_width, image_height=image_height, channels=field_config['channels'], 
+        field_param_map=field_param_map
     )
 
 if __name__ == '__main__':

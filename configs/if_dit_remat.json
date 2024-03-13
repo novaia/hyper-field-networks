@@ -6,8 +6,8 @@
     "attention_dim": 4096,
     "num_attention_heads": 32,
     "embedding_dim": 512,
-    "feed_forward_dim": 1024,
-    "num_blocks": 12,
+    "feed_forward_dim": 512,
+    "num_blocks": 24,
     "grad_clip": 2.0,
     "remat": false
 }

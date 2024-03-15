@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include "shaders.h"
 
 int window_width = 1280;
 int window_height = 720;
@@ -40,6 +41,8 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 
 GLFWwindow* init_gl(void)
 {
+    printf("%s\n", shader_vert);
+    printf("%s\n", shader_frag);
     if(glfwInit() == GLFW_FALSE)
     {
         printf("Failed to initialize glfw\n");

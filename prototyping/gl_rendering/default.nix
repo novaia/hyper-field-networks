@@ -12,6 +12,7 @@ pkgs.stdenv.mkDerivation {
         libpng
     ];
     buildPhase = ''
+        bash shaders_to_header.sh
         gcc -std=c99 -c ./src/main.c
         gcc main.o -lglfw -lglad -lm -lpng -o synthetic3d
     '';

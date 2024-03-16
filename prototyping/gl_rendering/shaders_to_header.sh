@@ -25,8 +25,8 @@ for shader_file in $SHADERS_FOLDER/*.{vert,frag}; do
     fi
     
     # Read the shader content and convert it to a single line string
-    shader_content=$(cat "$shader_file" | sed 's/"/\\"/g' | tr -d '\n')
-    
+    #shader_content=$(cat "$shader_file" | sed 's/"/\\"/g' | tr -d "\\n")
+    shader_content=$(sed 's/$/\\n/' "$shader_file" | tr -d '\n')
     # Append the shader string to the output file with the appropriate suffix
     echo "const char* ${shader_name}${shader_suffix} = \"$shader_content\";" >> $OUTPUT_FILE
 done

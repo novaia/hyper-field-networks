@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include <stdint.h>
 #include "shaders.h"
 
 int window_width = 1280;
@@ -76,6 +77,7 @@ GLFWwindow* init_gl(void)
 }
 
 typedef struct { float x, y, z; } vec3_t;
+typedef struct { float* vertices; int num_vertices; } mesh_t;
 
 static inline int min_int(int a, int b) { return (a < b) ? a : b; }
 
@@ -91,13 +93,13 @@ static inline float string_section_to_float(long start, long end, char* full_str
     return (float)atof(string_section);
 }
 
-void load_obj(const char* path)
+mesh_t* load_obj(const char* path)
 {
     FILE* fp = fopen(path, "r");
     if(!fp)
     {
         fprintf(stderr, "Could not open %s\n", path);
-        return;
+        return NULL;
     }
 
     fseek(fp, 0, SEEK_END);
@@ -108,7 +110,7 @@ void load_obj(const char* path)
     {
         fprintf(stderr, "Could not allocate memory for reading %s\n", path);
         fclose(fp);
-        return;
+        return NULL;
     }
     size_t read_size = fread(file_chars, sizeof(char), file_length, fp);
     file_chars[read_size] = '\0';
@@ -160,7 +162,7 @@ void load_obj(const char* path)
                     else
                     {
                         printf("Exceed maximum number of vertices in buffer\n");
-                        return;
+                        return NULL;
                     }
                 }
             }
@@ -179,11 +181,19 @@ void load_obj(const char* path)
         }
     }
     
+    mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
+    mesh->vertices = (float*)malloc(sizeof(float) * parsed_vertices * 3);
+    mesh->num_vertices = parsed_vertices;
     for(int i = 0; i < parsed_vertices; i++)
     {
-        vec3_t current_vertex = vertex_buffer[i];
-        printf("Vertex %d: %f %f %f\n", i, current_vertex.x, current_vertex.y, current_vertex.z);
+        const int vertex_offset = i * 3;
+        mesh->vertices[vertex_offset] = vertex_buffer[i].x;
+        mesh->vertices[vertex_offset + 1] = vertex_buffer[i].y;
+        mesh->vertices[vertex_offset + 2] = vertex_buffer[i].z;
+        //vec3_t current_vertex = vertex_buffer[i];
+        //printf("Vertex %d: %f %f %f\n", i, current_vertex.x, current_vertex.y, current_vertex.z);
     }
+    return mesh;
 }
 
 int main()
@@ -194,7 +204,24 @@ int main()
         return -1;
     }
     
-    load_obj("/home/hayden/repos/g3dm/data/monkey.obj");
+    mesh_t* mesh = load_obj("/home/hayden/repos/g3dm/data/monkey.obj");
+    uint32_t shader_program = 0;
+
+    uint32_t vao, vbo, ibo;
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(
+        GL_ARRAY_BUFFER, 
+        sizeof(GL_FLOAT) * mesh->num_vertices * 3, 
+        mesh->vertices, 
+        GL_STATIC_DRAW
+    );
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 3, (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 
     while(!glfwWindowShouldClose(window))
     {

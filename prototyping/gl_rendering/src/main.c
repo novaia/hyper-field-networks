@@ -196,6 +196,25 @@ mesh_t* load_obj(const char* path)
     return mesh;
 }
 
+uint32_t create_shader_program(const char* vertex_shader_source, const char* fragment_shader_source)
+{
+    uint32_t vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex_shader, 1, (const char* const*)&vertex_shader_source, NULL);
+    glCompileShader(vertex_shader);
+    
+    uint32_t fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader, 1, (const char* const*)&fragment_shader_source, NULL);
+    glCompileShader(fragment_shader);
+
+    uint32_t shader_program = glCreateProgram();
+    glAttachShader(shader_program, vertex_shader);
+    glAttachShader(shader_program, fragment_shader);
+    glLinkProgram(shader_program);
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+    return shader_program;
+}
+
 int main()
 {
     GLFWwindow* window = init_gl();
@@ -205,7 +224,7 @@ int main()
     }
     
     mesh_t* mesh = load_obj("/home/hayden/repos/g3dm/data/monkey.obj");
-    uint32_t shader_program = 0;
+    uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
 
     uint32_t vao, vbo, ibo;
     glGenVertexArrays(1, &vao);
@@ -227,6 +246,10 @@ int main()
     {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+        glBindVertexArray(vao);
+        glUseProgram(shader_program);
+        glPointSize(5.0f);
+        glDrawArrays(GL_POINTS, 0, mesh->num_vertices);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

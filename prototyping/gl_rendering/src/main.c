@@ -207,13 +207,17 @@ mesh_t* load_obj(const char* path)
                     if(vertex_index_end == -1) { vertex_index_end = i; }
                     else if(texture_index_end == -1) { texture_index_end = i; }
                 }
-                else if(current_char == ' ' || current_char == '\n' && index_group_start != -1)
+                else if(current_char == ' ' || current_char == '\n')
                 {
                     normal_index_end = i;
                     if(parsed_indices < max_indices)
                     {
                         vertex_index_buffer[parsed_indices] = 
                             (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
+                        if(parsed_indices < 6)
+                        {
+                            printf("%d\n", vertex_index_buffer[parsed_indices]);
+                        }
                         parsed_indices++;
                     }
                     else
@@ -221,7 +225,10 @@ mesh_t* load_obj(const char* path)
                         printf("Exceeded maximum number of indices in buffer\n");
                         return NULL;
                     }
-                    index_group_start = -1;
+                    index_group_start = i;
+                    vertex_index_end = -1;
+                    texture_index_end = -1;
+                    normal_index_end = -1;
                 }
             }
         }

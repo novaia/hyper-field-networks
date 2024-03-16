@@ -1,8 +1,8 @@
 #version 330 core
 
-in float depth;
+in vec3 vertex_color;
 
 void main()
 {
-    gl_FragColor = vec4(depth, depth, depth, 1.0f);
+    gl_FragColor = vec4(vertex_color, 1.0f);
 }

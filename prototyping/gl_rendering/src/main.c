@@ -216,13 +216,13 @@ mesh_t* load_obj(const char* path)
                         index_buffer[index_offset] = (uint32_t)string_section_to_int(triangle_start+1, first_index_end, file_chars);
                         index_buffer[index_offset+1] = (uint32_t)string_section_to_int(first_index_end+1, second_index_end, file_chars);
                         index_buffer[index_offset+2] = (uint32_t)string_section_to_int(second_index_end+1, third_index_end, file_chars);
-                        printf(
+                        /*printf(
                             "Face %d: %d %d %d\n", 
                             parsed_indices, 
                             index_buffer[index_offset], 
                             index_buffer[index_offset+1], 
                             index_buffer[index_offset+2]
-                        );
+                        );*/
                         parsed_indices++;
                     }
                     else
@@ -330,6 +330,14 @@ int main()
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
     glBindVertexArray(vao);
+    glGenBuffers(1, &ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+    glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER, 
+        sizeof(GL_UNSIGNED_INT) * mesh->num_indices * 3, 
+        mesh->indices, 
+        GL_STATIC_DRAW
+    );
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(
         GL_ARRAY_BUFFER, 
@@ -342,15 +350,18 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glBindVertexArray(vao);
         glUseProgram(shader_program);
         glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix);
-        glPointSize(5.0f);
-        glDrawArrays(GL_POINTS, 0, mesh->num_vertices);
+        //glPointSize(5.0f);
+        //glDrawArrays(GL_POINTS, 0, mesh->num_vertices);
+        //glDrawElements(GL_TRIANGLES, mesh->num_indices * 3, GL_UNSIGNED_INT, NULL);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, mesh->num_indices);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

@@ -134,7 +134,7 @@ mesh_t* load_obj(const char* path)
     int parsed_vertices = 0;
     vec3_t vertex_buffer[max_vertices];
     const int max_indices = 10000;
-    uint32_t index_buffer[max_indices*3];
+    uint32_t vertex_index_buffer[max_indices];
     int parsed_indices = 0;
 
     int ignore_current_line = 0;
@@ -142,10 +142,10 @@ mesh_t* load_obj(const char* path)
     int is_vertex = 0;
     int is_face = 0;
     long vertex_x_start, vertex_y_start, vertex_z_start, vertex_end = -1;
-    long triangle_start = -1;
-    long first_index_end = -1;
-    long second_index_end = -1;
-    long third_index_end = -1;
+    long index_group_start = -1;
+    long vertex_index_end = -1;
+    long texture_index_end = -1;
+    long normal_index_end = -1;
     for(long i = 0; i < file_length; i++)
     {
         char current_char = file_chars[i];
@@ -195,34 +195,25 @@ mesh_t* load_obj(const char* path)
             }
             else if(is_face)
             {
-                if(current_char == ' ' && triangle_start == -1)
+                if(current_char == ' ' && index_group_start == -1)
                 {
-                    triangle_start = i;
-                    first_index_end = -1;
-                    second_index_end = -1;
-                    third_index_end = -1;
+                    index_group_start = i;
+                    vertex_index_end = -1;
+                    texture_index_end = -1;
+                    normal_index_end = -1;
                 }
                 else if(current_char == '/')
                 {
-                    if(first_index_end == -1) { first_index_end = i; }
-                    else if(second_index_end == -1) { second_index_end = i; }
+                    if(vertex_index_end == -1) { vertex_index_end = i; }
+                    else if(texture_index_end == -1) { texture_index_end = i; }
                 }
-                else if(current_char == ' ' || current_char == '\n' && triangle_start != -1)
+                else if(current_char == ' ' || current_char == '\n' && index_group_start != -1)
                 {
-                    third_index_end = i;
+                    normal_index_end = i;
                     if(parsed_indices < max_indices)
                     {
-                        const int index_offset = parsed_indices * 3;
-                        index_buffer[index_offset] = (uint32_t)string_section_to_int(triangle_start+1, first_index_end, file_chars);
-                        index_buffer[index_offset+1] = (uint32_t)string_section_to_int(first_index_end+1, second_index_end, file_chars);
-                        index_buffer[index_offset+2] = (uint32_t)string_section_to_int(second_index_end+1, third_index_end, file_chars);
-                        /*printf(
-                            "Face %d: %d %d %d\n", 
-                            parsed_indices, 
-                            index_buffer[index_offset], 
-                            index_buffer[index_offset+1], 
-                            index_buffer[index_offset+2]
-                        );*/
+                        vertex_index_buffer[parsed_indices] = 
+                            (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
                         parsed_indices++;
                     }
                     else
@@ -230,7 +221,7 @@ mesh_t* load_obj(const char* path)
                         printf("Exceeded maximum number of indices in buffer\n");
                         return NULL;
                     }
-                    triangle_start = -1;
+                    index_group_start = -1;
                 }
             }
         }
@@ -246,10 +237,10 @@ mesh_t* load_obj(const char* path)
             vertex_z_start = -1;
             vertex_end = -1;
             is_face = 0;
-            triangle_start = -1;
-            first_index_end = -1;
-            second_index_end = -1;
-            third_index_end = -1;
+            index_group_start = -1;
+            vertex_index_end = -1;
+            texture_index_end = -1;
+            normal_index_end = -1;
         }
     }
     
@@ -265,10 +256,10 @@ mesh_t* load_obj(const char* path)
         //vec3_t current_vertex = vertex_buffer[i];
         //printf("Vertex %d: %f %f %f\n", i, current_vertex.x, current_vertex.y, current_vertex.z);
     }
-    size_t parsed_indices_size = sizeof(int) * parsed_indices * 3;
-    mesh->indices = (int*)malloc(sizeof(int) * parsed_indices * 3);
+    size_t parsed_indices_size = sizeof(uint32_t) * parsed_indices;
+    mesh->indices = (uint32_t*)malloc(sizeof(uint32_t) * parsed_indices);
     mesh->num_indices = parsed_indices;
-    memcpy(mesh->indices, index_buffer, parsed_indices_size);
+    memcpy(mesh->indices, vertex_index_buffer, parsed_indices_size);
     return mesh;
 }
 
@@ -334,7 +325,7 @@ int main()
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glBufferData(
         GL_ELEMENT_ARRAY_BUFFER, 
-        sizeof(GL_UNSIGNED_INT) * mesh->num_indices * 3, 
+        sizeof(GL_UNSIGNED_INT) * mesh->num_indices, 
         mesh->indices, 
         GL_STATIC_DRAW
     );
@@ -360,8 +351,8 @@ int main()
         glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix);
         //glPointSize(5.0f);
         //glDrawArrays(GL_POINTS, 0, mesh->num_vertices);
-        //glDrawElements(GL_TRIANGLES, mesh->num_indices * 3, GL_UNSIGNED_INT, NULL);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, mesh->num_indices);
+        glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, NULL);
+        //glDrawArrays(GL_TRIANGLE_STRIP, 0, 968);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

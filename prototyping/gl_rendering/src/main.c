@@ -79,7 +79,7 @@ GLFWwindow* init_gl(void)
 }
 
 typedef struct { float x, y, z; } vec3_t;
-typedef struct { float* vertices; int num_vertices; } mesh_t;
+typedef struct { float* vertices; int num_vertices; uint32_t* indices; int num_indices} mesh_t;
 
 static inline int min_int(int a, int b) { return (a < b) ? a : b; }
 
@@ -93,6 +93,18 @@ static inline float string_section_to_float(long start, long end, char* full_str
     }
     string_section[char_count] = '\0';
     return (float)atof(string_section);
+}
+
+static inline int string_section_to_int(long start, long end, char* full_string)
+{
+    int char_count = min_int((int)(end - start), 10);
+    char string_section[char_count+1];
+    for(int i = 0; i < char_count; i++)
+    {
+        string_section[i] = full_string[start + (long)i];
+    }
+    string_section[char_count] = '\0';
+    return (int)atoi(string_section);
 }
 
 mesh_t* load_obj(const char* path)
@@ -121,10 +133,19 @@ mesh_t* load_obj(const char* path)
     const int max_vertices = 1000;
     int parsed_vertices = 0;
     vec3_t vertex_buffer[max_vertices];
+    const int max_indices = 10000;
+    uint32_t index_buffer[max_indices*3];
+    int parsed_indices = 0;
+
     int ignore_current_line = 0;
     int is_start_of_line = 1;
     int is_vertex = 0;
+    int is_face = 0;
     long vertex_x_start, vertex_y_start, vertex_z_start, vertex_end = -1;
+    long triangle_start = -1;
+    long first_index_end = -1;
+    long second_index_end = -1;
+    long third_index_end = -1;
     for(long i = 0; i < file_length; i++)
     {
         char current_char = file_chars[i];
@@ -138,6 +159,10 @@ mesh_t* load_obj(const char* path)
             else if(current_char == 'v' && file_chars[i+1] == ' ')
             {
                 is_vertex = 1;
+            }
+            else if(current_char == 'f')
+            {
+                is_face = 1;
             }
             is_start_of_line = 0;
         }
@@ -163,9 +188,49 @@ mesh_t* load_obj(const char* path)
                     }
                     else
                     {
-                        printf("Exceed maximum number of vertices in buffer\n");
+                        printf("Exceeded maximum number of vertices in buffer\n");
                         return NULL;
                     }
+                }
+            }
+            else if(is_face)
+            {
+                if(current_char == ' ' && triangle_start == -1)
+                {
+                    triangle_start = i;
+                    first_index_end = -1;
+                    second_index_end = -1;
+                    third_index_end = -1;
+                }
+                else if(current_char == '/')
+                {
+                    if(first_index_end == -1) { first_index_end = i; }
+                    else if(second_index_end == -1) { second_index_end = i; }
+                }
+                else if(current_char == ' ' || current_char == '\n' && triangle_start != -1)
+                {
+                    third_index_end = i;
+                    if(parsed_indices < max_indices)
+                    {
+                        const int index_offset = parsed_indices * 3;
+                        index_buffer[index_offset] = (uint32_t)string_section_to_int(triangle_start+1, first_index_end, file_chars);
+                        index_buffer[index_offset+1] = (uint32_t)string_section_to_int(first_index_end+1, second_index_end, file_chars);
+                        index_buffer[index_offset+2] = (uint32_t)string_section_to_int(second_index_end+1, third_index_end, file_chars);
+                        printf(
+                            "Face %d: %d %d %d\n", 
+                            parsed_indices, 
+                            index_buffer[index_offset], 
+                            index_buffer[index_offset+1], 
+                            index_buffer[index_offset+2]
+                        );
+                        parsed_indices++;
+                    }
+                    else
+                    {
+                        printf("Exceeded maximum number of indices in buffer\n");
+                        return NULL;
+                    }
+                    triangle_start = -1;
                 }
             }
         }
@@ -180,6 +245,11 @@ mesh_t* load_obj(const char* path)
             vertex_y_start = -1;
             vertex_z_start = -1;
             vertex_end = -1;
+            is_face = 0;
+            triangle_start = -1;
+            first_index_end = -1;
+            second_index_end = -1;
+            third_index_end = -1;
         }
     }
     
@@ -195,6 +265,10 @@ mesh_t* load_obj(const char* path)
         //vec3_t current_vertex = vertex_buffer[i];
         //printf("Vertex %d: %f %f %f\n", i, current_vertex.x, current_vertex.y, current_vertex.z);
     }
+    size_t parsed_indices_size = sizeof(int) * parsed_indices * 3;
+    mesh->indices = (int*)malloc(sizeof(int) * parsed_indices * 3);
+    mesh->num_indices = parsed_indices;
+    memcpy(mesh->indices, index_buffer, parsed_indices_size);
     return mesh;
 }
 

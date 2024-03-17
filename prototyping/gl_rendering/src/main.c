@@ -197,6 +197,8 @@ mesh_t* load_obj(const char* path)
             {
                 if(current_char == ' ' && index_group_start == -1)
                 {
+                    // Start the first index group.
+                    // This point should only be reached once per face line that is parsed.
                     index_group_start = i;
                     vertex_index_end = -1;
                     texture_index_end = -1;
@@ -225,6 +227,7 @@ mesh_t* load_obj(const char* path)
                         printf("Exceeded maximum number of indices in buffer\n");
                         return NULL;
                     }
+                    // Start the next index group.
                     index_group_start = i;
                     vertex_index_end = -1;
                     texture_index_end = -1;

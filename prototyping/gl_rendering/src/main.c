@@ -216,10 +216,6 @@ mesh_t* load_obj(const char* path)
                     {
                         vertex_index_buffer[parsed_indices] = 
                             (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
-                        if(parsed_indices < 6)
-                        {
-                            printf("%d\n", vertex_index_buffer[parsed_indices]);
-                        }
                         parsed_indices++;
                     }
                     else

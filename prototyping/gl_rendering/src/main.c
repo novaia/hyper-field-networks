@@ -355,14 +355,13 @@ int main()
         glBindVertexArray(vao);
         glUseProgram(shader_program);
         glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix);
-        //glPointSize(5.0f);
-        //glDrawArrays(GL_POINTS, 0, mesh->num_vertices);
         glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, NULL);
-        //glDrawArrays(GL_TRIANGLE_STRIP, 0, 968);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
-
+    free(perspective_matrix);
+    free(mesh->vertices);
+    free(mesh->indices);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

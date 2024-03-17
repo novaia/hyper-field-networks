@@ -78,7 +78,6 @@ GLFWwindow* init_gl(void)
     return window;
 }
 
-typedef struct { float x, y, z; } vec3_t;
 typedef struct { float* vertices; int num_vertices; uint32_t* indices; int num_indices} mesh_t;
 
 static inline int min_int(int a, int b) { return (a < b) ? a : b; }
@@ -132,7 +131,8 @@ mesh_t* load_obj(const char* path)
     
     const int max_vertices = 1000;
     int parsed_vertices = 0;
-    vec3_t vertex_buffer[max_vertices];
+    int vertex_offset = 0;
+    float vertex_buffer[max_vertices*3];
     const int max_indices = 10000;
     uint32_t vertex_index_buffer[max_indices];
     int parsed_indices = 0;
@@ -181,9 +181,9 @@ mesh_t* load_obj(const char* path)
                     if(parsed_vertices < max_vertices)
                     {
                         vertex_end = i;
-                        vertex_buffer[parsed_vertices].x = string_section_to_float(vertex_x_start, vertex_y_start, file_chars);
-                        vertex_buffer[parsed_vertices].y = string_section_to_float(vertex_y_start, vertex_z_start, file_chars);
-                        vertex_buffer[parsed_vertices].z = string_section_to_float(vertex_z_start, vertex_end, file_chars);
+                        vertex_buffer[vertex_offset++] = string_section_to_float(vertex_x_start, vertex_y_start, file_chars);
+                        vertex_buffer[vertex_offset++] = string_section_to_float(vertex_y_start, vertex_z_start, file_chars);
+                        vertex_buffer[vertex_offset++] = string_section_to_float(vertex_z_start, vertex_end, file_chars);
                         parsed_vertices++;
                     }
                     else
@@ -251,17 +251,11 @@ mesh_t* load_obj(const char* path)
     }
     
     mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
-    mesh->vertices = (float*)malloc(sizeof(float) * parsed_vertices * 3);
+    size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;
+    mesh->vertices = (float*)malloc(parsed_vertices_size);
     mesh->num_vertices = parsed_vertices;
-    for(int i = 0; i < parsed_vertices; i++)
-    {
-        const int vertex_offset = i * 3;
-        mesh->vertices[vertex_offset] = vertex_buffer[i].x;
-        mesh->vertices[vertex_offset + 1] = vertex_buffer[i].y;
-        mesh->vertices[vertex_offset + 2] = vertex_buffer[i].z;
-        //vec3_t current_vertex = vertex_buffer[i];
-        //printf("Vertex %d: %f %f %f\n", i, current_vertex.x, current_vertex.y, current_vertex.z);
-    }
+    memcpy(mesh->vertices, vertex_buffer, parsed_vertices_size);
+
     size_t parsed_indices_size = sizeof(uint32_t) * parsed_indices;
     mesh->indices = (uint32_t*)malloc(sizeof(uint32_t) * parsed_indices);
     mesh->num_indices = parsed_indices;

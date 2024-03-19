@@ -157,6 +157,26 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     return gl_mesh;
 }
 
+typedef struct
+{
+    uint32_t perspective_matrix_location;
+    uint32_t rotation_matrix_location;
+    uint32_t object_color_location;
+    uint32_t position_offset_location;
+    uint32_t shader_program;
+} mesh_shader_t;
+
+mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
+{
+    mesh_shader_t mesh_shader;
+    mesh_shader.perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
+    mesh_shader.rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
+    mesh_shader.object_color_location = glGetUniformLocation(shader_program, "object_color");
+    mesh_shader.position_offset_location = glGetUniformLocation(shader_program, "position_offset");
+    mesh_shader.shader_program = shader_program;
+    return mesh_shader;
+}
+
 int main()
 {
     GLFWwindow* window = init_gl();
@@ -171,7 +191,8 @@ int main()
         0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 1.0f,
         0.99f, 0.62f, 0.33f,
-        0.33f, 0.63f, 0.99f
+        0.33f, 0.63f, 0.99f,
+        0.62f, 0.33f, 0.99f
     };
 
     const int num_meshes = 27;
@@ -215,39 +236,61 @@ int main()
         free(mesh->normals);
         free(mesh);
     }
-    int gl_mesh_index = 5;
-    int color_index = 0;
+    const int num_active_meshes = 3;
+    int gl_mesh_indices[3] = {5, 10, 17};
+    int color_indices[3] = {0, 2, 4};
+
+    mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
+        create_shader_program(shader_vert, shader_frag)
+    );
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    mat4 rotation_matrix = get_y_rotation_matrix(45.0f);
-    uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
-    const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
-    const uint32_t rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
-    const uint32_t object_color_location = glGetUniformLocation(shader_program, "object_color");
+    
+    const int num_rotation_matrices = 3;
+    mat4 rotation_matrices[3] = {
+        get_y_rotation_matrix(0.0f),
+        get_y_rotation_matrix(45.0f),
+        get_y_rotation_matrix(-45.0f)
+    };
+    int rotation_indices[3] = {0, 1, 2};    
 
+    float mesh_position_offsets[9] = {
+        -3.0f, -2.0f, -5.0f,
+        3.0f, -2.0f, -5.0f,
+        0.0f, -2.0f, -5.0f
+    };
+    
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
         if(next_mesh)
         {
-            gl_mesh_index++;
-            if(gl_mesh_index >= num_meshes)
+            for(int i = 0; i < num_active_meshes; i++)
             {
-                gl_mesh_index = 0;
+                gl_mesh_indices[i]++;
+                if(gl_mesh_indices[i] >= num_meshes)
+                {
+                    gl_mesh_indices[i] = 0;
+                }
+                color_indices[i] = rand() % num_colors;
+                rotation_indices[i] = rand() % num_rotation_matrices;   
             }
-            color_index = rand() % num_colors;
             next_mesh = 0;
         }
-        gl_mesh_t mesh = gl_meshes[gl_mesh_index];
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glBindVertexArray(mesh.vao);
-        glUseProgram(shader_program);
-        glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
-        glUniformMatrix4fv(rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
-        glUniform3fv(object_color_location, 1, colors + (color_index * 3));
-        glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
+        for(int i = 0; i < num_active_meshes; i++)
+        {
+            gl_mesh_t mesh = gl_meshes[gl_mesh_indices[i]];
+            glBindVertexArray(mesh.vao);
+            glUseProgram(mesh_shader.shader_program);
+            glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
+            glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrices[rotation_indices[i]].data);
+            glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offsets + (i * 3));
+            glUniform3fv(mesh_shader.object_color_location, 1, colors + (color_indices[i] * 3));
+            glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
+        }
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

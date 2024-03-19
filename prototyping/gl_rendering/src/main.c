@@ -114,8 +114,12 @@ static inline int string_section_to_int(long start, long end, char* full_string)
     return (int)atoi(string_section);
 }
 
-mesh_t* load_obj(const char* path)
-{
+mesh_t* load_obj(
+    const char* path, 
+    const uint32_t max_vertices, 
+    const uint32_t max_indices,
+    const uint32_t max_normals
+){
     FILE* fp = fopen(path, "r");
     if(!fp)
     {
@@ -144,21 +148,22 @@ mesh_t* load_obj(const char* path)
     int is_face = 0;
     int is_normal = 0;
     // Vertices.
-    const int max_vertices = 1000;
     int parsed_vertices = 0;
     int vertex_offset = 0;
-    float vertex_buffer[max_vertices*3];
+    const size_t vertex_buffer_size = sizeof(uint32_t) * max_vertices * 3;
+    float* vertex_buffer = (float*)malloc(vertex_buffer_size);
     long vertex_x_start = -1, vertex_y_start = -1, vertex_z_start = -1, vertex_end = -1;
     // Indices.
-    const int max_indices = 10000;
-    uint32_t vertex_index_buffer[max_indices];
+    const size_t index_buffer_size = sizeof(uint32_t) * max_indices;
+    uint32_t* vertex_index_buffer = (uint32_t*)malloc(index_buffer_size);
+    uint32_t* normal_index_buffer = (uint32_t*)malloc(index_buffer_size);
     int parsed_indices = 0;
     long index_group_start = -1, vertex_index_end = -1, texture_index_end = -1, normal_index_end = -1;
     // Normals.
-    const int max_normals = max_vertices;
     int parsed_normals = 0;
     int normal_offset = 0;
-    float normal_buffer[max_normals*3];
+    const size_t normal_buffer_size = sizeof(float) * max_normals * 3;
+    float* normal_buffer = (float*)malloc(normal_buffer_size);
     long normal_x_start = -1, normal_y_start = -1, normal_z_start = -1, normal_end = -1; 
     for(long i = 0; i < file_length; i++)
     {
@@ -208,9 +213,12 @@ mesh_t* load_obj(const char* path)
                     }
                     
                     vertex_end = i;
-                    vertex_buffer[vertex_offset++] = string_section_to_float(vertex_x_start, vertex_y_start, file_chars);
-                    vertex_buffer[vertex_offset++] = string_section_to_float(vertex_y_start, vertex_z_start, file_chars);
-                    vertex_buffer[vertex_offset++] = string_section_to_float(vertex_z_start, vertex_end, file_chars);
+                    vertex_buffer[vertex_offset++] = 
+                        string_section_to_float(vertex_x_start, vertex_y_start, file_chars);
+                    vertex_buffer[vertex_offset++] = 
+                        string_section_to_float(vertex_y_start, vertex_z_start, file_chars);
+                    vertex_buffer[vertex_offset++] = 
+                        string_section_to_float(vertex_z_start, vertex_end, file_chars);
                     parsed_vertices++;
                     
                     // Reset state for next line.
@@ -240,6 +248,8 @@ mesh_t* load_obj(const char* path)
                     normal_index_end = i;
                     vertex_index_buffer[parsed_indices] = 
                         (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
+                    normal_index_buffer[parsed_indices] = 0;
+                        (uint32_t)string_section_to_int(texture_index_end+1, normal_index_end, file_chars) - 1;
                     parsed_indices++;
 
                     if(current_char == '\n') 
@@ -272,9 +282,12 @@ mesh_t* load_obj(const char* path)
                     }
 
                     normal_end = i;
-                    normal_buffer[normal_offset++] = string_section_to_float(normal_x_start, normal_y_start, file_chars);
-                    normal_buffer[normal_offset++] = string_section_to_float(normal_y_start, normal_z_start, file_chars);
-                    normal_buffer[normal_offset++] = string_section_to_float(normal_z_start, normal_end, file_chars);
+                    normal_buffer[normal_offset++] = 
+                        string_section_to_float(normal_x_start, normal_y_start, file_chars);
+                    normal_buffer[normal_offset++] = 
+                        string_section_to_float(normal_y_start, normal_z_start, file_chars);
+                    normal_buffer[normal_offset++] = 
+                        string_section_to_float(normal_z_start, normal_end, file_chars);
                     parsed_normals++;
                     
                     // Reset state for next line.
@@ -292,21 +305,39 @@ mesh_t* load_obj(const char* path)
         }
     }
     
+
+    const size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;
+    // Resolve the normal indices to get an ordered normal buffer.
+    // There should be one normal in the ordered_normal_buffer for each vertex in the vertex_buffer.
+    float* ordered_normal_buffer = (float*)malloc(parsed_vertices_size);
+    for(int i = 0; i < parsed_indices; i++)
+    {
+        const int ordered_normal_offset = vertex_index_buffer[i] * 3;
+        const int unordered_normal_offset = normal_index_buffer[i] * 3;
+        ordered_normal_buffer[ordered_normal_offset] = normal_buffer[unordered_normal_offset];
+        ordered_normal_buffer[ordered_normal_offset + 1] = normal_buffer[unordered_normal_offset + 1];
+        ordered_normal_buffer[ordered_normal_offset + 2] = normal_buffer[unordered_normal_offset + 2];
+    }
+    
     mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
-    size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;
     mesh->vertices = (float*)malloc(parsed_vertices_size);
     mesh->num_vertices = parsed_vertices;
     memcpy(mesh->vertices, vertex_buffer, parsed_vertices_size);
 
-    size_t parsed_indices_size = sizeof(uint32_t) * parsed_indices;
+    const size_t parsed_indices_size = sizeof(uint32_t) * parsed_indices;
     mesh->indices = (uint32_t*)malloc(sizeof(uint32_t) * parsed_indices);
     mesh->num_indices = parsed_indices;
     memcpy(mesh->indices, vertex_index_buffer, parsed_indices_size);
 
-    size_t parsed_normals_size = sizeof(float) * parsed_normals * 3;
-    mesh->normals = (float*)malloc(parsed_normals_size);
-    mesh->num_normals = parsed_normals;
-    memcpy(mesh->normals, normal_buffer, parsed_normals_size);
+    mesh->normals = (float*)malloc(parsed_vertices_size);
+    mesh->num_normals = parsed_vertices;
+    memcpy(mesh->normals, ordered_normal_buffer, parsed_vertices_size);
+    
+    free(vertex_buffer);
+    free(vertex_index_buffer);
+    free(normal_index_buffer);
+    free(normal_buffer);
+    free(ordered_normal_buffer);
     return mesh;
 }
 
@@ -359,7 +390,14 @@ int main()
         return -1;
     }
     
-    mesh_t* mesh = load_obj("/home/hayden/repos/g3dm/data/monkey.obj");
+    mesh_t* mesh = load_obj(
+        "/home/hayden/repos/g3dm/data/high_poly_monkey2.obj",
+        100000, 300000, 100000
+    );
+    if(!mesh)
+    {
+        return -1;
+    }
     float* perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f);
     uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
     const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");

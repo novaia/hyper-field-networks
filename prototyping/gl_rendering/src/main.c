@@ -189,14 +189,17 @@ int main()
         return -1;
     }
     
-    const int num_object_colors = 5;
-    const float object_colors[18] = {
+    const int num_object_colors = 9;
+    const float object_colors[27] = {
         0.95f, 0.22f, 0.1f,
         0.1f, 0.93f, 0.22f,
         0.1f, 0.21f, 0.88f,
         0.99f, 0.62f, 0.33f,
         0.33f, 0.63f, 0.99f,
-        0.62f, 0.33f, 0.99f
+        0.62f, 0.33f, 0.99f,
+        0.33f, 0.58f, 0.27f,
+        0.87f, 0.21f, 0.77f,
+        0.11f, 0.91f, 0.89f
     };
 
     const int num_meshes = 27;

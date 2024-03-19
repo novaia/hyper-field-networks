@@ -248,7 +248,7 @@ mesh_t* load_obj(
                     normal_index_end = i;
                     vertex_index_buffer[parsed_indices] = 
                         (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
-                    normal_index_buffer[parsed_indices] = 0;
+                    normal_index_buffer[parsed_indices] =
                         (uint32_t)string_section_to_int(texture_index_end+1, normal_index_end, file_chars) - 1;
                     parsed_indices++;
 
@@ -296,7 +296,7 @@ mesh_t* load_obj(
                 }               
             }
         }
-
+        
         if(current_char == '\n')
         {
             // Reset state for next line.
@@ -304,7 +304,6 @@ mesh_t* load_obj(
             is_start_of_line = 1;
         }
     }
-    
 
     const size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;
     // Resolve the normal indices to get an ordered normal buffer.
@@ -318,7 +317,7 @@ mesh_t* load_obj(
         ordered_normal_buffer[ordered_normal_offset + 1] = normal_buffer[unordered_normal_offset + 1];
         ordered_normal_buffer[ordered_normal_offset + 2] = normal_buffer[unordered_normal_offset + 2];
     }
-    
+
     mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
     mesh->vertices = (float*)malloc(parsed_vertices_size);
     mesh->num_vertices = parsed_vertices;

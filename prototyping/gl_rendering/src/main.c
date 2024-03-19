@@ -201,31 +201,28 @@ mesh_t* load_obj(const char* path)
                 }
                 else if(current_char == '\n')
                 {
-                    if(parsed_vertices < max_vertices)
-                    {
-                        vertex_end = i;
-                        vertex_buffer[vertex_offset++] = string_section_to_float(vertex_x_start, vertex_y_start, file_chars);
-                        vertex_buffer[vertex_offset++] = string_section_to_float(vertex_y_start, vertex_z_start, file_chars);
-                        vertex_buffer[vertex_offset++] = string_section_to_float(vertex_z_start, vertex_end, file_chars);
-                        parsed_vertices++;
-                    }
-                    else
+                    if(parsed_vertices >= max_vertices)
                     {
                         printf("Exceeded maximum number of vertices in buffer\n");
                         return NULL;
                     }
+                    
+                    vertex_end = i;
+                    vertex_buffer[vertex_offset++] = string_section_to_float(vertex_x_start, vertex_y_start, file_chars);
+                    vertex_buffer[vertex_offset++] = string_section_to_float(vertex_y_start, vertex_z_start, file_chars);
+                    vertex_buffer[vertex_offset++] = string_section_to_float(vertex_z_start, vertex_end, file_chars);
+                    parsed_vertices++;
+                    
+                    // Reset state for next line.
+                    vertex_x_start = vertex_y_start = vertex_z_start = vertex_end = -1;
+                    is_vertex = 0;
                 }
             }
             else if(is_face)
             {
                 if(current_char == ' ' && index_group_start == -1)
                 {
-                    // Start the first index group.
-                    // This point should only be reached once per face line that is parsed.
                     index_group_start = i;
-                    vertex_index_end = -1;
-                    texture_index_end = -1;
-                    normal_index_end = -1;
                 }
                 else if(current_char == '/')
                 {
@@ -234,23 +231,29 @@ mesh_t* load_obj(const char* path)
                 }
                 else if(current_char == ' ' || current_char == '\n')
                 {
-                    normal_index_end = i;
-                    if(parsed_indices < max_indices)
-                    {
-                        vertex_index_buffer[parsed_indices] = 
-                            (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
-                        parsed_indices++;
-                    }
-                    else
+                    if(parsed_indices >= max_indices)
                     {
                         printf("Exceeded maximum number of indices in buffer\n");
                         return NULL;
                     }
-                    // Start the next index group.
-                    index_group_start = i;
-                    vertex_index_end = -1;
-                    texture_index_end = -1;
-                    normal_index_end = -1;
+
+                    normal_index_end = i;
+                    vertex_index_buffer[parsed_indices] = 
+                        (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
+                    parsed_indices++;
+
+                    if(current_char == '\n') 
+                    { 
+                        // Reset state for next line.
+                        is_face = 0; 
+                        index_group_start = -1;
+                    }
+                    else
+                    {
+                        // Start the next index group.
+                        index_group_start = i;
+                    }
+                    vertex_index_end = texture_index_end = normal_index_end = -1;
                 }
             }
             else if(is_normal)
@@ -263,41 +266,29 @@ mesh_t* load_obj(const char* path)
                 }
                 else if(current_char == '\n')
                 {
-                    if(parsed_normals < max_normals)
-                    {
-                        normal_end = i;
-                        normal_buffer[normal_offset++] = string_section_to_float(normal_x_start, normal_y_start, file_chars);
-                        normal_buffer[normal_offset++] = string_section_to_float(normal_y_start, normal_z_start, file_chars);
-                        normal_buffer[normal_offset++] = string_section_to_float(normal_z_start, normal_end, file_chars);
-                        parsed_normals++;
-                        // Reset state for next line.
-                        normal_x_start = normal_y_start = normal_z_start = normal_end = -1;
-                        is_normal = 0;
-                    }
-                    else
+                    if(parsed_normals >= max_normals)
                     {
                         printf("Exceeded maximum number of normals in buffer\n");
-                        return NULL;
                     }
+
+                    normal_end = i;
+                    normal_buffer[normal_offset++] = string_section_to_float(normal_x_start, normal_y_start, file_chars);
+                    normal_buffer[normal_offset++] = string_section_to_float(normal_y_start, normal_z_start, file_chars);
+                    normal_buffer[normal_offset++] = string_section_to_float(normal_z_start, normal_end, file_chars);
+                    parsed_normals++;
+                    
+                    // Reset state for next line.
+                    normal_x_start = normal_y_start = normal_z_start = normal_end = -1;
+                    is_normal = 0;
                 }               
             }
         }
 
         if(current_char == '\n')
         {
-            // Reset flags for next line.
+            // Reset state for next line.
             ignore_current_line = 0;
             is_start_of_line = 1;
-            is_vertex = 0;
-            vertex_x_start = -1;
-            vertex_y_start = -1;
-            vertex_z_start = -1;
-            vertex_end = -1;
-            is_face = 0;
-            index_group_start = -1;
-            vertex_index_end = -1;
-            texture_index_end = -1;
-            normal_index_end = -1;
         }
     }
     

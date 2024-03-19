@@ -13,8 +13,8 @@ pkgs.stdenv.mkDerivation {
     ];
     buildPhase = ''
         bash shaders_to_header.sh
-        gcc -std=c99 -c ./src/main.c
-        gcc main.o -lglfw -lglad -lm -lpng -o synthetic3d
+        gcc -std=c99 -c ./src/main.c ./src/file_io.c
+        gcc main.o file_io.o -lglfw -lglad -lm -lpng -o synthetic3d
     '';
     installPhase = ''
         mkdir -p $out/bin

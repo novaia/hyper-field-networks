@@ -15,7 +15,7 @@ const char* window_title = "Synthetic 3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
 float window_height_to_width_ratio = 0.0f;
-int next_mesh = 0;
+int randomize_scene = 1;
 
 static void error_callback(int error, const char* description)
 {
@@ -42,10 +42,6 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
     {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
         return;
-    }
-    else if(key == GLFW_KEY_SPACE && action == GLFW_PRESS)
-    {
-        next_mesh = 1;
     }
 }
 
@@ -286,10 +282,17 @@ int main()
     };
     int light_position_index = 0;
 
+    int generated_images = 0;
     glEnable(GL_DEPTH_TEST);
+    char current_output_path[100];
+    int first_frame = 1;
+    uint32_t bucket_index = 0;
+    uint32_t generations_in_current_bucket = 0;
+    mkdir("/home/hayden/repos/g3dm/data/monster_renders/0", 0755);
+    size_t path_size = sizeof(char)*100;
     while(!glfwWindowShouldClose(window))
     {
-        if(next_mesh)
+        if(randomize_scene)
         {
             for(int i = 0; i < num_active_meshes; i++)
             {
@@ -303,7 +306,7 @@ int main()
                 environment_index = rand() % num_environments;
                 light_position_index = rand() % num_light_positions;
             }
-            next_mesh = 0;
+            randomize_scene = 0;
         }
         const int bg_color_offset = environment_index * 3;
         glClearColor(
@@ -326,11 +329,39 @@ int main()
             glUniform3fv(mesh_shader.light_position_location, 1, light_positions + (light_position_index * 3));
             glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
         }
+
         glfwSwapBuffers(window);
         glfwPollEvents();
+        snprintf(
+            current_output_path, 
+            path_size, 
+            "/home/hayden/repos/g3dm/data/monster_renders/%d/%d.png", 
+            bucket_index,
+            generations_in_current_bucket
+        );
+        save_frame_to_png(current_output_path, window_width, window_height);
+        generations_in_current_bucket++;
+        if(generations_in_current_bucket >= 3000)
+        {
+            generations_in_current_bucket = 0;
+            bucket_index++;
+            char bucket_path[100];
+            snprintf(
+                bucket_path, 
+                path_size, 
+                "/home/hayden/repos/g3dm/data/monster_renders/%d", 
+                bucket_index
+            );
+            mkdir(bucket_path, 0755);
+        }
+        if(first_frame)
+        {
+            // Override the image generated on the first frame.
+            generations_in_current_bucket--;
+            first_frame = 0;
+        }
+        randomize_scene = 1;
     }
-    save_frame_to_png("/home/hayden/repos/g3dm/data/gl_output.png", window_width, window_height);
-
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

@@ -364,11 +364,13 @@ int main()
     uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
     const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
     
-    uint32_t vao, vbo, ibo;
+    uint32_t vao, vbo, ibo, nbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
+    glGenBuffers(1, &nbo);
     glBindVertexArray(vao);
     glGenBuffers(1, &ibo);
+    
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glBufferData(
         GL_ELEMENT_ARRAY_BUFFER, 
@@ -385,6 +387,17 @@ int main()
     );
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 3, (void*)0);
     glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, nbo);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        sizeof(GL_FLOAT) * mesh->num_normals * 3,
+        mesh->normals,
+        GL_STATIC_DRAW
+    );
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 3, (void*)0);
+    glEnableVertexAttribArray(1);
+    
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 

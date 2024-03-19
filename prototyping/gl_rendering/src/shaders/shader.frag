@@ -2,13 +2,13 @@
 
 uniform float ambient_strength;
 uniform vec3 object_color;
+uniform vec3 light_pos;
 
 in vec3 frag_normal;
 in vec3 frag_pos;
 
 void main()
 {
-    vec3 light_pos = normalize(vec3(1.0f, 0.2f, 1.0f));
     vec3 light_color = vec3(1.0f);
     float diffuse_blend = 0.6f;
     float specular_blend = 1.0f - diffuse_blend;
@@ -18,7 +18,7 @@ void main()
         
     // Diffuse lighting.
     vec3 normal = normalize(frag_normal);
-    vec3 light_dir = normalize(light_pos - normalize(frag_pos));
+    vec3 light_dir = normalize(light_pos - frag_pos);
     float diffuse_strength = max(0.0f, dot(normal, light_dir));
     vec3 diffuse = light_color * diffuse_strength;
 

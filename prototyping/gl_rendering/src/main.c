@@ -164,6 +164,7 @@ typedef struct
     uint32_t object_color_location;
     uint32_t position_offset_location;
     uint32_t ambient_strength_location;
+    uint32_t light_position_location;
     uint32_t shader_program;
 } mesh_shader_t;
 
@@ -175,6 +176,7 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
     mesh_shader.object_color_location = glGetUniformLocation(shader_program, "object_color");
     mesh_shader.position_offset_location = glGetUniformLocation(shader_program, "position_offset");
     mesh_shader.ambient_strength_location = glGetUniformLocation(shader_program, "ambient_strength");
+    mesh_shader.light_position_location = glGetUniformLocation(shader_program, "light_pos");
     mesh_shader.shader_program = shader_program;
     return mesh_shader;
 }
@@ -187,8 +189,8 @@ int main()
         return -1;
     }
     
-    const int num_colors = 5;
-    const float colors[18] = {
+    const int num_object_colors = 5;
+    const float object_colors[18] = {
         0.95f, 0.22f, 0.1f,
         0.1f, 0.93f, 0.22f,
         0.1f, 0.21f, 0.88f,
@@ -240,7 +242,7 @@ int main()
     }
     const int num_active_meshes = 3;
     int gl_mesh_indices[3] = {5, 10, 17};
-    int color_indices[3] = {0, 2, 4};
+    int object_color_indices[3] = {0, 2, 4};
 
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
@@ -270,6 +272,14 @@ int main()
         0.0f, 0.0f, 0.0f
     };
     int environment_index = 0;
+    
+    const int num_light_positions = 3;
+    float light_positions[9] = {
+        1.0f, 0.2f, 1.0f,
+        -1.0f, 1.0f, 1.0f,
+        -1.0f, 2.0f, -3.0f
+    };
+    int light_position_index = 0;
 
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
@@ -283,9 +293,10 @@ int main()
                 {
                     gl_mesh_indices[i] = 0;
                 }
-                color_indices[i] = rand() % num_colors;
+                object_color_indices[i] = rand() % num_object_colors;
                 rotation_indices[i] = rand() % num_rotation_matrices;   
                 environment_index = rand() % num_environments;
+                light_position_index = rand() % num_light_positions;
             }
             next_mesh = 0;
         }
@@ -305,8 +316,9 @@ int main()
             glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
             glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrices[rotation_indices[i]].data);
             glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offsets + (i * 3));
-            glUniform3fv(mesh_shader.object_color_location, 1, colors + (color_indices[i] * 3));
+            glUniform3fv(mesh_shader.object_color_location, 1, object_colors + (object_color_indices[i] * 3));
             glUniform1f(mesh_shader.ambient_strength_location, ambient_strengths[environment_index]);
+            glUniform3fv(mesh_shader.light_position_location, 1, light_positions + (light_position_index * 3));
             glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
         }
         glfwSwapBuffers(window);

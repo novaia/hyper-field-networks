@@ -4,10 +4,10 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include <stdint.h>
-#include <math.h>
 #include "shaders.h"
 #include "file_io.h"
 #include "mesh.h"
+#include "transform.h"
 
 int window_width = 1280;
 int window_height = 720;
@@ -99,28 +99,6 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
     return shader_program;
 }
 
-static double degrees_to_radians(double degrees)
-{
-    const double pi = 3.14159265358979323846;
-    return degrees * (pi / 180.0);
-}
-
-float* get_perspective_matrix(float fov, float near_plane, float far_plane)
-{
-    float tan_half_fov = (float)tan(degrees_to_radians((double)fov) / 2.0);
-    float aspect_ratio = window_width_f / window_height_f;
-    float temp_matrix[16] = {
-        1.0f / (aspect_ratio * tan_half_fov), 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f / tan_half_fov, 0.0f, 0.0f,
-        0.0f, 0.0f, -(far_plane + near_plane) / (far_plane - near_plane), -1.0f,
-        0.0f, 0.0f, -2.0f * far_plane * near_plane / (far_plane - near_plane), 0.0f
-    };
-    size_t matrix_size = sizeof(float) * 16;
-    float* matrix = (float*)malloc(matrix_size);
-    memcpy(matrix, temp_matrix, matrix_size);
-    return matrix;
-}
-
 int main()
 {
     GLFWwindow* window = init_gl();
@@ -137,7 +115,8 @@ int main()
     {
         return -1;
     }
-    float* perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f);
+    float aspect_ratio = window_width_f / window_height_f;
+    float* perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
     uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
     const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
     

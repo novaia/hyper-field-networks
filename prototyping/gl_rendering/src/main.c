@@ -9,8 +9,8 @@
 #include "mesh.h"
 #include "transform.h"
 
-int window_width = 1280;
-int window_height = 720;
+int window_width = 256;
+int window_height = 256;
 const char* window_title = "Synthetic 3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
@@ -265,9 +265,9 @@ int main()
     int rotation_indices[3] = {0, 1, 2};    
 
     float mesh_position_offsets[9] = {
-        -3.0f, -2.0f, -5.0f,
-        3.0f, -2.0f, -5.0f,
-        0.0f, -2.0f, -5.0f
+        -2.5f, -2.0f, -6.0f,
+        2.5f, -2.0f, -6.0f,
+        0.0f, -2.0f, -6.0f
     };
 
     const int num_environments = 2;

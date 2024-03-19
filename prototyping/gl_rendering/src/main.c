@@ -254,11 +254,13 @@ int main()
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
     
-    const int num_rotation_matrices = 3;
-    mat4 rotation_matrices[3] = {
+    const int num_rotation_matrices = 5;
+    mat4 rotation_matrices[5] = {
         get_y_rotation_matrix(0.0f),
         get_y_rotation_matrix(45.0f),
-        get_y_rotation_matrix(-45.0f)
+        get_y_rotation_matrix(-45.0f),
+        get_y_rotation_matrix(-90.0f),
+        get_y_rotation_matrix(90.0f)
     };
     int rotation_indices[3] = {0, 1, 2};    
 

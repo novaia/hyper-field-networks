@@ -15,6 +15,7 @@ const char* window_title = "Synthetic 3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
 float window_height_to_width_ratio = 0.0f;
+int next_mesh = 0;
 
 static void error_callback(int error, const char* description)
 {
@@ -41,6 +42,10 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
     {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
         return;
+    }
+    else if(key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+    {
+        next_mesh = 1;
     }
 }
 
@@ -212,6 +217,15 @@ int main()
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
+        if(next_mesh)
+        {
+            gl_mesh_index++;
+            if(gl_mesh_index >= num_meshes)
+            {
+                gl_mesh_index = 0;
+            }
+            next_mesh = 0;
+        }
         gl_mesh_t mesh = gl_meshes[gl_mesh_index];
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

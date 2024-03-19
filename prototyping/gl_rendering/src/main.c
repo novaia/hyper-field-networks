@@ -163,6 +163,7 @@ typedef struct
     uint32_t rotation_matrix_location;
     uint32_t object_color_location;
     uint32_t position_offset_location;
+    uint32_t ambient_strength_location;
     uint32_t shader_program;
 } mesh_shader_t;
 
@@ -173,6 +174,7 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
     mesh_shader.rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
     mesh_shader.object_color_location = glGetUniformLocation(shader_program, "object_color");
     mesh_shader.position_offset_location = glGetUniformLocation(shader_program, "position_offset");
+    mesh_shader.ambient_strength_location = glGetUniformLocation(shader_program, "ambient_strength");
     mesh_shader.shader_program = shader_program;
     return mesh_shader;
 }
@@ -186,7 +188,7 @@ int main()
     }
     
     const int num_colors = 5;
-    const float colors[15] = {
+    const float colors[18] = {
         0.95f, 0.22f, 0.1f,
         0.1f, 0.93f, 0.22f,
         0.1f, 0.21f, 0.88f,
@@ -260,7 +262,15 @@ int main()
         3.0f, -2.0f, -5.0f,
         0.0f, -2.0f, -5.0f
     };
-    
+
+    const int num_environments = 2;
+    float ambient_strengths[2] = {0.5f, 0.1f};
+    float bg_colors[6] = {
+        1.0f, 1.0f, 1.0f,
+        0.0f, 0.0f, 0.0f
+    };
+    int environment_index = 0;
+
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
@@ -275,10 +285,17 @@ int main()
                 }
                 color_indices[i] = rand() % num_colors;
                 rotation_indices[i] = rand() % num_rotation_matrices;   
+                environment_index = rand() % num_environments;
             }
             next_mesh = 0;
         }
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        const int bg_color_offset = environment_index * 3;
+        glClearColor(
+            bg_colors[bg_color_offset], 
+            bg_colors[bg_color_offset+1], 
+            bg_colors[bg_color_offset+2], 
+            1.0f
+        );
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         for(int i = 0; i < num_active_meshes; i++)
         {
@@ -289,6 +306,7 @@ int main()
             glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrices[rotation_indices[i]].data);
             glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offsets + (i * 3));
             glUniform3fv(mesh_shader.object_color_location, 1, colors + (color_indices[i] * 3));
+            glUniform1f(mesh_shader.ambient_strength_location, ambient_strengths[environment_index]);
             glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
         }
         glfwSwapBuffers(window);

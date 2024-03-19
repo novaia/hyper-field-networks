@@ -1,16 +1,15 @@
 #version 330 core
 
 uniform float ambient_strength;
+uniform vec3 object_color;
 
 in vec3 frag_normal;
 in vec3 frag_pos;
-in vec3 frag_object_color;
 
 void main()
 {
     vec3 light_pos = normalize(vec3(1.0f, 0.2f, 1.0f));
     vec3 light_color = vec3(1.0f);
-    vec3 object_color = frag_object_color;//vec3(0.99f, 0.62f, 0.33f);
     float diffuse_blend = 0.6f;
     float specular_blend = 1.0f - diffuse_blend;
 

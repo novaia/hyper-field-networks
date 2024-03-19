@@ -296,11 +296,7 @@ int main()
         {
             for(int i = 0; i < num_active_meshes; i++)
             {
-                gl_mesh_indices[i]++;
-                if(gl_mesh_indices[i] >= num_meshes)
-                {
-                    gl_mesh_indices[i] = 0;
-                }
+                gl_mesh_indices[i] = rand() % num_meshes;
                 object_color_indices[i] = rand() % num_object_colors;
                 rotation_indices[i] = rand() % num_rotation_matrices;   
                 environment_index = rand() % num_environments;

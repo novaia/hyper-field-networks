@@ -164,6 +164,16 @@ int main()
     {
         return -1;
     }
+    
+    const int num_colors = 5;
+    const float colors[15] = {
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f,
+        0.99f, 0.62f, 0.33f,
+        0.33f, 0.63f, 0.99f
+    };
+
     const int num_meshes = 27;
     const char mesh_paths[27][100] = {
         "/home/hayden/repos/g3dm/data/monsters/alien.obj",
@@ -206,6 +216,7 @@ int main()
         free(mesh);
     }
     int gl_mesh_index = 5;
+    int color_index = 0;
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
@@ -213,7 +224,8 @@ int main()
     uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
     const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
     const uint32_t rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
-    
+    const uint32_t object_color_location = glGetUniformLocation(shader_program, "object_color");
+
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
@@ -224,6 +236,7 @@ int main()
             {
                 gl_mesh_index = 0;
             }
+            color_index = rand() % num_colors;
             next_mesh = 0;
         }
         gl_mesh_t mesh = gl_meshes[gl_mesh_index];
@@ -233,6 +246,7 @@ int main()
         glUseProgram(shader_program);
         glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
         glUniformMatrix4fv(rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
+        glUniform3fv(object_color_location, 1, colors + (color_index * 3));
         glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
         glfwSwapBuffers(window);
         glfwPollEvents();

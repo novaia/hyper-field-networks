@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 #include <stdint.h>
 #include <math.h>
+#include <png.h>
 #include "shaders.h"
 
 int window_width = 1280;
@@ -381,6 +382,57 @@ float* get_perspective_matrix(float fov, float near_plane, float far_plane)
     return matrix;
 }
 
+void save_frame_to_png(const char* filename, int width, int height)
+{
+    FILE* file = fopen(filename, "wb");
+    if (!file) {
+        fprintf(stderr, "Error opening file '%s' for writing\n", filename);
+        return;
+    }
+
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) {
+        fprintf(stderr, "Error creating PNG write struct\n");
+        fclose(file);
+        return;
+    }
+
+    png_infop info = png_create_info_struct(png);
+    if (!info) {
+        fprintf(stderr, "Error creating PNG info struct\n");
+        png_destroy_write_struct(&png, NULL);
+        fclose(file);
+        return;
+    }
+
+    if (setjmp(png_jmpbuf(png))) {
+        fprintf(stderr, "Error setting jump buffer for PNG\n");
+        png_destroy_write_struct(&png, &info);
+        fclose(file);
+        return;
+    }
+
+    png_init_io(png, file);
+    png_set_IHDR(png, info, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    png_write_info(png, info);
+
+    unsigned char* pixels = (unsigned char*)malloc(width * height * 3);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+    png_bytep rows[height];
+    for (int i = 0; i < height; ++i) {
+        rows[height - 1 - i] = pixels + (i * width * 3);
+    }
+
+    png_write_image(png, rows);
+    png_write_end(png, NULL);
+
+    free(pixels);
+    png_destroy_write_struct(&png, &info);
+    fclose(file);
+}
+
 int main()
 {
     GLFWwindow* window = init_gl();
@@ -450,6 +502,8 @@ int main()
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+    save_frame_to_png("/home/hayden/repos/g3dm/data/gl_output.png", window_width, window_height);
+
     free(perspective_matrix);
     free(mesh->vertices);
     free(mesh->indices);

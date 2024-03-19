@@ -117,9 +117,11 @@ int main()
     }
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
+    mat4 rotation_matrix = get_y_rotation_matrix(45.0f);
     uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
     const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
-    
+    const uint32_t rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
+
     uint32_t vao, vbo, ibo, nbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
@@ -165,6 +167,7 @@ int main()
         glBindVertexArray(vao);
         glUseProgram(shader_program);
         glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
+        glUniformMatrix4fv(rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
         glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, NULL);
         glfwSwapBuffers(window);
         glfwPollEvents();

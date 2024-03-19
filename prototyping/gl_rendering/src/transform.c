@@ -21,4 +21,36 @@ mat4 get_perspective_matrix(float fov, float near_plane, float far_plane, float 
         }
     };
     return perspective_matrix;
-} 
+}
+
+mat4 get_x_rotation_matrix(float angle)
+{
+    const float theta = (float)degrees_to_radians((double)angle);
+    const float cos_theta = (float)cos(theta);
+    const float sin_theta = (float)sin(theta);
+    mat4 x_rotation_matrix = {
+        .data = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, cos_theta, sin_theta, 0.0f, 
+            0.0f, -sin_theta, cos_theta, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        }
+    };
+    return x_rotation_matrix;
+}
+
+mat4 get_y_rotation_matrix(float angle)
+{
+    const float theta = (float)degrees_to_radians((double)angle);
+    const float cos_theta = (float)cos(theta);
+    const float sin_theta = (float)sin(theta);
+    mat4 y_rotation_matrix = {
+        .data = {
+            cos_theta, 0.0f, -sin_theta, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f, 
+            sin_theta, 0.0f, cos_theta, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        }
+    };
+    return y_rotation_matrix;
+}

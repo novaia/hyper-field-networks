@@ -78,7 +78,15 @@ GLFWwindow* init_gl(void)
     return window;
 }
 
-typedef struct { float* vertices; int num_vertices; uint32_t* indices; int num_indices} mesh_t;
+typedef struct 
+{ 
+    float* vertices; 
+    int num_vertices; 
+    uint32_t* indices; 
+    int num_indices;
+    float* normals;
+    int num_normals;
+} mesh_t;
 
 static inline int min_int(int a, int b) { return (a < b) ? a : b; }
 
@@ -129,40 +137,55 @@ mesh_t* load_obj(const char* path)
     file_chars[read_size] = '\0';
     fclose(fp);
     
-    const int max_vertices = 1000;
-    int parsed_vertices = 0;
-    int vertex_offset = 0;
-    float vertex_buffer[max_vertices*3];
-    const int max_indices = 10000;
-    uint32_t vertex_index_buffer[max_indices];
-    int parsed_indices = 0;
-
+    // Parser line state.    
     int ignore_current_line = 0;
     int is_start_of_line = 1;
     int is_vertex = 0;
     int is_face = 0;
-    long vertex_x_start, vertex_y_start, vertex_z_start, vertex_end = -1;
-    long index_group_start = -1;
-    long vertex_index_end = -1;
-    long texture_index_end = -1;
-    long normal_index_end = -1;
+    int is_normal = 0;
+    // Vertices.
+    const int max_vertices = 1000;
+    int parsed_vertices = 0;
+    int vertex_offset = 0;
+    float vertex_buffer[max_vertices*3];
+    long vertex_x_start = -1, vertex_y_start = -1, vertex_z_start = -1, vertex_end = -1;
+    // Indices.
+    const int max_indices = 10000;
+    uint32_t vertex_index_buffer[max_indices];
+    int parsed_indices = 0;
+    long index_group_start = -1, vertex_index_end = -1, texture_index_end = -1, normal_index_end = -1;
+    // Normals.
+    const int max_normals = max_vertices;
+    int parsed_normals = 0;
+    int normal_offset = 0;
+    float normal_buffer[max_normals*3];
+    long normal_x_start = -1, normal_y_start = -1, normal_z_start = -1, normal_end = -1; 
     for(long i = 0; i < file_length; i++)
     {
-        char current_char = file_chars[i];
+        const char current_char = file_chars[i];
         if(is_start_of_line)
         {
+            // If i == file_length then parsing is finished so the loop can be broken
+            // in order to prevent next_char from being out of bounds.
+            if(i == file_length) { break; }
+            
+            const char next_char = file_chars[i+1];
             if(current_char == '#' || current_char == 'o')
             {
                 // Ignore the rest of this line.
                 ignore_current_line = 1;
             }
-            else if(current_char == 'v' && file_chars[i+1] == ' ')
+            else if(current_char == 'v' && next_char == ' ')
             {
                 is_vertex = 1;
             }
             else if(current_char == 'f')
             {
                 is_face = 1;
+            }
+            else if(current_char == 'v' && next_char == 'n')
+            {
+                is_normal = 1;
             }
             is_start_of_line = 0;
         }
@@ -230,6 +253,34 @@ mesh_t* load_obj(const char* path)
                     normal_index_end = -1;
                 }
             }
+            else if(is_normal)
+            {
+                if(current_char == ' ')
+                {
+                    if(normal_x_start == -1) { normal_x_start = i; }
+                    else if(normal_y_start == -1) { normal_y_start = i; }
+                    else if(normal_z_start == -1) { normal_z_start = i; }
+                }
+                else if(current_char == '\n')
+                {
+                    if(parsed_normals < max_normals)
+                    {
+                        normal_end = i;
+                        normal_buffer[normal_offset++] = string_section_to_float(normal_x_start, normal_y_start, file_chars);
+                        normal_buffer[normal_offset++] = string_section_to_float(normal_y_start, normal_z_start, file_chars);
+                        normal_buffer[normal_offset++] = string_section_to_float(normal_z_start, normal_end, file_chars);
+                        parsed_normals++;
+                        // Reset state for next line.
+                        normal_x_start = normal_y_start = normal_z_start = normal_end = -1;
+                        is_normal = 0;
+                    }
+                    else
+                    {
+                        printf("Exceeded maximum number of normals in buffer\n");
+                        return NULL;
+                    }
+                }               
+            }
         }
 
         if(current_char == '\n')
@@ -260,6 +311,11 @@ mesh_t* load_obj(const char* path)
     mesh->indices = (uint32_t*)malloc(sizeof(uint32_t) * parsed_indices);
     mesh->num_indices = parsed_indices;
     memcpy(mesh->indices, vertex_index_buffer, parsed_indices_size);
+
+    size_t parsed_normals_size = sizeof(float) * parsed_normals * 3;
+    mesh->normals = (float*)malloc(parsed_normals_size);
+    mesh->num_normals = parsed_normals;
+    memcpy(mesh->normals, normal_buffer, parsed_normals_size);
     return mesh;
 }
 
@@ -356,6 +412,8 @@ int main()
     free(perspective_matrix);
     free(mesh->vertices);
     free(mesh->indices);
+    free(mesh->normals);
+    free(mesh);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

@@ -116,7 +116,7 @@ int main()
         return -1;
     }
     float aspect_ratio = window_width_f / window_height_f;
-    float* perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
+    mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
     uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
     const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
     
@@ -164,14 +164,13 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glBindVertexArray(vao);
         glUseProgram(shader_program);
-        glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix);
+        glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
         glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, NULL);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
     save_frame_to_png("/home/hayden/repos/g3dm/data/gl_output.png", window_width, window_height);
 
-    free(perspective_matrix);
     free(mesh->vertices);
     free(mesh->indices);
     free(mesh->normals);

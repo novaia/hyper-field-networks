@@ -99,29 +99,14 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
     return shader_program;
 }
 
-int main()
+typedef struct
 {
-    GLFWwindow* window = init_gl();
-    if(!window)
-    {
-        return -1;
-    }
-    
-    mesh_t* mesh = load_obj(
-        "/home/hayden/repos/g3dm/data/high_poly_monkey2.obj",
-        100000, 300000, 100000
-    );
-    if(!mesh)
-    {
-        return -1;
-    }
-    float aspect_ratio = window_width_f / window_height_f;
-    mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    mat4 rotation_matrix = get_y_rotation_matrix(45.0f);
-    uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
-    const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
-    const uint32_t rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
+    uint32_t vao, vbo, ibo, nbo;
+    int num_indices, num_normals, num_vertices;
+} gl_mesh_t;
 
+gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
+{
     uint32_t vao, vbo, ibo, nbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
@@ -158,26 +143,88 @@ int main()
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+    gl_mesh_t gl_mesh = { 
+        .vao = vao, .vbo = vbo, .ibo = ibo, .nbo = nbo,
+        .num_indices = mesh->num_indices,
+        .num_normals = mesh->num_normals,
+        .num_vertices = mesh->num_vertices
+    };
+    return gl_mesh;
+}
 
+int main()
+{
+    GLFWwindow* window = init_gl();
+    if(!window)
+    {
+        return -1;
+    }
+    const int num_meshes = 27;
+    const char mesh_paths[27][100] = {
+        "/home/hayden/repos/g3dm/data/monsters/alien.obj",
+        "/home/hayden/repos/g3dm/data/monsters/alpaking.obj",
+        "/home/hayden/repos/g3dm/data/monsters/armabee.obj",
+        "/home/hayden/repos/g3dm/data/monsters/birb.obj",
+        "/home/hayden/repos/g3dm/data/monsters/blue_demon.obj",
+        "/home/hayden/repos/g3dm/data/monsters/bunny.obj",
+        "/home/hayden/repos/g3dm/data/monsters/cactoro.obj",
+        "/home/hayden/repos/g3dm/data/monsters/demon.obj",
+        "/home/hayden/repos/g3dm/data/monsters/dino.obj",
+        "/home/hayden/repos/g3dm/data/monsters/dragon_evolved.obj",
+        "/home/hayden/repos/g3dm/data/monsters/dragon.obj",
+        "/home/hayden/repos/g3dm/data/monsters/fish.obj",
+        "/home/hayden/repos/g3dm/data/monsters/frog.obj",
+        "/home/hayden/repos/g3dm/data/monsters/ghost.obj",
+        "/home/hayden/repos/g3dm/data/monsters/ghost_skull.obj",
+        "/home/hayden/repos/g3dm/data/monsters/glub_evolved.obj",
+        "/home/hayden/repos/g3dm/data/monsters/glub.obj",
+        "/home/hayden/repos/g3dm/data/monsters/goleling_evolved.obj",
+        "/home/hayden/repos/g3dm/data/monsters/goleling.obj",
+        "/home/hayden/repos/g3dm/data/monsters/monkroose.obj",
+        "/home/hayden/repos/g3dm/data/monsters/mushnub.obj",
+        "/home/hayden/repos/g3dm/data/monsters/mushroom_king.obj",
+        "/home/hayden/repos/g3dm/data/monsters/orc_skull.obj",
+        "/home/hayden/repos/g3dm/data/monsters/pigeon.obj",
+        "/home/hayden/repos/g3dm/data/monsters/squidle.obj",
+        "/home/hayden/repos/g3dm/data/monsters/tribale.obj",
+        "/home/hayden/repos/g3dm/data/monsters/yeti.obj"
+    };
+    gl_mesh_t gl_meshes[num_meshes]; 
+    for(int i = 0; i < num_meshes; i++)
+    {
+        mesh_t* mesh = load_obj(mesh_paths[i], 100000, 300000, 100000);
+        if(!mesh) { return - 1; }
+        gl_meshes[i] = mesh_to_gl_mesh(mesh);
+        free(mesh->vertices);
+        free(mesh->indices);
+        free(mesh->normals);
+        free(mesh);
+    }
+    int gl_mesh_index = 5;
+
+    float aspect_ratio = window_width_f / window_height_f;
+    mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
+    mat4 rotation_matrix = get_y_rotation_matrix(45.0f);
+    uint32_t shader_program = create_shader_program(shader_vert, shader_frag);
+    const uint32_t perspective_matrix_location = glGetUniformLocation(shader_program, "perspective_matrix");
+    const uint32_t rotation_matrix_location = glGetUniformLocation(shader_program, "rotation_matrix");
+    
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        gl_mesh_t mesh = gl_meshes[gl_mesh_index];
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glBindVertexArray(vao);
+        glBindVertexArray(mesh.vao);
         glUseProgram(shader_program);
         glUniformMatrix4fv(perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
         glUniformMatrix4fv(rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
-        glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, NULL);
+        glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
     save_frame_to_png("/home/hayden/repos/g3dm/data/gl_output.png", window_width, window_height);
 
-    free(mesh->vertices);
-    free(mesh->indices);
-    free(mesh->normals);
-    free(mesh);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

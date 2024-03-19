@@ -12,7 +12,7 @@ void main()
 {
     frag_normal = vertex_normal;
     vec4 rotated_pos = rotation_matrix * vec4(vertex_pos, 1.0f);
-    vec3 shifted_pos = rotated_pos.xyz - vec3(0.0, 0.0, 3.0); 
+    vec3 shifted_pos = rotated_pos.xyz - vec3(0.0, 2.0, 3.0); 
     frag_pos = shifted_pos;
     vec4 projected_pos = perspective_matrix * vec4(shifted_pos, 1.0);
     gl_Position = projected_pos;

@@ -12,7 +12,7 @@ void main()
     float specular_blend = 1.0f - diffuse_blend;
 
     // Ambient lighting.
-    float ambient_strength = 0.2f;
+    float ambient_strength = 0.8f;
     vec3 ambient = ambient_strength * light_color;
         
     // Diffuse lighting.

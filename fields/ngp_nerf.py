@@ -149,7 +149,7 @@ def create_train_state(
     })
     weight_decay = optax.add_decayed_weights(weight_decay_coefficient, mask=weight_decay_mask)
     tx = optax.chain(adam, weight_decay)
-    ts = TrainState.create(apply_fn=model.apply, params=params.unfreeze(), tx=tx)
+    ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     return ts
 
 class NGPNerf(nn.Module):

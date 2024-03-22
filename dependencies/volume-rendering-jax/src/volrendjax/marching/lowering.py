@@ -70,7 +70,7 @@ def march_rays_lowering_rule(
 
     return custom_call(
         call_target_name="march_rays",
-        out_types=[
+        result_types=[
             ir.RankedTensorType.get(shapes["helper.next_sample_write_location"], ir.IntegerType.get_unsigned(32)),
             ir.RankedTensorType.get(shapes["helper.number_of_exceeded_samples"], ir.IntegerType.get_unsigned(32)),
             ir.RankedTensorType.get(shapes["helper.ray_is_valid"], ir.IntegerType.get_signless(1)),
@@ -169,7 +169,7 @@ def march_rays_inference_lowering_rule(
 
     return custom_call(
         call_target_name="march_rays_inference",
-        out_types=[
+        result_types=[
             ir.RankedTensorType.get(shapes["out.next_ray_index"], ir.IntegerType.get_unsigned(32)),
             ir.RankedTensorType.get(shapes["out.indices_out"], ir.IntegerType.get_unsigned(32)),
             ir.RankedTensorType.get(shapes["out.n_samples"], ir.IntegerType.get_unsigned(32)),

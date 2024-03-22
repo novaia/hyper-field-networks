@@ -38,7 +38,7 @@ def packbits_lowering_rule(
 
     return custom_call(
         call_target_name="pack_density_into_bits",
-        out_types = [
+        result_types = [
             ir.RankedTensorType.get(shapes["out.occupied_mask"], ir.IntegerType.get_signless(1)),
             ir.RankedTensorType.get(shapes["out.occupancy_bitfield"], ir.IntegerType.get_unsigned(8)),
         ],

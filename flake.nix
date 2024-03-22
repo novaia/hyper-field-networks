@@ -7,7 +7,8 @@
         flake-utils.url = "github:numtide/flake-utils";
     };
     outputs = inputs@{ self, nixpkgs, nixpkgs-unstable, flake-utils, ... }: 
-    let dependencies = import ./dependencies;
+    let 
+        dependencies = import ./dependencies;
     in flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: {
         devShells = let
             pyVer = "311";
@@ -62,7 +63,9 @@
                         datasets
                         wandb
                         unstableCudaPkgs.volume-rendering-jax
+                        unstableCudaPkgs.serde-helper
                     ]))
+                    unstableCudaPkgs.gcc12
                     unstableCudaPkgs.cudaPackages.cudatoolkit
                     unstableCudaPkgs.cudaPackages.cuda_cudart
                     unstableCudaPkgs.cudaPackages.cudnn

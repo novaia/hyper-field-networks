@@ -1,4 +1,9 @@
-{ version, stdenvNoCC }: stdenvNoCC.mkDerivation {
+{ 
+    version, 
+    stdenvNoCC 
+}: 
+
+stdenvNoCC.mkDerivation {
     pname = "serde-helper";
     inherit version;
     src = ./serde.h;

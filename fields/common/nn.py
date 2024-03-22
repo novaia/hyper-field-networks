@@ -15,7 +15,7 @@ def hash_function_3d(x:jax.Array, table_size:int, hash_offset:jax.Array):
 
 def interpolate_hash_features(feature_a, feature_b, coefficient):
     def _scale(f, c):
-        return jnp.einsum('ijk,j->ijk', f, c)
+        return jnp.einsum('ij,i->ij', f, c)
     return _scale(feature_a, coefficient) + _scale(feature_b, 1-coefficient)
 
 class MultiResolutionHashEncoding(nn.Module):
@@ -53,8 +53,8 @@ class MultiResolutionHashEncoding(nn.Module):
         scaled = jnp.einsum('ij,k->ikj', x, self.scalings)
         scaled_c = jnp.ceil(scaled).astype(jnp.int32)
         scaled_f = jnp.floor(scaled).astype(jnp.int32)
-        point_offset = jnp.transpose(jnp.reshape(scaled - scaled_f, (self.spatial_dim, self.num_levels)))
-
+        #point_offset = jnp.transpose(jnp.reshape(scaled - scaled_f, (self.spatial_dim, self.num_levels)))
+        point_offset = scaled - scaled_f
         vertex_0 = scaled_c
         vertex_1 = jnp.concatenate([scaled_c[..., 0:1], scaled_c[..., 1:2], scaled_f[..., 2:3]], axis=-1)
         vertex_2 = jnp.concatenate([scaled_c[..., 0:1], scaled_f[..., 1:2], scaled_c[..., 2:3]], axis=-1)
@@ -91,16 +91,17 @@ class MultiResolutionHashEncoding(nn.Module):
         f_7 = self.hash_table[hashed_7, :]
 
         # Linearly interpolate between all of the features.
+        interpolate_fn = jax.vmap(interpolate_hash_features, in_axes=0)
         # First spatial dimension.
-        f_03 = interpolate_hash_features(f_0, f_3, point_offset[..., 0])
-        f_12 = interpolate_hash_features(f_1, f_2, point_offset[..., 0])
-        f_56 = interpolate_hash_features(f_5, f_6, point_offset[..., 0])
-        f_47 = interpolate_hash_features(f_4, f_7, point_offset[..., 0])
+        f_03 = interpolate_fn(f_0, f_3, point_offset[..., 0])
+        f_12 = interpolate_fn(f_1, f_2, point_offset[..., 0])
+        f_56 = interpolate_fn(f_5, f_6, point_offset[..., 0])
+        f_47 = interpolate_fn(f_4, f_7, point_offset[..., 0])
         # Second spatial dimension.
-        f_0312 = interpolate_hash_features(f_03, f_12, point_offset[..., 1])
-        f_4756 = interpolate_hash_features(f_47, f_56, point_offset[..., 1])
+        f_0312 = interpolate_fn(f_03, f_12, point_offset[..., 1])
+        f_4756 = interpolate_fn(f_47, f_56, point_offset[..., 1])
         # Third spatial dimension.
-        encoded = interpolate_hash_features(f_0312, f_4756, point_offset[..., 3])
+        encoded = interpolate_fn(f_0312, f_4756, point_offset[..., 3])
         return jnp.reshape(encoded, (encoded.shape[0], self.num_levels * self.feature_dim))
 
 class MultiResolutionHashEncoding2D(nn.Module):

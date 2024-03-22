@@ -176,10 +176,11 @@ class NGPNerf(nn.Module):
             feature_dim=self.hash_table_feature_dim
         )(position)
         x = encoded_position
-
+        print('x shape pre ff', x.shape)
         x = FeedForward(
             num_layers=1, hidden_dim=self.density_mlp_width, output_dim=16, activation=nn.relu
         )(x)
+        print('x shape pre dense', x.shape)
         density = x[:, 0:1]
         if self.exponential_density_activation: density = trunc_exp(density)
         else: density = nn.relu(density)

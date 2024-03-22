@@ -10,8 +10,7 @@ import numpy as np
 import optax
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from fields.common.nn import FeedForward, fourth_order_sh_encoding, trunc_exp
-from fields.common.nn_cuda import TcnnMultiResolutionHashEncoding
+from fields.common.nn import FeedForward, MultiResolutionHashEncoding, fourth_order_sh_encoding, trunc_exp
 from fields.common.dataset import NerfDataset, load_nerf_dataset
 from fields.common.matrices import get_z_axis_camera_orbit_matrix
 from volrendjax import \
@@ -169,7 +168,7 @@ class NGPNerf(nn.Module):
     def __call__(self, x):
         position, direction = x
         position = (position + self.scene_bound) / (2.0 * self.scene_bound)
-        encoded_position = TcnnMultiResolutionHashEncoding(
+        encoded_position = MultiResolutionHashEncoding(
             table_size=self.max_hash_table_entries,
             num_levels=self.number_of_grid_levels,
             min_resolution=self.coarsest_resolution,

@@ -62,6 +62,7 @@
                         pillow
                         datasets
                         wandb
+                        matplotlib
                         unstableCudaPkgs.volume-rendering-jax
                         unstableCudaPkgs.serde-helper
                     ]))

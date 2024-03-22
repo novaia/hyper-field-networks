@@ -11,13 +11,13 @@ let
             (filterAttrs
                 (name: type: type == "directory" && name != "_sources")
                 (readDir basedir));
-    # Compute capability, used for building tiny-cuda-nn
-    # NOTE: removing unused compute capabilities will build faster, GPUs and their compute
-    # capabilities can be found at:
-    #   <https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/>
-    # All the compute capabilities since `5.0`. REF: <https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#features-and-technical-specifications-technical-specifications-per-compute-capability>
+    # Compute capability, used for building tiny-cuda-nn,
+    # NOTE: removing unused compute capabilities will build faster. 
+    # GPUs and their compute capabilities can be found at:
+    # https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards
+    # All the compute capabilities since `5.0`. REF: 
+    # https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#features-and-technical-specifications-technical-specifications-per-compute-capability
     cudaCapabilities = [
-        # /nix/store/hsbbv8a72hwjrka8igd7hk66skvi03rp-cudatoolkit-11.7.0-unsplit/bin/nvcc --list-gpu-arch
         "3.5"
         "3.7"
         "5.0"
@@ -32,9 +32,8 @@ let
         "8.0"
         "8.6"
         "8.7"
-        ## the two compute capabilities below require newer nvcc (this environment uses CUDA 11.7)
-        # "8.9"
-        # "9.0"
+        "8.9"
+        "9.0"
     ];
 in {
     inherit filterAttrs;

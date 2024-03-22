@@ -1,5 +1,6 @@
 import chex
 import jax
+from jax.core import ShapedArray
 import jax.numpy as jnp
 
 
@@ -36,10 +37,9 @@ def integrate_rays_abstract(
     }
 
     return (
-        jax.ShapedArray(shape=shapes["helper.measured_batch_size"], dtype=jnp.uint32),
-
-        jax.ShapedArray(shape=shapes["out.final_rgbds"], dtype=jnp.float32),
-        jax.ShapedArray(shape=shapes["out.final_opacities"], dtype=jnp.float32),
+        ShapedArray(shape=shapes["helper.measured_batch_size"], dtype=jnp.uint32),
+        ShapedArray(shape=shapes["out.final_rgbds"], dtype=jnp.float32),
+        ShapedArray(shape=shapes["out.final_opacities"], dtype=jnp.float32),
     )
 
 def integrate_rays_backward_abstract(
@@ -87,22 +87,22 @@ def integrate_rays_backward_abstract(
     }
 
     return (
-        jax.ShapedArray(shape=out_shapes["dL_dbgs"], dtype=jnp.float32),
-        jax.ShapedArray(shape=out_shapes["dL_dz_vals"], dtype=jnp.float32),
-        jax.ShapedArray(shape=out_shapes["dL_ddrgbs"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["dL_dbgs"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["dL_dz_vals"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["dL_ddrgbs"], dtype=jnp.float32),
     )
 
 
 def integrate_rays_inference_abstract(
-    rays_bg: jax.ShapedArray,
-    rays_rgbd: jax.ShapedArray,
-    rays_T: jax.ShapedArray,
+    rays_bg: ShapedArray,
+    rays_rgbd: ShapedArray,
+    rays_T: ShapedArray,
 
-    n_samples: jax.ShapedArray,
-    indices: jax.ShapedArray,
-    dss: jax.ShapedArray,
-    z_vals: jax.ShapedArray,
-    drgbs: jax.ShapedArray,
+    n_samples: ShapedArray,
+    indices: ShapedArray,
+    dss: ShapedArray,
+    z_vals: ShapedArray,
+    drgbs: ShapedArray,
 ):
     (n_total_rays, _), (n_rays, march_steps_cap) = rays_rgbd.shape, dss.shape
 
@@ -121,8 +121,8 @@ def integrate_rays_inference_abstract(
     }
 
     return (
-        jax.ShapedArray(shape=out_shapes["terminate_cnt"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=out_shapes["terminated"], dtype=jnp.bool_),
-        jax.ShapedArray(shape=out_shapes["rays_rgbd"], dtype=jnp.float32),
-        jax.ShapedArray(shape=out_shapes["rays_T"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["terminate_cnt"], dtype=jnp.uint32),
+        ShapedArray(shape=out_shapes["terminated"], dtype=jnp.bool_),
+        ShapedArray(shape=out_shapes["rays_rgbd"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["rays_T"], dtype=jnp.float32),
     )

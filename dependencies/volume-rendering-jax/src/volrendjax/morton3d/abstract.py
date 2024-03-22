@@ -1,11 +1,12 @@
 import jax
+from jax.core import ShapedArray
 import jax.numpy as jnp
 
 
 # jit rules
 def morton3d_abstract(
     # input array
-    xyzs: jax.ShapedArray,
+    xyzs: ShapedArray,
 ):
     length, _ = xyzs.shape
 
@@ -21,12 +22,12 @@ def morton3d_abstract(
         "idcs": (length,),
     }
 
-    return jax.ShapedArray(shape=out_shapes["idcs"], dtype=jnp.uint32)
+    return ShapedArray(shape=out_shapes["idcs"], dtype=jnp.uint32)
 
 
 def morton3d_invert_abstract(
     # input array
-    idcs: jax.ShapedArray,
+    idcs: ShapedArray,
 ):
     length, = idcs.shape
 
@@ -42,4 +43,4 @@ def morton3d_invert_abstract(
         "xyzs": (length, 3),
     }
 
-    return jax.ShapedArray(shape=out_shapes["xyzs"], dtype=jnp.uint32)
+    return ShapedArray(shape=out_shapes["xyzs"], dtype=jnp.uint32)

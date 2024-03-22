@@ -1,17 +1,17 @@
 import chex
 import jax
+from jax.core import ShapedArray
 import jax.numpy as jnp
-
 
 # jit rules
 def march_rays_abstract(
     # arrays
-    rays_o: jax.ShapedArray,
-    rays_d: jax.ShapedArray,
-    t_starts: jax.ShapedArray,
-    t_ends: jax.ShapedArray,
-    noises: jax.ShapedArray,
-    occupancy_bitfield: jax.ShapedArray,
+    rays_o: ShapedArray,
+    rays_d: ShapedArray,
+    t_starts: ShapedArray,
+    t_ends: ShapedArray,
+    noises: ShapedArray,
+    occupancy_bitfield: ShapedArray,
 
     # static args
     total_samples: int,
@@ -59,29 +59,29 @@ def march_rays_abstract(
     }
 
     return (
-        jax.ShapedArray(shape=shapes["helper.next_sample_write_location"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=shapes["helper.number_of_exceeded_samples"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=shapes["helper.ray_is_valid"], dtype=jnp.bool_),
-        jax.ShapedArray(shape=shapes["out.rays_n_samples"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=shapes["out.rays_sample_startidx"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=shapes["out.idcs"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=shapes["out.xyzs"], dtype=jnp.float32),
-        jax.ShapedArray(shape=shapes["out.dirs"], dtype=jnp.float32),
-        jax.ShapedArray(shape=shapes["out.dss"], dtype=jnp.float32),
-        jax.ShapedArray(shape=shapes["out.z_vals"], dtype=jnp.float32),
+        ShapedArray(shape=shapes["helper.next_sample_write_location"], dtype=jnp.uint32),
+        ShapedArray(shape=shapes["helper.number_of_exceeded_samples"], dtype=jnp.uint32),
+        ShapedArray(shape=shapes["helper.ray_is_valid"], dtype=jnp.bool_),
+        ShapedArray(shape=shapes["out.rays_n_samples"], dtype=jnp.uint32),
+        ShapedArray(shape=shapes["out.rays_sample_startidx"], dtype=jnp.uint32),
+        ShapedArray(shape=shapes["out.idcs"], dtype=jnp.uint32),
+        ShapedArray(shape=shapes["out.xyzs"], dtype=jnp.float32),
+        ShapedArray(shape=shapes["out.dirs"], dtype=jnp.float32),
+        ShapedArray(shape=shapes["out.dss"], dtype=jnp.float32),
+        ShapedArray(shape=shapes["out.z_vals"], dtype=jnp.float32),
     )
 
 
 def march_rays_inference_abstract(
     # arrays
-    rays_o: jax.ShapedArray,
-    rays_d: jax.ShapedArray,
-    t_starts: jax.ShapedArray,
-    t_ends: jax.ShapedArray,
-    occupancy_bitfield: jax.ShapedArray,
-    next_ray_index: jax.ShapedArray,
-    terminated: jax.ShapedArray,
-    indices_in: jax.ShapedArray,
+    rays_o: ShapedArray,
+    rays_d: ShapedArray,
+    t_starts: ShapedArray,
+    t_ends: ShapedArray,
+    occupancy_bitfield: ShapedArray,
+    next_ray_index: ShapedArray,
+    terminated: ShapedArray,
+    indices_in: ShapedArray,
 
     # static args
     diagonal_n_steps: int,
@@ -111,11 +111,11 @@ def march_rays_inference_abstract(
     }
 
     return (
-        jax.ShapedArray(shape=out_shapes["next_ray_index"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=out_shapes["indices_out"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=out_shapes["n_samples"], dtype=jnp.uint32),
-        jax.ShapedArray(shape=out_shapes["t_starts"], dtype=jnp.float32),
-        jax.ShapedArray(shape=out_shapes["xyzs"], dtype=jnp.float32),
-        jax.ShapedArray(shape=out_shapes["dss"], dtype=jnp.float32),
-        jax.ShapedArray(shape=out_shapes["z_vals"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["next_ray_index"], dtype=jnp.uint32),
+        ShapedArray(shape=out_shapes["indices_out"], dtype=jnp.uint32),
+        ShapedArray(shape=out_shapes["n_samples"], dtype=jnp.uint32),
+        ShapedArray(shape=out_shapes["t_starts"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["xyzs"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["dss"], dtype=jnp.float32),
+        ShapedArray(shape=out_shapes["z_vals"], dtype=jnp.float32),
     )

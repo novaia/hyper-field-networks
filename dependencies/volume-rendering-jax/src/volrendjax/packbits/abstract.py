@@ -1,13 +1,14 @@
 import chex
 import jax
+from jax.core import ShapedArray
 import jax.numpy as jnp
 
 
 # jit rules
 def pack_density_into_bits_abstract(
     # input array
-    density_threshold: jax.ShapedArray,
-    density_grid: jax.ShapedArray,
+    density_threshold: ShapedArray,
+    density_grid: ShapedArray,
 ):
     chex.assert_rank([density_threshold, density_grid], 1)
     chex.assert_shape(density_threshold, density_grid.shape)
@@ -33,6 +34,6 @@ def pack_density_into_bits_abstract(
         "occupancy_bitfield": (n_bytes,),
     }
     return (
-        jax.ShapedArray(out_shapes["occupied_mask"], jnp.bool_),
-        jax.ShapedArray(out_shapes["occupancy_bitfield"], jnp.uint8),
+        ShapedArray(out_shapes["occupied_mask"], jnp.bool_),
+        ShapedArray(out_shapes["occupancy_bitfield"], jnp.uint8),
     )

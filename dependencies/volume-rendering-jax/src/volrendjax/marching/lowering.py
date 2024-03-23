@@ -2,25 +2,8 @@ from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
 from volrendjax import volrendutils_cuda
-
-def _default_layouts(*shapes):
-    return [range(len(shape) - 1, -1, -1) for shape in shapes]
-
-def get_ir_tensor_info(tensor):
-    tensor_type = ir.RankedTensorType(tensor.type)
-    tensor_shape = tensor_type.shape
-    return tensor_type, tensor_shape
-
-def make_ir_tensor_info(shape, element_type: str):
-    ir_element_type_map = {
-        'uint32': ir.IntegerType.get_unsigned(32),
-        'bool': ir.IntegerType.get_signless(1),
-        'fp32': ir.F32Type.get()
-    }
-    assert element_type in ir_element_type_map.keys(), (
-        f'Invalid element type {element_type}. Must be one of: {element_type.keys()}'
-    )
-    return ir.RankedTensorType.get(shape, ir_element_type_map[element_type]), shape
+from volrendjax.lowering_helper import \
+    _default_layouts, _get_ir_tensor_info, _make_ir_tensor_info
 
 def _march_rays_cuda_lowering_rule(
     ctx: mlir.LoweringRule,
@@ -34,12 +17,12 @@ def _march_rays_cuda_lowering_rule(
         n_rays, total_samples, diagonal_n_steps, K, G, bound, stepsize_portion,
     )
     
-    rays_o_type, rays_o_shape = get_ir_tensor_info(rays_o)
-    rays_d_type, rays_d_shape = get_ir_tensor_info(rays_d)
-    t_starts_type, t_starts_shape = get_ir_tensor_info(t_starts)
-    t_ends_type, t_ends_shape = get_ir_tensor_info(t_ends)
-    noises_type, noises_shape = get_ir_tensor_info(noises)
-    occupancy_bitfield_type, occupancy_bitfield_shape = get_ir_tensor_info(occupancy_bitfield)
+    rays_o_type, rays_o_shape = _get_ir_tensor_info(rays_o)
+    rays_d_type, rays_d_shape = _get_ir_tensor_info(rays_d)
+    t_starts_type, t_starts_shape = _get_ir_tensor_info(t_starts)
+    t_ends_type, t_ends_shape = _get_ir_tensor_info(t_ends)
+    noises_type, noises_shape = _get_ir_tensor_info(noises)
+    occupancy_bitfield_type, occupancy_bitfield_shape = _get_ir_tensor_info(occupancy_bitfield)
     
     operands = [rays_o, rays_d, t_starts, t_ends, noises, occupancy_bitfield]
     operand_shapes = [
@@ -47,16 +30,16 @@ def _march_rays_cuda_lowering_rule(
         noises_shape, occupancy_bitfield_shape
     ]
     
-    next_sample_write_location_type, next_sample_write_location_shape = make_ir_tensor_info((1,), 'uint32')
-    num_exceeded_samples_type, num_exceeded_samples_shape = make_ir_tensor_info((1,), 'uint32')
-    ray_is_valid_type, ray_is_valid_shape = make_ir_tensor_info((n_rays,), 'bool')
-    rays_n_samples_type, rays_n_samples_shape = make_ir_tensor_info((n_rays,), 'uint32')
-    rays_sample_startidx_type, rays_sample_start_idx_shape = make_ir_tensor_info((n_rays,), 'uint32')
-    idcs_type, idcs_shape = make_ir_tensor_info((total_samples,), 'uint32')
-    xyzs_type, xyzs_shape = make_ir_tensor_info((total_samples, 3), 'fp32')
-    dirs_type, dirs_shape = make_ir_tensor_info((total_samples, 3), 'fp32')
-    dss_type, dss_shape = make_ir_tensor_info((total_samples,), 'fp32')
-    z_vals_type, z_vals_shape = make_ir_tensor_info((total_samples,), 'fp32')
+    next_sample_write_location_type, next_sample_write_location_shape = _make_ir_tensor_info((1,), 'uint32')
+    num_exceeded_samples_type, num_exceeded_samples_shape = _make_ir_tensor_info((1,), 'uint32')
+    ray_is_valid_type, ray_is_valid_shape = _make_ir_tensor_info((n_rays,), 'bool')
+    rays_n_samples_type, rays_n_samples_shape = _make_ir_tensor_info((n_rays,), 'uint32')
+    rays_sample_startidx_type, rays_sample_start_idx_shape = _make_ir_tensor_info((n_rays,), 'uint32')
+    idcs_type, idcs_shape = _make_ir_tensor_info((total_samples,), 'uint32')
+    xyzs_type, xyzs_shape = _make_ir_tensor_info((total_samples, 3), 'fp32')
+    dirs_type, dirs_shape = _make_ir_tensor_info((total_samples, 3), 'fp32')
+    dss_type, dss_shape = _make_ir_tensor_info((total_samples,), 'fp32')
+    z_vals_type, z_vals_shape = _make_ir_tensor_info((total_samples,), 'fp32')
     
     result_types = [
         next_sample_write_location_type, num_exceeded_samples_type, ray_is_valid_type,

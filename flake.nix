@@ -25,9 +25,9 @@
                                 passthru.tests = [];
                                 doCheck = false;
                             });
-                            # For some reason Flax has jaxlib as a builtInput and tensorflow as a nativeCheckInput,
-                            # so set jaxlib to jaxlib-bin in order to avoid building jaxlib and turn off all checks
-                            # to avoid building tensorflow.
+                            # For some reason Flax has jaxlib as a buildInput and tensorflow as a 
+                            # nativeCheckInput, so set jaxlib to jaxlib-bin in order to avoid building 
+                            # jaxlib and turn off all checks to avoid building tensorflow.
                             jaxlib = prevPkgs.jaxlib-bin;
                             flax = prevPkgs.flax.overridePythonAttrs (o: {
                                 nativeCheckInputs = [];

@@ -6,32 +6,18 @@ Use PyTest to run the tests in the tests directory:
 ```
 pytest tests
 ```
-
 ## Development Environment
-It is recommended to use the Docker development environment.
-The Nix development environment is currently experimental.
-
-### Nix
-Entering development shell:
+This project's development environment is managed with Nix. You can follow the steps below to get started.
+1. Install Nix with the [official installer](https://nixos.org/download/) or the [determinate installer](https://github.com/DeterminateSystems/nix-installer).
+2. Enable the experimental Nix Flakes feature by adding the following line to ``~/.config/nix/nix.conf`` or ``/etc/nix/nix.conf`` 
+(this step can be skipped if you installed nix with the [determinate installer](https://github.com/DeterminateSystems/nix-installer)).
 ```
-bash devshell.sh
+experimental-features = nix-command flakes
 ```
-
-### Docker
-Building image:
+3. Run the following command to open a development shell with all the dependencies installed.
 ```
-bash docker_build.sh
+nix develop
 ```
-
-Running the container:
-```
-bash docker_run.sh
-```
-
-To open VS Code inside the container, first make sure you have the Dev Containers extension installed and have the container running.
-Next, open the root of the repository in VS Code and select ``Dev Containers: Attach to Running Container`` from the command palette,
-then select the container you want to attach to. See [attach to a running container](https://code.visualstudio.com/docs/remote/attach-container) 
-for more details.
 
 ## Citations
 ```bibtex

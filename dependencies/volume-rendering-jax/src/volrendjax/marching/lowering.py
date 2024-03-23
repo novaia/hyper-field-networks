@@ -76,7 +76,7 @@ def _march_rays_cuda_lowering_rule(
         backend_config=opaque,
         operand_layouts=_default_layouts(*operand_shapes),
         result_layouts=_default_layouts(*result_shapes)
-    )
+    ).results
     return out
 
 

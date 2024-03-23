@@ -174,5 +174,5 @@ def march_rays_inference_lowering_rule(
             shapes["out.dss"],
             shapes["out.z_vals"],
         ),
-    )
+    ).results
     return out

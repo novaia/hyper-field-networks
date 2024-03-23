@@ -68,7 +68,7 @@ def integrate_rays_lowering_rule(
             shapes["out.final_rgbds"],
             shapes["out.final_opacities"],
         ),
-    )
+    ).results
     return out
 
 
@@ -118,7 +118,7 @@ def integrate_rays_backward_lowring_rule(
         "out.dL_ddrgbs": (total_samples, 4),
     }
 
-    return custom_call(
+    out = custom_call(
         call_target_name="integrate_rays_backward",
         result_types=[
             ir.RankedTensorType.get(shapes["out.dL_dbgs"], ir.F32Type.get()),
@@ -158,7 +158,8 @@ def integrate_rays_backward_lowring_rule(
             shapes["out.dL_dz_vals"],
             shapes["out.dL_ddrgbs"],
         ),
-    )
+    ).results
+    return out
 
 
 def integrate_rays_inference_lowering_rule(
@@ -196,7 +197,7 @@ def integrate_rays_inference_lowering_rule(
         "out.rays_T": (n_rays,),
     }
 
-    return custom_call(
+    out = custom_call(
         call_target_name="integrate_rays_inference",
         result_types=[
             ir.RankedTensorType.get(shapes["out.terminate_cnt"], ir.IntegerType.get_unsigned(32)),
@@ -233,4 +234,5 @@ def integrate_rays_inference_lowering_rule(
             shapes["out.rays_rgbd"],
             shapes["out.rays_T"],
         ),
-    )
+    ).results
+    return out

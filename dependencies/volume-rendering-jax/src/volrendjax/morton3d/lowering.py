@@ -23,7 +23,7 @@ def morton3d_lowering_rule(
         "out.idcs": (length,),
     }
 
-    return [custom_call(
+    out = custom_call(
         call_target_name="morton3d",
         result_types=[
             ir.RankedTensorType.get(shapes["out.idcs"], ir.IntegerType.get_unsigned(32)),
@@ -38,8 +38,8 @@ def morton3d_lowering_rule(
         result_layouts=default_layouts(
             shapes["out.idcs"],
         ),
-    )]
-
+    ).results
+    return out
 
 def morton3d_invert_lowering_rule(
     ctx: mlir.LoweringRule,
@@ -57,7 +57,7 @@ def morton3d_invert_lowering_rule(
         "out.xyzs": (length, 3),
     }
 
-    return [custom_call(
+    out = custom_call(
         call_target_name="morton3d_invert",
         result_types=[
             ir.RankedTensorType.get(shapes["out.xyzs"], ir.IntegerType.get_unsigned(32)),
@@ -72,4 +72,5 @@ def morton3d_invert_lowering_rule(
         result_layouts=default_layouts(
             shapes["out.xyzs"],
         ),
-    )]
+    ).results
+    return out

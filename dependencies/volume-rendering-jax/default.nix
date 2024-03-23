@@ -53,11 +53,10 @@ buildPythonPackage rec {
         export CUDAHOSTCXX=${gcc12}/bin/g++
     '';
 
-    #preFixup = ''
-    #    patchelf --set-rpath \ 
-    #        "${lib.makeLibraryPath buildInputs}" \
-    #        $out/lib/python${python3.pythonVersion}/site-packages/volrendjax/*.so
-    #'';
+    preFixup = ''
+        patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" \
+            $out/lib/python${python3.pythonVersion}/site-packages/volrendjax/*.so
+    '';
 
     doCheck = false;
     pythonImportsCheck = [ "volrendjax" ];

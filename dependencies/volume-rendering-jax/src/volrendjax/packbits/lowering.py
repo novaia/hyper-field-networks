@@ -45,5 +45,5 @@ def packbits_lowering_rule(
             shapes["out.occupied_mask"],
             shapes["out.occupancy_bitfield"],
         ),
-    )
+    ).results
     return out

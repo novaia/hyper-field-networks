@@ -113,7 +113,9 @@ def update_occupancy_grid_densities(
     )
     
     # [num_updated_entries,]
-    updated_densities = jnp.ravel(state.apply_fn({'params': state.params}, (coordinates,None)))
+    updated_densities = jnp.ravel(
+        jax.jit(state.apply_fn)({'params': state.params}, (coordinates,None))
+    )
     updated_densities = jnp.maximum(decayed_densities[updated_indices], updated_densities)
     # [num_grid_entries,]
     updated_densities = decayed_densities.at[updated_indices].set(updated_densities)

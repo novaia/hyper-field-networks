@@ -41,7 +41,7 @@ def _march_rays_cuda_lowering_rule(
     noises_type, noises_shape = get_ir_tensor_info(noises)
     occupancy_bitfield_type, occupancy_bitfield_shape = get_ir_tensor_info(occupancy_bitfield)
     
-    operands = [noises, rays_d, t_starts, t_ends, noises, occupancy_bitfield]
+    operands = [rays_o, rays_d, t_starts, t_ends, noises, occupancy_bitfield]
     operand_shapes = [
         rays_o_shape, rays_d_shape, t_starts_shape, t_ends_shape, 
         noises_shape, occupancy_bitfield_shape

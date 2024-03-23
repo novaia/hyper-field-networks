@@ -1,26 +1,38 @@
-from typing import Tuple
-
 import jax
-import jax.numpy as jnp
+from jax import core
+from jax import numpy as jnp
+from jax.lib import xla_client
+from jax.interpreters import xla, mlir
 
-from . import impl
+from volrendjax import volrendutils_cuda
+from volrendjax.marching import lowering
+from volrendjax.marching import abstract
+
+from typing import Tuple
+from functools import partial
+
+# Register cpp functions as custom call target for GPUs.
+for name, value in volrendutils_cuda.get_marching_registrations().items():
+    xla_client.register_custom_call_target(name, value, platform="gpu")
+
+# Create and lower main primitive.
+_march_rays_p = core.Primitive('march_rays')
+_march_rays_p.multiple_results = True
+_march_rays_p.def_impl(partial(xla.apply_primitive, _march_rays_p))
+mlir.register_lowering(
+    prim=_march_rays_p, 
+    rule=lowering._march_rays_cuda_lowering_rule, 
+    platform='gpu'
+)
+_march_rays_p.def_abstract_eval(abstract._march_rays_abstract)
 
 def march_rays(
-    # static
-    total_samples: int,
-    diagonal_n_steps: int,
-    K: int,
-    G: int,
-    bound: float,
+    # Static.
+    total_samples: int, diagonal_n_steps: int, K: int, G: int, bound: float, 
     stepsize_portion: float,
-
-    # inputs
-    rays_o: jax.Array,
-    rays_d: jax.Array,
-    t_starts: jax.Array,
-    t_ends: jax.Array,
-    noises: jax.Array,
-    occupancy_bitfield: jax.Array,
+    # Inputs.
+    rays_o: jax.Array, rays_d: jax.Array, t_starts: jax.Array, t_ends: jax.Array,
+    noises: jax.Array, occupancy_bitfield: jax.Array,
 ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
     """
     Given a pack of rays (`rays_o`, `rays_d`), their intersection time with the scene bounding box
@@ -69,17 +81,17 @@ def march_rays(
     """
     n_rays, _ = rays_o.shape
     noises = jnp.broadcast_to(noises, (n_rays,))
-
-    next_sample_write_location, number_of_exceeded_samples, ray_is_valid, rays_n_samples, rays_sample_startidx, idcs, xyzs, dirs, dss, z_vals = impl.march_rays_p.bind(
-        # arrays
+    (
+        next_sample_write_location, number_of_exceeded_samples, 
+        ray_is_valid, rays_n_samples, rays_sample_startidx, 
+        idcs, xyzs, dirs, dss, z_vals
+    ) = _march_rays_p.bind(
         rays_o,
         rays_d,
         t_starts,
         t_ends,
         noises,
         occupancy_bitfield,
-
-        # static args
         total_samples=total_samples,
         diagonal_n_steps=diagonal_n_steps,
         K=K,
@@ -87,10 +99,12 @@ def march_rays(
         bound=bound,
         stepsize_portion=stepsize_portion,
     )
+    pre_compaction_batch_size = next_sample_write_location[0] - number_of_exceeded_samples[0]
 
-    measured_batch_size_before_compaction = next_sample_write_location[0] - number_of_exceeded_samples[0]
-
-    return measured_batch_size_before_compaction, ray_is_valid, rays_n_samples, rays_sample_startidx, idcs, xyzs, dirs, dss, z_vals
+    return (
+        pre_compaction_batch_size, ray_is_valid, rays_n_samples, 
+        rays_sample_startidx, idcs, xyzs, dirs, dss, z_vals
+    )
 
 
 def march_rays_inference(

@@ -3,22 +3,10 @@ import jax
 from jax.core import ShapedArray
 import jax.numpy as jnp
 
-# jit rules
-def march_rays_abstract(
-    # arrays
-    rays_o: ShapedArray,
-    rays_d: ShapedArray,
-    t_starts: ShapedArray,
-    t_ends: ShapedArray,
-    noises: ShapedArray,
-    occupancy_bitfield: ShapedArray,
-
-    # static args
-    total_samples: int,
-    diagonal_n_steps: int,
-    K: int,
-    G: int,
-    bound: float,
+def _march_rays_abstract(
+    rays_o: ShapedArray, rays_d: ShapedArray, t_starts: ShapedArray, t_ends: ShapedArray,
+    noises: ShapedArray, occupancy_bitfield: ShapedArray,
+    total_samples: int, diagonal_n_steps: int, K: int, G: int, bound: float,
     stepsize_portion: float,
 ):
     n_rays, _ = rays_o.shape
@@ -39,9 +27,8 @@ def march_rays_abstract(
     dtype = jax.dtypes.canonicalize_dtype(rays_o.dtype)
     if dtype != jnp.float32:
         raise NotImplementedError(
-            "march_rays is only implemented for input coordinates of `jnp.float32` type, got {}".format(
-                dtype,
-            )
+            "march_rays is only implemented for input coordinates"
+            "of `jnp.float32` type, got {}".format(dtype)
         )
 
     shapes = {
@@ -70,7 +57,6 @@ def march_rays_abstract(
         ShapedArray(shape=shapes["out.dss"], dtype=jnp.float32),
         ShapedArray(shape=shapes["out.z_vals"], dtype=jnp.float32),
     )
-
 
 def march_rays_inference_abstract(
     # arrays

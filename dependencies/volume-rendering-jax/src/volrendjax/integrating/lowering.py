@@ -39,7 +39,7 @@ def integrate_rays_lowering_rule(
         "out.final_opacities": (n_rays,),
     }
 
-    return custom_call(
+    out = custom_call(
         call_target_name="integrate_rays",
         result_types=[
             ir.RankedTensorType.get(shapes["helper.measured_batch_size"], ir.IntegerType.get_unsigned(32)),
@@ -69,6 +69,7 @@ def integrate_rays_lowering_rule(
             shapes["out.final_opacities"],
         ),
     )
+    return out
 
 
 def integrate_rays_backward_lowring_rule(

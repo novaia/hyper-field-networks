@@ -13,9 +13,9 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/lib)
 include_directories(${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 pybind11_add_module(
     cuda_ffi
-    ${CMAKE_CURRENT_LIST_DIR}/csrc/impl/packbits.cu
-    ${CMAKE_CURRENT_LIST_DIR}/csrc/impl/marching.cu
-    ${CMAKE_CURRENT_LIST_DIR}/csrc/impl/integrating.cu
+    ${CMAKE_CURRENT_LIST_DIR}/csrc/packbits.cu
+    ${CMAKE_CURRENT_LIST_DIR}/csrc/marching.cu
+    ${CMAKE_CURRENT_LIST_DIR}/csrc/integrating.cu
     ${CMAKE_CURRENT_LIST_DIR}/csrc/ffi.cc
 )
 target_link_libraries(cuda_ffi PRIVATE fmt::fmt)

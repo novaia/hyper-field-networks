@@ -5,7 +5,7 @@
 #include <serde-helper/serde.h>
 #include <stdexcept>
 
-#include "impl/volrend.h"
+#include "volrend.h"
 
 namespace volrendjax {
 

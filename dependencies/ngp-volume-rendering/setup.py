@@ -81,9 +81,9 @@ extensions = [
         [  
             # Source paths, relative to this setup.py file.
             "csrc/ffi.cc",
-            "csrc/impl/packbits.cu",
-            "csrc/impl/marching.cu",
-            "csrc/impl/integrating.cu",
+            "csrc/packbits.cu",
+            "csrc/marching.cu",
+            "csrc/integrating.cu",
         ],
     ),
 ]

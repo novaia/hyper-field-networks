@@ -10,6 +10,7 @@ def _get_ir_tensor_info(tensor):
 
 def _make_ir_tensor_info(shape, element_type: str):
     ir_element_type_map = {
+        'uint8': ir.IntegerType.get_unsigned(8),
         'uint32': ir.IntegerType.get_unsigned(32),
         'bool': ir.IntegerType.get_signless(1),
         'fp32': ir.F32Type.get()

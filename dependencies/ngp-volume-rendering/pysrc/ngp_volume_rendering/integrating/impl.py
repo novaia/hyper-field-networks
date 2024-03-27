@@ -1,13 +1,13 @@
 import jax
 from jax.interpreters import mlir, xla
 from jax.lib import xla_client
-from volrendjax.integrating import abstract, lowering
-from volrendjax import volrendutils_cuda
+from ngp_volume_rendering.integrating import abstract, lowering
+from ngp_volume_rendering import cuda_ffi
 from functools import partial
 from typing import Tuple
 
 # Register GPU XLA custom calls.
-for name, value in volrendutils_cuda.get_integrating_registrations().items():
+for name, value in cuda_ffi.get_integrating_registrations().items():
     xla_client.register_custom_call_target(name, value, platform="gpu")
 
 integrate_rays_p = jax.core.Primitive("integrate_rays")

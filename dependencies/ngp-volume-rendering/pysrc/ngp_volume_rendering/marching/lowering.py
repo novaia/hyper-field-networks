@@ -1,8 +1,8 @@
 from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
-from volrendjax import volrendutils_cuda
-from volrendjax.lowering_helper import \
+from ngp_volume_rendering import cuda_ffi 
+from ngp_volume_rendering.lowering_helper import \
     _default_layouts, _get_ir_tensor_info, _make_ir_tensor_info
 
 def _march_rays_cuda_lowering_rule(
@@ -12,7 +12,7 @@ def _march_rays_cuda_lowering_rule(
     total_samples: int, diagonal_n_steps: int, K: int, G: int, bound: float, stepsize_portion: float,
 ):
     n_rays, _ = ir.RankedTensorType(rays_o.type).shape
-    opaque = volrendutils_cuda.make_marching_descriptor(
+    opaque = cuda_ffi.make_marching_descriptor(
         n_rays, total_samples, diagonal_n_steps, K, G, bound, stepsize_portion,
     )
     
@@ -71,7 +71,7 @@ def _march_rays_inference_lowering_rule(
 ):
     n_total_rays, _ = ir.RankedTensorType(rays_o.type).shape
     n_rays = ir.RankedTensorType(terminated.type).shape
-    opaque = volrendutils_cuda.make_marching_inference_descriptor(
+    opaque = cuda_ffi.make_marching_inference_descriptor(
         n_total_rays, n_rays, diagonal_n_steps, K, G, march_steps_cap, bound, stepsize_portion,
     )
     

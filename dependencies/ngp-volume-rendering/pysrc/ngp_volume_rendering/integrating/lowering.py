@@ -1,8 +1,8 @@
 from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
-from volrendjax import volrendutils_cuda
-from volrendjax.lowering_helper import \
+from ngp_volume_rendering import cuda_ffi
+from ngp_volume_rendering.lowering_helper import \
     _default_layouts, _get_ir_tensor_info, _make_ir_tensor_info
 
 def integrate_rays_lowering_rule(
@@ -25,7 +25,7 @@ def integrate_rays_lowering_rule(
     
     n_rays, = rays_sample_start_idx_shape
     total_samples, = z_vals_shape
-    opaque = volrendutils_cuda.make_integrating_descriptor(n_rays, total_samples)
+    opaque = cuda_ffi.make_integrating_descriptor(n_rays, total_samples)
 
     measured_batch_size_type, measured_batch_size_shape = _make_ir_tensor_info((1,), 'uint32')
     final_rgbds_type, final_rgbds_shape = _make_ir_tensor_info((n_rays, 4), 'fp32')
@@ -77,7 +77,7 @@ def integrate_rays_backward_lowring_rule(
 
     n_rays, = rays_sample_start_idx_shape
     total_samples, = z_vals_shape
-    opaque = volrendutils_cuda.make_integrating_backward_descriptor(
+    opaque = cuda_ffi.make_integrating_backward_descriptor(
         n_rays, total_samples, near_distance
     )
 
@@ -120,7 +120,7 @@ def integrate_rays_inference_lowering_rule(
     
     n_total_rays, _ = rays_rgbd_shape
     n_rays, march_steps_cap = dss_shape
-    opaque = volrendutils_cuda.make_integrating_inference_descriptor(
+    opaque = cuda_ffi.make_integrating_inference_descriptor(
         n_total_rays, n_rays, march_steps_cap
     )
 

@@ -1,12 +1,12 @@
 import jax
 from jax.interpreters import mlir, xla
 from jax.lib import xla_client
-from volrendjax.packbits import abstract, lowering
-from volrendjax import volrendutils_cuda
+from ngp_volume_rendering.packbits import abstract, lowering
+from ngp_volume_rendering import cuda_ffi 
 from functools import partial
 
 # Register GPU XLA custom calls.
-for name, value in volrendutils_cuda.get_packbits_registrations().items():
+for name, value in cuda_ffi.get_packbits_registrations().items():
     xla_client.register_custom_call_target(name, value, platform="gpu")
 
 packbits_p = jax.core.Primitive("packbits")

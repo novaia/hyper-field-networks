@@ -1,6 +1,6 @@
 import jax
 from typing import Tuple
-from volrendjax.integrating import impl
+from ngp_volume_rendering.integrating import impl
 
 # This function is a wrapper on top of __integrate_rays which has custom vjp 
 # (wrapping the __integrate_rays function because the @jax.custom_vjp decorator 

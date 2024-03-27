@@ -76,22 +76,24 @@ class CMakeBuildExt(build_ext):
 
 extensions = [
     Extension(
-        "volrendjax.volrendutils_cuda",  # Python dotted name, whose final component should be a buildable target defined in CMakeLists.txt
-        [  # source paths, relative to this setup.py file
-            "lib/ffi.cc",
-            "lib/impl/packbits.cu",
-            "lib/impl/marching.cu",
-            "lib/impl/integrating.cu",
+        # Python dotted name, whose final component should be a buildable target defined in CMakeLists.txt.
+        "ngp_volume_rendering.cuda_ffi",
+        [  
+            # Source paths, relative to this setup.py file.
+            "csrc/ffi.cc",
+            "csrc/impl/packbits.cu",
+            "csrc/impl/marching.cu",
+            "csrc/impl/integrating.cu",
         ],
     ),
 ]
 
 setup(
-    name="volume-rendering-jax",
+    name="ngp-volume-rendering",
     author="blurgyy",
     license="Apache License, Version 2.0",
-    package_dir={"": "src"},
-    packages=find_packages("src"),
+    package_dir={"": "pysrc"},
+    packages=find_packages("pysrc"),
     include_package_data=True,
     install_requires=["jax", "jaxlib", "chex"],
     ext_modules=extensions,

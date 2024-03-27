@@ -50,7 +50,7 @@ pybind11::dict get_integrating_registrations() {
     return dict;
 }
 
-PYBIND11_MODULE(volrendutils_cuda, m) {
+PYBIND11_MODULE(cuda_ffi, m) {
     m.def("get_packbits_registrations", &get_packbits_registrations);
     m.def("make_packbits_descriptor",
           [](std::uint32_t const n_bytes) {

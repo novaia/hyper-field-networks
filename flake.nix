@@ -63,7 +63,7 @@
                         datasets
                         wandb
                         matplotlib
-                        unstableCudaPkgs.volume-rendering-jax
+                        unstableCudaPkgs.ngp-volume-rendering
                         unstableCudaPkgs.serde-helper
                     ]))
                     unstableCudaPkgs.gcc12

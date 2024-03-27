@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from volrendjax.packbits import impl
+from ngp_volume_rendering.packbits import impl
 from typing import Tuple
 
 def packbits(

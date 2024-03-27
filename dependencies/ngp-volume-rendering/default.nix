@@ -18,7 +18,7 @@
 }:
 
 buildPythonPackage rec {
-    pname = "volume-rendering-jax";
+    pname = "ngp-volume-rendering";
     inherit version;
     src = ./.;
 
@@ -55,9 +55,9 @@ buildPythonPackage rec {
 
     preFixup = ''
         patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" \
-            $out/lib/python${python3.pythonVersion}/site-packages/volrendjax/*.so
+            $out/lib/python${python3.pythonVersion}/site-packages/ngp_volume_rendering/*.so
     '';
 
     doCheck = false;
-    pythonImportsCheck = [ "volrendjax" ];
+    pythonImportsCheck = [ "ngp_volume_rendering" ];
 }

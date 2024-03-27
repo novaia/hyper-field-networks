@@ -1,8 +1,8 @@
 from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
-from volrendjax import volrendutils_cuda
-from volrendjax.lowering_helper import \
+from ngp_volume_rendering import cuda_ffi 
+from ngp_volume_rendering.lowering_helper import \
     _default_layouts, _get_ir_tensor_info, _make_ir_tensor_info
 
 def packbits_lowering_rule(
@@ -17,7 +17,7 @@ def packbits_lowering_rule(
     
     n_bits = density_grid_shape[0]
     n_bytes = n_bits // 8
-    opaque = volrendutils_cuda.make_packbits_descriptor(n_bytes)
+    opaque = cuda_ffi.make_packbits_descriptor(n_bytes)
     
     occupied_mask_type, occupied_mask_shape = _make_ir_tensor_info((n_bits,), 'bool')
     occupancy_bitfield_type, occupancy_bitfield_shape = _make_ir_tensor_info((n_bytes,), 'uint8')

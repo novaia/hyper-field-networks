@@ -4,15 +4,15 @@ from jax import numpy as jnp
 from jax.lib import xla_client
 from jax.interpreters import xla, mlir
 
-from volrendjax import volrendutils_cuda
-from volrendjax.marching import lowering
-from volrendjax.marching import abstract
+from ngp_volume_rendering import cuda_ffi 
+from ngp_volume_rendering.marching import lowering
+from ngp_volume_rendering.marching import abstract
 
 from typing import Tuple
 from functools import partial
 
 # Register cpp functions as custom call target for GPUs.
-for name, value in volrendutils_cuda.get_marching_registrations().items():
+for name, value in cuda_ffi.get_marching_registrations().items():
     xla_client.register_custom_call_target(name, value, platform="gpu")
 
 # Create and lower main primitive.
@@ -74,7 +74,7 @@ def march_rays(
         dirs `[total_samples, 3]`: spatial coordinates of the generated samples, invalid array
                                    locations are masked out with zeros.
         dss `[total_samples]`: `ds`s of each sample, for a more detailed explanation of this
-                               notation, see documentation of function `volrendjax.integrate_rays`,
+                               notation, see documentation of function `ngp_volume_rendering.integrate_rays`,
                                invalid array locations are masked out with zeros.
         z_vals `[total_samples]`: samples' distances to their origins, invalid array
                                   locations are masked out with zeros.

@@ -13,7 +13,7 @@ from flax.training.train_state import TrainState
 from fields.common.nn import FeedForward, MultiResolutionHashEncoding, fourth_order_sh_encoding, trunc_exp
 from fields.common.dataset import NerfDataset, load_nerf_dataset
 from fields.common.matrices import get_z_axis_camera_orbit_matrix
-from volrendjax import \
+from ngp_volume_rendering import \
     integrate_rays, march_rays, morton3d_invert, packbits, make_near_far_from_bound
 import matplotlib.pyplot as plt
 

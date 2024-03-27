@@ -1,76 +1,54 @@
 from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
-from .. import volrendutils_cuda
+from volrendjax import volrendutils_cuda
+from volrendjax.lowering_helper import \
+    _default_layouts, _get_ir_tensor_info, _make_ir_tensor_info
 
-# helper function for mapping given shapes to their default mlir layouts
-def default_layouts(*shapes):
-    return [range(len(shape) - 1, -1, -1) for shape in shapes]
-
-def morton3d_lowering_rule(
-    ctx: mlir.LoweringRule,
-
-    # input array
-    xyzs: ir.Value,
-):
-    length, _ = ir.RankedTensorType(xyzs.type).shape
-
+def morton3d_lowering_rule(ctx: mlir.LoweringRule, xyzs: ir.Value):
+    _, xyzs_shape = _get_ir_tensor_info(xyzs)
+    
+    operands = [xyzs]
+    operand_shapes = [xyzs_shape]
+    
+    length, _ = xyzs_shape
     opaque = volrendutils_cuda.make_morton3d_descriptor(length)
+    
+    idcs_type, idcs_shape = _make_ir_tensor_info((length,), 'uint32')
 
-    shapes = {
-        "in.xyzs": (length, 3),
-
-        "out.idcs": (length,),
-    }
+    result_types = [idcs_type]
+    result_shapes = [idcs_shape]
 
     out = custom_call(
         call_target_name="morton3d",
-        result_types=[
-            ir.RankedTensorType.get(shapes["out.idcs"], ir.IntegerType.get_unsigned(32)),
-        ],
-        operands=[
-            xyzs,
-        ],
+        result_types=result_types,
+        operands=operands,
         backend_config=opaque,
-        operand_layouts=default_layouts(
-            shapes["in.xyzs"],
-        ),
-        result_layouts=default_layouts(
-            shapes["out.idcs"],
-        ),
+        operand_layouts=_default_layouts(*operand_shapes),
+        result_layouts=_default_layouts(*result_shapes)
     ).results
     return out
 
-def morton3d_invert_lowering_rule(
-    ctx: mlir.LoweringRule,
+def morton3d_invert_lowering_rule(ctx: mlir.LoweringRule, idcs: ir.Value):
+    _, idcs_shape = _get_ir_tensor_info(idcs)
+    
+    operands = [idcs]
+    operand_shapes = [idcs_shape]
 
-    # input array
-    idcs: ir.Value,
-):
-    length, = ir.RankedTensorType(idcs.type).shape
-
+    length, = idcs_shape
     opaque = volrendutils_cuda.make_morton3d_descriptor(length)
-
-    shapes = {
-        "in.idcs": (length,),
-
-        "out.xyzs": (length, 3),
-    }
+    
+    xyzs_type, xyzs_shape = _make_ir_tensor_info((length, 3), 'uint32')
+    
+    result_types = [xyzs_type]
+    result_shapes = [xyzs_shape]
 
     out = custom_call(
         call_target_name="morton3d_invert",
-        result_types=[
-            ir.RankedTensorType.get(shapes["out.xyzs"], ir.IntegerType.get_unsigned(32)),
-        ],
-        operands=[
-            idcs,
-        ],
+        result_types=result_types,
+        operands=operands,
         backend_config=opaque,
-        operand_layouts=default_layouts(
-            shapes["in.idcs"],
-        ),
-        result_layouts=default_layouts(
-            shapes["out.xyzs"],
-        ),
+        operand_layouts=_default_layouts(*operand_shapes),
+        result_layouts=_default_layouts(*result_shapes)
     ).results
     return out

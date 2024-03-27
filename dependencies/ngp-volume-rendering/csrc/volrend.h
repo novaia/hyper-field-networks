@@ -17,7 +17,7 @@
 
 static constexpr float SQRT3 = 1.732050807568877293527446341505872367f;
 
-namespace volrendjax {
+namespace ngp_volume_rendering {
 
 // Static parameters passed to `integrate_rays`
 struct IntegratingDescriptor {

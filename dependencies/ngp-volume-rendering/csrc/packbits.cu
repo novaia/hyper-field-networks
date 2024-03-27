@@ -1,7 +1,7 @@
 #include <serde-helper/serde.h>
 #include "volrend.h"
 
-namespace volrendjax {
+namespace ngp_volume_rendering {
 
 namespace {
 

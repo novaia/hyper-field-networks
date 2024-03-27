@@ -7,7 +7,7 @@
 #include "volrend.h"
 
 
-namespace volrendjax {
+namespace ngp_volume_rendering {
 
 namespace {
 

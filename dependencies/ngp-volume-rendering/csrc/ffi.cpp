@@ -7,7 +7,7 @@
 
 #include "volrend.h"
 
-namespace volrendjax {
+namespace ngp_volume_rendering {
 
 template <typename T>
 pybind11::bytes to_pybind11_bytes(T const &descriptor) {

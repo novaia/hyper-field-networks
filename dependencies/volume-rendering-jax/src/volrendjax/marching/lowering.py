@@ -33,7 +33,7 @@ def _march_rays_cuda_lowering_rule(
     num_exceeded_samples_type, num_exceeded_samples_shape = _make_ir_tensor_info((1,), 'uint32')
     ray_is_valid_type, ray_is_valid_shape = _make_ir_tensor_info((n_rays,), 'bool')
     rays_n_samples_type, rays_n_samples_shape = _make_ir_tensor_info((n_rays,), 'uint32')
-    rays_sample_startidx_type, rays_sample_start_idx_shape = _make_ir_tensor_info((n_rays,), 'uint32')
+    rays_sample_start_idx_type, rays_sample_start_idx_shape = _make_ir_tensor_info((n_rays,), 'uint32')
     idcs_type, idcs_shape = _make_ir_tensor_info((total_samples,), 'uint32')
     xyzs_type, xyzs_shape = _make_ir_tensor_info((total_samples, 3), 'fp32')
     dirs_type, dirs_shape = _make_ir_tensor_info((total_samples, 3), 'fp32')
@@ -42,7 +42,7 @@ def _march_rays_cuda_lowering_rule(
     
     result_types = [
         next_sample_write_location_type, num_exceeded_samples_type, ray_is_valid_type,
-        rays_n_samples_type, rays_sample_startidx_type, idcs_type, xyzs_type, dirs_type,
+        rays_n_samples_type, rays_sample_start_idx_type, idcs_type, xyzs_type, dirs_type,
         dss_type, z_vals_type
     ]
     result_shapes = [

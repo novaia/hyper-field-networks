@@ -7,23 +7,23 @@ from volrendjax.lowering_helper import \
 
 def integrate_rays_lowering_rule(
     ctx: mlir.LoweringRuleContext,
-    rays_sample_startidx: ir.Value, rays_n_samples: ir.Value, bgs: ir.Value, dss: ir.Value,
+    rays_sample_start_idx: ir.Value, rays_n_samples: ir.Value, bgs: ir.Value, dss: ir.Value,
     z_vals: ir.Value, drgbs: ir.Value,
 ):
-    _, rays_sample_startidx_shape = _get_ir_tensor_info(rays_sample_startidx)
+    _, rays_sample_start_idx_shape = _get_ir_tensor_info(rays_sample_start_idx)
     _, rays_n_samples_shape = _get_ir_tensor_info(rays_n_samples)
     _, bgs_shape = _get_ir_tensor_info(bgs)
     _, dss_shape = _get_ir_tensor_info(dss)
     _, z_vals_shape = _get_ir_tensor_info(z_vals)
     _, drgbs_shape = _get_ir_tensor_info(drgbs)
 
-    operands = [rays_sample_startidx, rays_n_samples, bgs, dss, z_vals, drgbs]
+    operands = [rays_sample_start_idx, rays_n_samples, bgs, dss, z_vals, drgbs]
     operand_shapes = [
-        rays_sample_startidx_shape, rays_n_samples_shape, 
+        rays_sample_start_idx_shape, rays_n_samples_shape, 
         bgs_shape, dss_shape, z_vals_shape, drgbs_shape
     ]
     
-    n_rays, = rays_sample_startidx_shape
+    n_rays, = rays_sample_start_idx_shape
     total_samples, = z_vals_shape
     opaque = volrendutils_cuda.make_integrating_descriptor(n_rays, total_samples)
 
@@ -46,7 +46,7 @@ def integrate_rays_lowering_rule(
 
 def integrate_rays_backward_lowring_rule(
     ctx: mlir.LoweringRuleContext,
-    rays_sample_startidx: ir.Value, rays_n_samples: ir.Value,
+    rays_sample_start_idx: ir.Value, rays_n_samples: ir.Value,
     # Original inputs.
     bgs: ir.Value, dss: ir.Value, z_vals: ir.Value, drgbs: ir.Value,
     # Original outputs.
@@ -56,7 +56,7 @@ def integrate_rays_backward_lowring_rule(
     # Static argument.
     near_distance: float,
 ):
-    _, rays_sample_startidx_shape = _get_ir_tensor_info(rays_sample_startidx)
+    _, rays_sample_start_idx_shape = _get_ir_tensor_info(rays_sample_start_idx)
     _, rays_n_samples_shape = _get_ir_tensor_info(rays_n_samples)
     _, bgs_shape = _get_ir_tensor_info(bgs)
     _, dss_shape = _get_ir_tensor_info(dss)
@@ -67,15 +67,15 @@ def integrate_rays_backward_lowring_rule(
     _, dl_dfinal_rgbds_shape = _get_ir_tensor_info(dL_dfinal_rgbds)
 
     operands = [
-        rays_sample_startidx, rays_n_samples, bgs, dss, z_vals, drgbs, final_rgbds,
+        rays_sample_start_idx, rays_n_samples, bgs, dss, z_vals, drgbs, final_rgbds,
         final_opacities, dL_dfinal_rgbds,
     ]
     operand_shapes = [
-        rays_sample_startidx_shape, rays_n_samples_shape, bgs_shape, dss_shape, z_vals_shape,
+        rays_sample_start_idx_shape, rays_n_samples_shape, bgs_shape, dss_shape, z_vals_shape,
         drgbs_shape, final_rgbds_shape, final_opacities_shape, dl_dfinal_rgbds_shape
     ]
 
-    n_rays, = rays_sample_startidx_shape
+    n_rays, = rays_sample_start_idx_shape
     total_samples, = z_vals_shape
     opaque = volrendutils_cuda.make_integrating_backward_descriptor(
         n_rays, total_samples, near_distance

@@ -16,7 +16,7 @@ pybind11_add_module(
     ${CMAKE_CURRENT_LIST_DIR}/csrc/packbits.cu
     ${CMAKE_CURRENT_LIST_DIR}/csrc/marching.cu
     ${CMAKE_CURRENT_LIST_DIR}/csrc/integrating.cu
-    ${CMAKE_CURRENT_LIST_DIR}/csrc/ffi.cc
+    ${CMAKE_CURRENT_LIST_DIR}/csrc/ffi.cpp
 )
 target_link_libraries(cuda_ffi PRIVATE fmt::fmt)
 

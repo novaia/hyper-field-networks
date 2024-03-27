@@ -80,7 +80,7 @@ extensions = [
         "ngp_volume_rendering.cuda_ffi",
         [  
             # Source paths, relative to this setup.py file.
-            "csrc/ffi.cc",
+            "csrc/ffi.cpp",
             "csrc/packbits.cu",
             "csrc/marching.cu",
             "csrc/integrating.cu",

@@ -1,7 +1,7 @@
 import chex
 import jax
+from jax import numpy as jnp
 from jax.core import ShapedArray
-import jax.numpy as jnp
 
 def _march_rays_abstract(
     rays_o: ShapedArray, rays_d: ShapedArray, t_starts: ShapedArray, t_ends: ShapedArray,
@@ -59,22 +59,10 @@ def _march_rays_abstract(
     )
 
 def march_rays_inference_abstract(
-    # arrays
-    rays_o: ShapedArray,
-    rays_d: ShapedArray,
-    t_starts: ShapedArray,
-    t_ends: ShapedArray,
-    occupancy_bitfield: ShapedArray,
-    next_ray_index: ShapedArray,
-    terminated: ShapedArray,
+    rays_o: ShapedArray, rays_d: ShapedArray, t_starts: ShapedArray, t_ends: ShapedArray,
+    occupancy_bitfield: ShapedArray, next_ray_index: ShapedArray, terminated: ShapedArray,
     indices_in: ShapedArray,
-
-    # static args
-    diagonal_n_steps: int,
-    K: int,
-    G: int,
-    march_steps_cap: int,
-    bound: float,
+    diagonal_n_steps: int, K: int, G: int, march_steps_cap: int, bound: float, 
     stepsize_portion: float,
 ):
     (n_total_rays, _), (n_rays,) = rays_o.shape, terminated.shape

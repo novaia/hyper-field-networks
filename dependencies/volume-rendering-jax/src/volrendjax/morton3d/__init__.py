@@ -1,7 +1,5 @@
 import jax
-
-from . import impl
-
+from volrendjax.morton3d import impl
 
 def morton3d(xyzs: jax.Array):
     return impl.morton3d_p.bind(xyzs)

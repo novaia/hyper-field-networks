@@ -1,21 +1,13 @@
-from typing import Tuple
-
 import jax
+from typing import Tuple
+from volrendjax.integrating import impl
 
-from . import impl
-
-
-# this function is a wrapper on top of `__integrate_rays` which has custom vjp (wrapping the
-# `__integrate_rays` function because the @jax.custom_vjp decorator makes the decorated function's
-# docstring invisible to LSPs).
+# This function is a wrapper on top of __integrate_rays which has custom vjp 
+# (wrapping the __integrate_rays function because the @jax.custom_vjp decorator 
+# makes the decorated function's docstring invisible to LSPs).
 def integrate_rays(
-    near_distance: float,
-    rays_sample_startidx: jax.Array,
-    rays_n_samples: jax.Array,
-    bgs: jax.Array,
-    dss: jax.Array,
-    z_vals: jax.Array,
-    drgbs: jax.Array,
+    near_distance: float, rays_sample_start_idx: jax.Array, rays_n_samples: jax.Array,
+    bgs: jax.Array, dss: jax.Array, z_vals: jax.Array, drgbs: jax.Array,
 ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """
     Inputs:
@@ -47,28 +39,15 @@ def integrate_rays(
         final_opacities `[n_rays]`: accumulated opacities along each ray
     """
     measured_batch_size, final_rgbds, final_opacities = impl.__integrate_rays(
-        near_distance=near_distance,
-        rays_sample_startidx=rays_sample_startidx,
-        rays_n_samples=rays_n_samples,
-        bgs=bgs,
-        dss=dss,
-        z_vals=z_vals,
-        drgbs=drgbs,
+        near_distance=near_distance, rays_sample_start_idx=rays_sample_start_idx,
+        rays_n_samples=rays_n_samples, bgs=bgs, dss=dss, z_vals=z_vals, drgbs=drgbs,
     )
-
     return measured_batch_size[0], final_rgbds, final_opacities
 
 
 def integrate_rays_inference(
-    rays_bg: jax.Array,
-    rays_rgbd: jax.Array,
-    rays_T: jax.Array,
-
-    n_samples: jax.Array,
-    indices: jax.Array,
-    dss: jax.Array,
-    z_vals: jax.Array,
-    drgbs: jax.Array,
+    rays_bg: jax.Array, rays_rgbd: jax.Array, rays_T: jax.Array, n_samples: jax.Array,
+    indices: jax.Array, dss: jax.Array, z_vals: jax.Array, drgbs: jax.Array,
 ):
     """
     Inputs:
@@ -95,15 +74,7 @@ def integrate_rays_inference(
         rays_T `float` `[n_total_rays]`: the input `rays_T` with transmittance values updated
     """
     terminate_cnt, terminated, rays_rgbd_out, rays_T_out = impl.integrate_rays_inference_p.bind(
-        rays_bg,
-        rays_rgbd,
-        rays_T,
-
-        n_samples,
-        indices,
-        dss,
-        z_vals,
-        drgbs,
+        rays_bg, rays_rgbd, rays_T, n_samples, indices, dss, z_vals, drgbs,
     )
     rays_rgbd = rays_rgbd.at[indices].set(rays_rgbd_out)
     rays_T = rays_T.at[indices].set(rays_T_out)

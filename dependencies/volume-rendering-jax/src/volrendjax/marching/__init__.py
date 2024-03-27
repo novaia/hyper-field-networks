@@ -68,7 +68,7 @@ def march_rays(
         idcs `[total_samples]`: indices indicating which ray the i-th sample comes from.
         rays_n_samples `[n_rays]`: number of samples of each ray, its sum is `total_samples`
                                    referenced below
-        rays_sample_startidx `[n_rays]`: indices of each ray's first sample
+        rays_sample_start_idx `[n_rays]`: indices of each ray's first sample
         xyzs `[total_samples, 3]`: spatial coordinates of the generated samples, invalid array
                                    locations are masked out with zeros
         dirs `[total_samples, 3]`: spatial coordinates of the generated samples, invalid array
@@ -83,7 +83,7 @@ def march_rays(
     noises = jnp.broadcast_to(noises, (n_rays,))
     (
         next_sample_write_location, number_of_exceeded_samples, 
-        ray_is_valid, rays_n_samples, rays_sample_startidx, 
+        ray_is_valid, rays_n_samples, rays_sample_start_idx, 
         idcs, xyzs, dirs, dss, z_vals
     ) = _march_rays_p.bind(
         rays_o,
@@ -100,30 +100,19 @@ def march_rays(
         stepsize_portion=stepsize_portion,
     )
     pre_compaction_batch_size = next_sample_write_location[0] - number_of_exceeded_samples[0]
-
     return (
         pre_compaction_batch_size, ray_is_valid, rays_n_samples, 
-        rays_sample_startidx, idcs, xyzs, dirs, dss, z_vals
+        rays_sample_start_idx, idcs, xyzs, dirs, dss, z_vals
     )
 
 
 def march_rays_inference(
-    # static
-    diagonal_n_steps: int,
-    K: int,
-    G: int,
-    march_steps_cap: int,
-    bound: float,
+    # Static.
+    diagonal_n_steps: int, K: int, G: int, march_steps_cap: int, bound: float,
     stepsize_portion: float,
-
-    # inputs
-    rays_o: jax.Array,
-    rays_d: jax.Array,
-    t_starts: jax.Array,
-    t_ends: jax.Array,
-    occupancy_bitfield: jax.Array,
-    next_ray_index_in: jax.Array,
-    terminated: jax.Array,
+    # Inputs.
+    rays_o: jax.Array, rays_d: jax.Array, t_starts: jax.Array, t_ends: jax.Array,
+    occupancy_bitfield: jax.Array, next_ray_index_in: jax.Array, terminated: jax.Array,
     indices: jax.Array,
 ):
     """
@@ -150,21 +139,23 @@ def march_rays_inference(
         dss `float` `[n_rays, march_steps_cap]`: `ds` of each sample
         z_vals `float` `[n_rays, march_steps_cap]`: distance of each sample to their ray origins
     """
-    next_ray_index, indices, n_samples, t_starts_out, xyzs, dss, z_vals = impl.march_rays_inference_p.bind(
-        rays_o,
-        rays_d,
-        t_starts,
-        t_ends,
-        occupancy_bitfield,
-        next_ray_index_in,
-        terminated,
+    (
+        next_ray_index, indices, n_samples, 
+        t_starts_out, xyzs, dss, z_vals 
+    ) = impl.march_rays_inference_p.bind(
+        rays_o, 
+        rays_d, 
+        t_starts, 
+        t_ends, 
+        occupancy_bitfield, 
+        next_ray_index_in, 
+        terminated, 
         indices,
-
-        diagonal_n_steps=diagonal_n_steps,
-        K=K,
-        G=G,
+        diagonal_n_steps=diagonal_n_steps, 
+        K=K, 
+        G=G, 
         march_steps_cap=march_steps_cap,
-        bound=bound,
+        bound=bound, 
         stepsize_portion=stepsize_portion,
     )
     t_starts = t_starts.at[indices].set(t_starts_out)

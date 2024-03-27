@@ -1,9 +1,7 @@
-from typing import Tuple
 import jax
 import jax.numpy as jnp
-
-from . import impl
-
+from volrendjax.packbits import impl
+from typing import Tuple
 
 def packbits(
     density_threshold: float,

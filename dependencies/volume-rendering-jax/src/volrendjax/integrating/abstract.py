@@ -1,22 +1,16 @@
 import chex
 import jax
+from jax import numpy as jnp
 from jax.core import ShapedArray
-import jax.numpy as jnp
 
-
-# jit rules
 def integrate_rays_abstract(
-    rays_sample_startidx: jax.Array,
-    rays_n_samples: jax.Array,
-
-    bgs: jax.Array,
-    dss: jax.Array,
-    z_vals: jax.Array,
-    drgbs: jax.Array,
+    rays_sample_start_idx: jax.Array, rays_n_samples: jax.Array, bgs: jax.Array,
+    dss: jax.Array, z_vals: jax.Array, drgbs: jax.Array,
 ):
-    (n_rays,), (total_samples,) = rays_sample_startidx.shape, dss.shape
+    n_rays, = rays_sample_start_idx.shape
+    total_samples, = dss.shape
 
-    chex.assert_shape([rays_sample_startidx, rays_n_samples], (n_rays,))
+    chex.assert_shape([rays_sample_start_idx, rays_n_samples], (n_rays,))
     chex.assert_shape(bgs, (n_rays, 3))
     chex.assert_shape(z_vals, (total_samples,))
     chex.assert_shape(drgbs, (total_samples, 4))
@@ -24,18 +18,15 @@ def integrate_rays_abstract(
     dtype = jax.dtypes.canonicalize_dtype(drgbs.dtype)
     if dtype != jnp.float32:
         raise NotImplementedError(
-            "integrate_rays is only implemented for input prediction (density, color) of `jnp.float32` type, got {}".format(
-                dtype,
-            )
+            "integrate_rays is only implemented for input prediction (density, color) "
+            "of `jnp.float32` type, got {}".format(dtype)
         )
 
     shapes = {
         "helper.measured_batch_size": (1,),
-
         "out.final_rgbds": (n_rays, 4),
         "out.final_opacities": (n_rays,),
     }
-
     return (
         ShapedArray(shape=shapes["helper.measured_batch_size"], dtype=jnp.uint32),
         ShapedArray(shape=shapes["out.final_rgbds"], dtype=jnp.float32),
@@ -43,28 +34,16 @@ def integrate_rays_abstract(
     )
 
 def integrate_rays_backward_abstract(
-    rays_sample_startidx: jax.Array,
-    rays_n_samples: jax.Array,
-
-    # original inputs
-    bgs: jax.Array,
-    dss: jax.Array,
-    z_vals: jax.Array,
-    drgbs: jax.Array,
-
-    # original outputs
-    final_rgbds: jax.Array,
-    final_opacities: jax.Array,
-
-    # gradient inputs
+    rays_sample_start_idx: jax.Array, rays_n_samples: jax.Array,
+    bgs: jax.Array, dss: jax.Array, z_vals: jax.Array, drgbs: jax.Array,
+    final_rgbds: jax.Array, final_opacities: jax.Array,
     dL_dfinal_rgbds: jax.Array,
-
-    # static argument
     near_distance: float,
 ):
-    (n_rays,), (total_samples,) = rays_sample_startidx.shape, dss.shape
+    n_rays, = rays_sample_start_idx.shape
+    total_samples, = dss.shape
 
-    chex.assert_shape([rays_sample_startidx, rays_n_samples, final_opacities], (n_rays,))
+    chex.assert_shape([rays_sample_start_idx, rays_n_samples, final_opacities], (n_rays,))
     chex.assert_shape(bgs, (n_rays, 3))
     chex.assert_shape(z_vals, (total_samples,))
     chex.assert_shape(drgbs, (total_samples, 4))
@@ -75,9 +54,8 @@ def integrate_rays_backward_abstract(
     dtype = jax.dtypes.canonicalize_dtype(drgbs.dtype)
     if dtype != jnp.float32:
         raise NotImplementedError(
-            "integrate_rays is only implemented for input color of `jnp.float32` type, got {}".format(
-                dtype,
-            )
+            "integrate_rays is only implemented for input color "
+            "of `jnp.float32` type, got {}".format(dtype)
         )
 
     out_shapes = {
@@ -85,26 +63,18 @@ def integrate_rays_backward_abstract(
         "dL_dz_vals": (total_samples,),
         "dL_ddrgbs": (total_samples, 4),
     }
-
     return (
         ShapedArray(shape=out_shapes["dL_dbgs"], dtype=jnp.float32),
         ShapedArray(shape=out_shapes["dL_dz_vals"], dtype=jnp.float32),
         ShapedArray(shape=out_shapes["dL_ddrgbs"], dtype=jnp.float32),
     )
 
-
 def integrate_rays_inference_abstract(
-    rays_bg: ShapedArray,
-    rays_rgbd: ShapedArray,
-    rays_T: ShapedArray,
-
-    n_samples: ShapedArray,
-    indices: ShapedArray,
-    dss: ShapedArray,
-    z_vals: ShapedArray,
-    drgbs: ShapedArray,
+    rays_bg: ShapedArray, rays_rgbd: ShapedArray, rays_T: ShapedArray, n_samples: ShapedArray,
+    indices: ShapedArray, dss: ShapedArray, z_vals: ShapedArray, drgbs: ShapedArray,
 ):
-    (n_total_rays, _), (n_rays, march_steps_cap) = rays_rgbd.shape, dss.shape
+    n_total_rays, _ = rays_rgbd.shape
+    n_rays, march_steps_cap = dss.shape
 
     chex.assert_shape(rays_bg, (n_total_rays, 3))
     chex.assert_shape(rays_rgbd, (n_total_rays, 4))
@@ -119,7 +89,6 @@ def integrate_rays_inference_abstract(
         "rays_rgbd": (n_rays, 4),
         "rays_T": (n_rays,),
     }
-
     return (
         ShapedArray(shape=out_shapes["terminate_cnt"], dtype=jnp.uint32),
         ShapedArray(shape=out_shapes["terminated"], dtype=jnp.bool_),

@@ -301,7 +301,7 @@ def train_step(
         background_colors = jax.random.uniform(random_bg_key, (batch_size, 3))
         _, final_rgbds, _ = integrate_rays(
             near_distance=0.3,
-            rays_sample_startidx=rays_sample_start_idx,
+            rays_sample_start_idx=rays_sample_start_idx,
             rays_n_samples=rays_n_samples,
             bgs=background_colors,
             dss=dss,
@@ -348,7 +348,7 @@ def render_rays_inference(
     noises = jnp.zeros((ray_origins.shape[0],))
 
     (measured_batch_size_before_compaction, ray_is_valid, rays_n_samples,
-    rays_sample_startidx, ray_idcs, xyzs, dirs, dss, z_vals) = march_rays(
+    rays_sample_start_idx, ray_idcs, xyzs, dirs, dss, z_vals) = march_rays(
         total_samples=total_ray_samples, 
         diagonal_n_steps=diagonal_n_steps,
         K=grid_cascades,
@@ -367,7 +367,7 @@ def render_rays_inference(
     background_colors = jnp.ones((max_num_rays, 3))
     effective_samples, final_rgbds, final_opacities = integrate_rays(
         near_distance=0.1,
-        rays_sample_startidx=rays_sample_startidx,
+        rays_sample_start_idx=rays_sample_start_idx,
         rays_n_samples=rays_n_samples,
         bgs=background_colors,
         dss=dss,

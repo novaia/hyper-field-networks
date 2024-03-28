@@ -85,6 +85,42 @@ def multi_resolution_hash_encoding_3d(
     encoded = interpolate_fn(f_0312, f_4756, point_offset[..., 3])
     return encoded
 
+def multi_resolution_hash_encoding_2d(
+    x:jax.Array, scalings:jax.Array, hash_offset:jax.Array, table_size:int, hash_table:jax.Array
+):
+    scaled, scaled_c, scaled_f, point_offset = scale_point_to_hash_levels(x, scalings)
+    vertex_0 = scaled_c
+    vertex_1 = jnp.concatenate([scaled_c[..., 0:1], scaled_f[..., 1:2]], axis=-1)
+    vertex_2 = jnp.concatenate([scaled_f[..., 0:1], scaled_c[..., 1:2]], axis=-1)
+    vertex_3 = jnp.concatenate([scaled_f[..., 0:1], scaled_f[..., 1:2]], axis=-1)
+
+    # First vmap over batch dimension, then vmap over level dimension.
+    hash_fn = jax.vmap(
+        jax.vmap(
+            hash_function_2d, 
+            in_axes=(0, None, 0)
+        ), 
+        in_axes=(0, None, None)
+    )
+    hashed_0 = hash_fn(vertex_0, table_size, hash_offset)
+    hashed_1 = hash_fn(vertex_1, table_size, hash_offset)
+    hashed_2 = hash_fn(vertex_2, table_size, hash_offset)
+    hashed_3 = hash_fn(vertex_3, table_size, hash_offset)
+
+    f_0 = hash_table[hashed_0, :]
+    f_1 = hash_table[hashed_1, :]
+    f_2 = hash_table[hashed_2, :]
+    f_3 = hash_table[hashed_3, :]
+
+    # Linearly interpolate between all of the features.
+    interpolate_fn = jax.vmap(interpolate_hash_features, in_axes=0)
+    # First spatial dimension.
+    f_03 = interpolate_fn(f_0, f_3, point_offset[..., 0])
+    f_12 = interpolate_fn(f_1, f_2, point_offset[..., 0])
+    # Second spatial dimension.
+    encoded = interpolate_fn(f_03, f_12, point_offset[..., 1])
+    return encoded
+
 class MultiResolutionHashEncoding(nn.Module):
     table_size: int
     num_levels: int

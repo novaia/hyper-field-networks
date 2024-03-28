@@ -31,7 +31,7 @@ __global__ void integrate_rays_kernel(
     float const* const __restrict__ z_vals, // [total_samples]
     float const* const __restrict__ drgbs, // [total_samples, 4]
     // Helper.
-    uint32_t* const __restrict__ measured_batch_size,  // [1]
+    uint32_t* const __restrict__ measured_batch_size, // [1]
     // Output arrays (2).
     float* const __restrict__ final_rgbds, // [n_rays, 4]
     float* const __restrict__ final_opacities // [n_rays]
@@ -111,10 +111,9 @@ __global__ void integrate_rays_backward_kernel(
     float const* const __restrict__ dss, // [total_samples]
     float const* const __restrict__ z_vals, // [total_samples]
     float const* const __restrict__ drgbs, // [total_samples, 4]
-
     // Original outputs.
-    float const* const __restrict__ final_rgbds,  // [n_rays, 4]
-    float const* const __restrict__ final_opacities,  // [n_rays]
+    float const* const __restrict__ final_rgbds, // [n_rays, 4]
+    float const* const __restrict__ final_opacities, // [n_rays]
     // Gradient inputs.
     float const* const __restrict__ dL_dfinal_rgbds, // [n_rays, 4]
     // Note: Background color blending is done inside the integrate_rays kernel, 
@@ -157,9 +156,9 @@ __global__ void integrate_rays_backward_kernel(
     };
 
     // Outputs.
-    float* const __restrict__ ray_dL_dbgs = dL_dbgs + i * 3;  // [3]
-    float* const __restrict__ ray_dL_dz_vals = dL_dz_vals + start_idx;  // [n_samples]
-    float* const __restrict__ ray_dL_ddrgbs = dL_ddrgbs + start_idx * 4;  // [n_samples, 4]
+    float* const __restrict__ ray_dL_dbgs = dL_dbgs + i * 3; // [3]
+    float* const __restrict__ ray_dL_dz_vals = dL_dz_vals + start_idx; // [n_samples]
+    float* const __restrict__ ray_dL_ddrgbs = dL_ddrgbs + start_idx * 4; // [n_samples, 4]
 
     // Front-to-back composition, with early stop.
     float transmittance = 1.f;
@@ -183,9 +182,9 @@ __global__ void integrate_rays_backward_kernel(
         transmittance *= 1.f - alpha;
 
         // Set outputs.
-        /// z_val gradients.
+        // z_val gradients.
         ray_dL_dz_vals[sample_idx] = weight * ray_dL_dfinal_rgbd[3];
-        /// density gradients.
+        // density gradients.
         float sample_dL_ddensity = delta_t * (
             // Gradients from final_rgbs.
             + ray_dL_dfinal_rgbd[0] * (
@@ -437,8 +436,8 @@ void integrate_rays_inference_launcher(
     float const* const __restrict__ rays_bg = static_cast<float*>(next_buffer()); // [n_total_rays, 3]
     float const* const __restrict__ rays_rgbd = static_cast<float*>(next_buffer()); // [n_total_rays, 4]
     float const* const __restrict__ rays_T = static_cast<float*>(next_buffer()); // [n_total_rays]
-    uint32_t const* const __restrict__ n_samples = static_cast<uint32_t*>(next_buffer());  // [n_rays]
-    uint32_t const* const __restrict__ indices = static_cast<uint32_t*>(next_buffer());  // [n_rays]
+    uint32_t const* const __restrict__ n_samples = static_cast<uint32_t*>(next_buffer()); // [n_rays]
+    uint32_t const* const __restrict__ indices = static_cast<uint32_t*>(next_buffer()); // [n_rays]
     float const* const __restrict__ dss = static_cast<float*>(next_buffer()); // [n_rays, march_steps_cap]
     float const* const __restrict__ z_vals = static_cast<float*>(next_buffer()); // [n_rays, march_steps_cap]
     float const* const __restrict__ drgbs = static_cast<float*>(next_buffer()); // [n_rays, march_steps_cap, 4]

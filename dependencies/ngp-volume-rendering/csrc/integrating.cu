@@ -329,7 +329,7 @@ void integrate_rays_launcher(cudaStream_t stream, void **buffers, char const *op
 
     // inputs
     /// static
-    IntegratingDescriptor const &desc = *deserialize<IntegratingDescriptor>(opaque, opaque_len);
+    integrating_descriptor_t const &desc = *deserialize<integrating_descriptor_t>(opaque, opaque_len);
     std::uint32_t const n_rays = desc.n_rays;
     std::uint32_t const total_samples = desc.total_samples;
     /// arrays
@@ -383,8 +383,8 @@ void integrate_rays_backward_launcher(cudaStream_t stream, void **buffers, char 
 
     // inputs
     /// static
-    IntegratingBackwardDescriptor const &desc =
-        *deserialize<IntegratingBackwardDescriptor>(opaque, opaque_len);
+    integrating_backward_descriptor_t const &desc =
+        *deserialize<integrating_backward_descriptor_t>(opaque, opaque_len);
     std::uint32_t const n_rays = desc.n_rays;
     std::uint32_t const total_samples = desc.total_samples;
     float near_distance = desc.near_distance;
@@ -452,8 +452,8 @@ void integrate_rays_inference_launcher(cudaStream_t stream, void **buffers, char
 
     // inputs
     /// static
-    IntegratingInferenceDescriptor const &desc =
-        *deserialize<IntegratingInferenceDescriptor>(opaque, opaque_len);
+    integrating_inference_descriptor_t const &desc =
+        *deserialize<integrating_inference_descriptor_t>(opaque, opaque_len);
     std::uint32_t const n_total_rays = desc.n_total_rays;
     std::uint32_t const n_rays = desc.n_rays;
     std::uint32_t const march_steps_cap = desc.march_steps_cap;

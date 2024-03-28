@@ -12,7 +12,7 @@ def morton3d_lowering_rule(ctx: mlir.LoweringRule, xyzs: ir.Value):
     operand_shapes = [xyzs_shape]
     
     length, _ = xyzs_shape
-    opaque = cuda_ffi.make_morton3d_descriptor(length)
+    opaque = cuda_ffi.make_morton_3d_descriptor(length)
     
     idcs_type, idcs_shape = _make_ir_tensor_info((length,), 'uint32')
 
@@ -20,7 +20,7 @@ def morton3d_lowering_rule(ctx: mlir.LoweringRule, xyzs: ir.Value):
     result_shapes = [idcs_shape]
 
     out = custom_call(
-        call_target_name="morton3d",
+        call_target_name="morton_3d",
         result_types=result_types,
         operands=operands,
         backend_config=opaque,
@@ -36,7 +36,7 @@ def morton3d_invert_lowering_rule(ctx: mlir.LoweringRule, idcs: ir.Value):
     operand_shapes = [idcs_shape]
 
     length, = idcs_shape
-    opaque = cuda_ffi.make_morton3d_descriptor(length)
+    opaque = cuda_ffi.make_morton_3d_descriptor(length)
     
     xyzs_type, xyzs_shape = _make_ir_tensor_info((length, 3), 'uint32')
     
@@ -44,7 +44,7 @@ def morton3d_invert_lowering_rule(ctx: mlir.LoweringRule, idcs: ir.Value):
     result_shapes = [xyzs_shape]
 
     out = custom_call(
-        call_target_name="morton3d_invert",
+        call_target_name="morton_3d_invert",
         result_types=result_types,
         operands=operands,
         backend_config=opaque,

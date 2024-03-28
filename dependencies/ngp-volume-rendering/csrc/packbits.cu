@@ -39,7 +39,7 @@ void pack_bits_launcher(cudaStream_t stream, void **buffers, const char *opaque,
 
     // inputs
     /// static
-    PackbitsDescriptor const &desc = *deserialize<PackbitsDescriptor>(opaque, opaque_len);
+    packbits_descriptor_t const &desc = *deserialize<packbits_descriptor_t>(opaque, opaque_len);
 
     /// array
     float const * const __restrict__ density_threshold = static_cast<float *>(next_buffer());

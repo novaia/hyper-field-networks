@@ -21,14 +21,15 @@ namespace ngp_volume_rendering
 {
 
 // Static parameters passed to integrate_rays.
-struct IntegratingDescriptor 
+struct integrating_descriptor_t
 {
     std::uint32_t n_rays;
     std::uint32_t total_samples;
 };
 
 // Static parameters passed to integrate_rays_backward.
-struct IntegratingBackwardDescriptor {
+struct integrating_backward_descriptor_t 
+{
     std::uint32_t n_rays;
     std::uint32_t total_samples;
     // Camera's near distance, samples behind the camera's near plane with non-negligible
@@ -37,16 +38,17 @@ struct IntegratingBackwardDescriptor {
 };
 
 // Static parameters passed to integrate_rays_inference.
-struct IntegratingInferenceDescriptor 
+struct integrating_inference_descriptor_t 
 {
     std::uint32_t n_total_rays;
     std::uint32_t n_rays;
-    // See MarchingInferenceDescriptor.
+    // See marching_inference_descriptor_t.
     std::uint32_t march_steps_cap;
 };
 
 // Static parameters passed to march_rays.
-struct MarchingDescriptor {
+struct marching_descriptor_t 
+{
     std::uint32_t n_rays;
     // number of available slots to write generated samples to
     // (i.e. the length of output samples array).
@@ -71,7 +73,8 @@ struct MarchingDescriptor {
 };
 
 // Static parameters passed to march_rays_inference.
-struct MarchingInferenceDescriptor {
+struct marching_inference_descriptor_t
+{
     // Total number of rays to march.
     std::uint32_t n_total_rays;
     // Number of rays to march in this iteration.
@@ -83,18 +86,19 @@ struct MarchingInferenceDescriptor {
     std::uint32_t march_steps_cap;
     // Same thing as bound in MarchingDescriptor.
     float bound;
-    // same thing as stepsize_portion in MarchingDescriptor.
+    // same thing as stepsize_portion in marching_descriptor_t.
     float stepsize_portion;
 };
 
-struct Morton3DDescriptor 
+struct morton_3d_descriptor_t
 {
     // Number of entries to process.
     std::uint32_t length;
 };
 
-// Static parameters passed to `pack_density_into_bits`
-struct PackbitsDescriptor {
+// Static parameters passed to pack_density_into_bits.
+struct packbits_descriptor_t
+{
     std::uint32_t n_bytes;
 };
 
@@ -111,11 +115,11 @@ void march_rays_inference(
     cudaStream_t stream, void** buffers, const char* opaque, std::size_t opaque_len
 );
 
-void morton3d(
+void morton_3d(
     cudaStream_t stream, void** buffers, const char* opaque, std::size_t opaque_len
 );
 
-void morton3d_invert(
+void morton_3d_invert(
     cudaStream_t stream, void** buffers, const char* opaque, std::size_t opaque_len
 );
 

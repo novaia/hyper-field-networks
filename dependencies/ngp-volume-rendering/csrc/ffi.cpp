@@ -1,10 +1,8 @@
 #include <cstdint>
-
 #include <fmt/format.h>
 #include <pybind11/pybind11.h>
 #include <serde-helper/serde.h>
 #include <stdexcept>
-
 #include "volrend.h"
 
 namespace ngp_volume_rendering 
@@ -224,5 +222,4 @@ PYBIND11_MODULE(cuda_ffi, m)
 };
 
 }  // namespace
-
 }  // namespace ngp_volume_rendering

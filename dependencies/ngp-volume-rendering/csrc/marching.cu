@@ -591,7 +591,7 @@ void morton_3d_invert_launcher(
     morton_3d_invert_kernel<<<num_blocks, block_size, 0, stream>>>(desc.length, idcs, xyzs);
 }
 
-}
+} // namespace
 
 void march_rays(
     cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
@@ -617,4 +617,4 @@ void morton_3d_invert(
     morton_3d_invert_launcher(stream, buffers, opaque, opaque_len);
 }
 
-}
+} // namespace ngp_volume_rendering

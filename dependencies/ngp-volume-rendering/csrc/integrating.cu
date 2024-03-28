@@ -464,7 +464,7 @@ void integrate_rays_inference_launcher(
     );
 }
 
-}  // namespace
+} // namespace
 
 // Functions to register.
 void integrate_rays(
@@ -485,4 +485,4 @@ void integrate_rays_inference(
     integrate_rays_inference_launcher(stream, buffers, opaque, opaque_len);
 }
 
-}  // namespace ngp_volume_rendering.
+} // namespace ngp_volume_rendering.

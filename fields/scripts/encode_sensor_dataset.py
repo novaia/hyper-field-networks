@@ -10,51 +10,6 @@ import json
 import matplotlib.pyplot as plt
 from datasets import load_dataset, Dataset
 
-def train(input_path:str, output_path:str, config:dict, render:bool):
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-        output_path_list = []
-    else:
-        output_path_list = glob.glob(f'{output_path}/*.npy')
-    #input_path_list = os.listdir(input_path)
-    input_path_list = glob.glob(f'{input_path}/*.png')
-    model = ngp_image.create_model_from_config(config)
-    state = ngp_image.create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
-    initial_params = copy.deepcopy(state.params)
-
-    for path in input_path_list:
-        if not path.endswith('.png') and not path.endswith('.jpg'):
-            continue
-        split_path = path.split('/')
-        file_name = split_path[-1]
-        bucket_name = split_path[-2]
-        output_bucket_path = f'{output_path}/{bucket_name}'
-        output_file_name = os.path.join(output_bucket_path, f'{file_name[:-4]}.npy')
-        if output_file_name in output_path_list:
-            print(f'Input file {path} already exists in output as {output_file_name}, skipping...')
-            continue
-        print(f'Generating NGP image for {path}...')
-        
-        state = state.replace(params=initial_params)
-        pil_image = Image.open(path)
-        image = jnp.array(pil_image)
-        image = jnp.array(image)/255.0
-        state, final_loss = ngp_image.train_loop(
-            config['train_steps'], state, image, config['batch_size'], True
-        )
-        print(f'Final loss: {final_loss}')
-        output_dict = {'final_loss': final_loss, 'params': dict(state.params)}
-        if not os.path.exists(output_bucket_path):
-            os.makedirs(output_bucket_path)
-        jnp.save(output_file_name, output_dict, allow_pickle=True)
-        if render:
-            rendered_image = ngp_image.render_image(state, image.shape[0], image.shape[1])
-            plt.imsave(f'{output_file_name[:-4]}.jpg', rendered_image)
-            rendered_image.delete()
-        image.delete()
-        del output_dict
-        pil_image.close()
-
 def get_dataset(dataset_path):
     if dataset_path.endswith('/'):
         glob_pattern = f'{dataset_path}*.parquet'
@@ -101,19 +56,24 @@ def main():
     initial_opt_state = copy.deepcopy(state.opt_state)
     initial_tx = copy.deepcopy(state.tx)
     
+    num_retries = 4
+
     for i in range(num_samples):
         image = next(dataset_iterator)['image'][0] / 255.0
         state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)
-        print('sample', i)
-        print(state.opt_state)
-        state = ngp_image.train_loop(
-            config['train_steps'], state, image, config['batch_size']
-        )
-        if args.render:
+        
+        for k in range(num_retries):
+            state = ngp_image.train_loop(
+                config['train_steps'], state, image, config['batch_size']
+            )
             rendered_image = ngp_image.render_image(
                 state, image.shape[0], image.shape[1], channels=channels
             )
-            plt.imsave(os.path.join(args.output_path, f'{i}.jpg'), rendered_image)
+            full_image_loss = jnp.mean(image - rendered_image)**2
+            print(f'Sample {i}, attempt {k}, loss: {full_image_loss}')
+            if full_image_loss < 4e-7:
+                break
+        plt.imsave(os.path.join(args.output_path, f'{i}.jpg'), rendered_image)
 
 if __name__ == '__main__':
     main()

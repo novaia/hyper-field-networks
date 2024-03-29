@@ -1,4 +1,7 @@
 #pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct 
 { 
@@ -9,3 +12,7 @@ typedef struct
     float* normals;
     int num_normals;
 } mesh_t;
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

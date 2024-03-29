@@ -143,7 +143,7 @@ class MultiResolutionHashEncoding(nn.Module):
         absolute_table_size = self.table_size * self.num_levels
         self.hash_table = self.param(
             'hash_table', 
-            nn.initializers.uniform(scale=10**-4), 
+            lambda key, shape: jax.random.uniform(key, shape, jnp.float32, -1e-4, 1e-4),
             (absolute_table_size, self.feature_dim)
         )
         if self.spatial_dim == 3:

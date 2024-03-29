@@ -15,7 +15,6 @@ typedef struct
     float* pixels;
 } image_t;
 
-
 image_t* load_png(const char* file_name)
 {
     FILE* fp = fopen(file_name, "rb");
@@ -150,6 +149,102 @@ mtl_data_t* load_mtl(const char* path)
         fprintf(stderr, "Could not open %s\n", path);
         return NULL;
     }
+    fseek(fp, 0, SEEK_END);
+    long file_length = ftell(fp);
+    rewind(fp);
+    char* file_chars = malloc(sizeof(char) * (file_length + 1));
+    if(!file_chars)
+    {
+        fprintf(stderr, "Could not allocate memory for reading %s\n", path);
+        fclose(fp);
+        return NULL;
+    }
+    size_t read_size = fread(file_chars, sizeof(char), file_length, fp);
+    file_chars[read_size] = '\0';
+    fclose(fp);
+    
+    int ignore_current_line = 0;
+    int is_start_of_line = 1;
+    int is_map = 0;
+    long map_start = -1;
+    long map_end = -1;
+    char* texture_path = NULL;
+    long texture_path_length = 0;
+
+    for(long i = 0; i < file_length; i++)
+    {
+        const char current_char = file_chars[i];
+        if(is_start_of_line)
+        {
+            // If i == file_length then parsing is finished so the loop can be broken
+            // in order to prevent next_char from being out of bounds.
+            if(i == file_length) { break; }
+            const char next_char = file_chars[i+1];
+            if(current_char == 'm' && next_char == 'a')
+            {
+                is_map = 1;
+            }
+            else
+            {
+                ignore_current_line = 1;
+            }
+            is_start_of_line = 0;
+        }
+        else if(!ignore_current_line)
+        {
+            if(is_map)
+            {
+                if(map_start == -1 && current_char == ' ')
+                {
+                    map_start = i+1;   
+                }
+                else if(current_char == '\n')
+                {
+                    map_end = i;
+                    texture_path_length = map_end - map_start;
+                    texture_path = (char*)malloc(sizeof(char) * (texture_path_length+1));
+                    long texture_char_offset = map_start;
+                    for(long k = 0; k < texture_path_length; k++)
+                    {
+                        texture_path[k] = file_chars[texture_char_offset++];
+                    }
+                    texture_path[texture_path_length] = '\0';            
+
+                    is_map = 0;
+                    map_start = -1;
+                    map_end = -1;
+                }
+            }
+        }
+
+        if(current_char == '\n')
+        {
+            is_start_of_line = 1;
+            ignore_current_line = 0;
+        }
+    }
+
+    if(texture_path)
+    {
+        uint32_t mtl_path_length = (uint32_t)strlen(path);
+        uint32_t mtl_root_path_length = 0;
+        for(uint32_t i = mtl_path_length; i > 0; --i)
+        {
+            if(path[i] == '/') 
+            { 
+                mtl_root_path_length = i+1;
+                break;
+            }
+        }
+        char mtl_root_path[mtl_root_path_length+1];
+        memcpy(mtl_root_path, path, sizeof(char) * mtl_root_path_length);
+        mtl_root_path[mtl_root_path_length] = '\0';
+        uint32_t full_texture_path_length = mtl_root_path_length + texture_path_length + 1;
+        char full_texture_path[full_texture_path_length];
+        snprintf(full_texture_path, full_texture_path_length, "%s%s", mtl_root_path, texture_path);
+        printf("%s\n", full_texture_path);
+    }
+    return NULL;
     mtl_data_t* mtl_data = (mtl_data_t*)malloc(sizeof(mtl_data_t));
     mtl_data->image = NULL;
     return mtl_data;   
@@ -412,7 +507,13 @@ mesh_t* load_obj(
         char full_mtl_path[full_mtl_path_length];
         snprintf(full_mtl_path, full_mtl_path_length, "%s%s", obj_root_path, mtl_path);
         printf("%s\n", full_mtl_path);
-        //mtl_data_t* mtl_data = load_mtl(full_mtl_path);
+        mtl_data_t* mtl_data = load_mtl(full_mtl_path);
+        free(mtl_path);
+        if(mtl_data)
+        {
+            free(mtl_data->image);
+            free(mtl_data);
+        }
     }
 
     const size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;

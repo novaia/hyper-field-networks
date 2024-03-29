@@ -55,9 +55,15 @@ def main():
     initial_params = copy.deepcopy(state.params)
     initial_opt_state = copy.deepcopy(state.opt_state)
     initial_tx = copy.deepcopy(state.tx)
-    
-    num_retries = 4
 
+    first_image = dataset[0]['image']
+    num_pixels = first_image.shape[0] * first_image.shape[1]
+    num_params = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    print(f'Num pixels: {num_pixels:,}')
+    print(f'Num params: {num_params:,}')
+    print('Param to pixel ratio:', num_params/num_pixels)
+
+    num_retries = 4
     for i in range(num_samples):
         image = next(dataset_iterator)['image'][0] / 255.0
         state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)

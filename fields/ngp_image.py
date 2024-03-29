@@ -95,18 +95,19 @@ def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
     def loss_fn(params):
         x = jnp.stack([height_indices/image_height, width_indices/image_width], axis=-1)
         predicted_colors = state.apply_fn({'params': params}, x)
-        return jnp.mean((predicted_colors - target_colors)**2)
+        color_mse = jnp.mean((predicted_colors - target_colors)**2)
+        
+        def kl_divergence(param):
+            log_prob = jax.scipy.stats.norm.logpdf(param)
+            kl_div = -jnp.mean(log_prob)
+            return kl_div
+
+        param_kl_loss = jax.tree_util.tree_reduce(jnp.add, jax.tree_map(kl_divergence, params))
+        return color_mse + (0.7 * param_kl_loss)
     
     grad_fn = jax.grad(loss_fn)
     grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
-    
-    def standardize_fn(param):
-        mean = jnp.mean(param)
-        std = jnp.std(param)
-        return (param - mean) / std
-
-    state = state.replace(params=jax.tree_map(standardize_fn, state.params))   
     return state
 
 def create_train_state(model:nn.Module, learning_rate:float, KEY) -> TrainState:

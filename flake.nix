@@ -60,6 +60,7 @@
                         jaxlib-bin
                         flax
                         pillow
+                        pyarrow
                         datasets
                         wandb
                         matplotlib

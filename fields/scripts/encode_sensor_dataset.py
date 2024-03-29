@@ -1,14 +1,12 @@
-import argparse
-import os
-import glob
+import os, glob, argparse, copy, json, io
 from fields import ngp_image
 import jax
 import jax.numpy as jnp
+import numpy as np
 from PIL import Image
-import copy
-import json
-import matplotlib.pyplot as plt
 from datasets import load_dataset, Dataset
+import pyarrow as pa
+import pyarrow.parquet as pq
 from fields.common.flattening import generate_param_map, flatten_params
 
 def get_dataset(dataset_path):
@@ -27,6 +25,28 @@ def get_dataset(dataset_path):
     )
     dataset = dataset.with_format('jax')
     return dataset
+
+def save_table(table_data, num_params, table_number, output_path, zfill_amount):
+    print(f'Entries in table {table_number}: {len(table_data)}')
+    schema = pa.schema(
+        fields=[
+            ('params', pa.list_(pa.float32(), list_size=num_params)),
+            ('image', pa.struct([('bytes', pa.binary()), ('path', pa.string())]))
+        ],
+        metadata={
+            b'huggingface': json.dumps({
+                'info': {
+                    'features': {
+                        # todo: debug this
+                        #'params': {'_type': 'Sequence', 'dtype': 'float32'},
+                        'image': {'_type': 'Image'}
+                    }
+                }
+            }).encode('utf-8')
+        }
+    )
+    table = pa.Table.from_pylist(table_data, schema=schema)
+    pq.write_table(table, f'{output_path}/{str(table_number).zfill(zfill_amount)}.parquet')
 
 def main():
     parser = argparse.ArgumentParser()
@@ -66,8 +86,12 @@ def main():
     print(f'Num params: {num_params:,}')
     print('Param to pixel ratio:', num_params/num_pixels)
 
+    samples_per_table = 1500
+    samples_in_current_table = 0
+    current_table_index = 0
     num_retries = 4
-    loss_threshold = 6e-5
+    loss_threshold = 4e-6
+    pq_table_data = []
     for i in range(num_samples):
         image = next(dataset_iterator)['image'][0] / 255.0
         state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)
@@ -84,8 +108,25 @@ def main():
             if full_image_loss < loss_threshold:
                 break
         flat_params = flatten_params(state.params, param_map, num_params)
-        print(f'Sample {i}, param mean: {jnp.mean(flat_params)}, param var: {jnp.var(flat_params)}')
-        plt.imsave(os.path.join(args.output_path, f'{i}.jpg'), rendered_image)
+        rendered_image = np.array(jnp.clip(rendered_image * 255, 0, 255), dtype=np.uint8)
+        pil_image_bytes = io.BytesIO()
+        pil_image = Image.fromarray(rendered_image)
+        pil_image.save(pil_image_bytes, format='PNG')
+        pq_row_data = {
+            'params': np.array(flat_params, dtype=np.float32).tolist(),
+            'image': {
+                'bytes': pil_image_bytes.getvalue(),
+                'path': f'{i}.png'
+            }
+        }
+        pq_table_data.append(pq_row_data)
+        samples_in_current_table += 1
+        if samples_in_current_table > samples_per_table:
+            save_table(pq_table_data, num_params, current_table_index, args.output_path, 4)
+            pq_table_data = []
+            samples_in_current_table = 0
+            current_table_index += 1
+        #pil_image.save(os.path.join(args.output_path, f'{i}.png'))
 
 if __name__ == '__main__':
     main()

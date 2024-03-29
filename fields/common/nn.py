@@ -127,6 +127,7 @@ class MultiResolutionHashEncoding(nn.Module):
     min_resolution: int
     max_resolution: int
     feature_dim: int
+    spatial_dim: int
 
     def setup(self):
         levels = jnp.arange(self.num_levels)
@@ -145,69 +146,27 @@ class MultiResolutionHashEncoding(nn.Module):
             nn.initializers.uniform(scale=10**-4), 
             (absolute_table_size, self.feature_dim)
         )
-    
-    def __call__(self, x:jax.Array):
-        encoded = multi_resolution_hash_encoding_3d(
-            x, self.scalings, self.hash_offset, self.table_size, self.hash_table
-        )
-        return jnp.reshape(encoded, (encoded.shape[0], self.num_levels * self.feature_dim))
-
-class MultiResolutionHashEncoding2D(nn.Module):
-    table_size: int
-    num_levels: int
-    min_resolution: int
-    max_resolution: int
-    feature_dim: int
-
-    def setup(self):
-        self.levels = jnp.arange(self.num_levels)
-        self.hash_offset = self.levels * self.table_size
-        self.spatial_dim = 2
-        if self.num_levels > 1:
-            self.growth_factor = jnp.exp(
-                (jnp.log(self.max_resolution) - jnp.log(self.min_resolution)) 
-                / (self.num_levels - 1)
+        if self.spatial_dim == 3:
+            self.encoding_fn = partial(
+                multi_resolution_hash_encoding_3d,
+                scalings=self.scalings, 
+                hash_offset=self.hash_offset, 
+                table_size=self.table_size
+            )
+        elif self.spatial_dim == 2:
+            self.encoding_fn = partial(
+                multi_resolution_hash_encoding_2d,
+                scalings=self.scalings,
+                hash_offset=self.hash_offset,
+                table_size=self.table_size
             )
         else:
-            self.growth_factor = 1
-        self.scalings = jnp.floor(self.min_resolution * self.growth_factor**self.levels)
-        absolute_table_size = self.table_size * self.num_levels
-        self.hash_table = self.param(
-            'hash_table', 
-            nn.initializers.uniform(scale=10**-4), 
-            (absolute_table_size, self.feature_dim)
-        )
+            raise ValueError(f'spatial_dim must be 2 or 3, got {self.spatial_dim}')
 
-    def __call__(self, x:jnp.ndarray):
-        scaled = jnp.einsum('ij,k->ikj', x, self.scalings)
-        scaled_c = jnp.ceil(scaled).astype(jnp.int32)
-        scaled_f = jnp.floor(scaled).astype(jnp.int32)
-        point_offset = jnp.reshape(scaled - scaled_f, (self.spatial_dim, self.num_levels))
-        
-        vertex_0 = scaled_c
-        vertex_1 = jnp.concatenate([scaled_c[:, 0:1], scaled_f[:, 1:2]], axis=-1)
-        vertex_2 = jnp.concatenate([scaled_f[:, 0:1], scaled_c[:, 1:2]], axis=-1)
-        vertex_3 = jnp.concatenate([scaled_f[:, 0:1], scaled_f[:, 1:2]], axis=-1)
-
-        hashed_0 = self.hash_function(vertex_0, self.table_size, self.hash_offset)
-        hashed_1 = self.hash_function(vertex_1, self.table_size, self.hash_offset)
-        hashed_2 = self.hash_function(vertex_2, self.table_size, self.hash_offset)
-        hashed_3 = self.hash_function(vertex_3, self.table_size, self.hash_offset)
-
-        f_0 = self.hash_table[:, hashed_0]
-        f_1 = self.hash_table[:, hashed_1]
-        f_2 = self.hash_table[:, hashed_2]
-        f_3 = self.hash_table[:, hashed_3]
-
-        # Linearly interpolate between all of the features.
-        f_03 = f_0 * point_offset[0:1, :] + f_3 * (1 - point_offset[0:1, :])
-        f_12 = f_1 * point_offset[0:1, :] + f_2 * (1 - point_offset[0:1, :])
-        encoded_value = f_03 * point_offset[1:2, :] + f_12 * (1 - point_offset[1:2, :])
-        # Transpose so that features are contiguous.
-        # i.e. [[f_0_x, f_0_y], [f_1_x, f_2_y], ...]
-        # Then ravel to get the entire encoding.
-        return jnp.ravel(jnp.transpose(encoded_value))
-   
+    def __call__(self, x:jax.Array):
+        encoded = self.encoding_fn(x=x, hash_table=self.hash_table)
+        return jnp.reshape(encoded, (encoded.shape[0], self.num_levels * self.feature_dim))
+  
 class FeedForward(nn.Module):
     num_layers: int
     hidden_dim: int

@@ -175,7 +175,8 @@ class NGPNerf(nn.Module):
             num_levels=self.number_of_grid_levels,
             min_resolution=self.coarsest_resolution,
             max_resolution=self.finest_resolution,
-            feature_dim=self.hash_table_feature_dim
+            feature_dim=self.hash_table_feature_dim,
+            spatial_dim=3
         )(position)
         x = encoded_position
         x = FeedForward(

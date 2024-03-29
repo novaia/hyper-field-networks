@@ -2,13 +2,13 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.training.train_state import TrainState
-from fields.common.nn import MultiResolutionHashEncoding2D, FeedForward
+from fields.common.nn import MultiResolutionHashEncoding, FeedForward
 from functools import partial
 import json
 import optax
 from PIL import Image
 import matplotlib.pyplot as plt
-from typing import Tuple, Union
+from typing import Tuple, Union, Any
 import argparse
 import os
 from timeit import default_timer as timer
@@ -22,22 +22,24 @@ class NGPImage(nn.Module):
     mlp_width: int
     mlp_depth: int
     output_channels: int
+    dtype: Any = jnp.float32
     
     @nn.compact
     def __call__(self, x):
-        x = MultiResolutionHashEncoding2D(
+        x = MultiResolutionHashEncoding(
             table_size=self.max_hash_table_entries,
             num_levels=self.number_of_grid_levels,
             min_resolution=self.coarsest_resolution,
             max_resolution=self.finest_resolution,
-            feature_dim=self.hash_table_feature_dim
+            feature_dim=self.hash_table_feature_dim,
+            spatial_dim=2
         )(x)
         x = FeedForward(
             num_layers=self.mlp_depth,
             hidden_dim=self.mlp_width,
             output_dim=self.output_channels,
             activation=nn.relu,
-            dtype=jnp.bfloat16
+            dtype=self.dtype
         )(x)
         x = nn.sigmoid(x)
         return x
@@ -65,6 +67,12 @@ def benchmark_train_loop(image, batch_size, steps, state):
         state = train_step(state=state, image=image, batch_size=batch_size)
     end = timer()
     print('Elapsed time:', end - start)
+    start = timer()
+    for step in range(steps):
+        state = train_step(state=state, image=image, batch_size=batch_size)
+    end = timer()
+    print('Elapsed time 2:', end - start)
+
     #print('Final loss:', loss)
     rendered_image = render_image(state, image_width, image_height, channels=channels)
     rendered_image = jnp.array(rendered_image, dtype=jnp.float32)
@@ -83,7 +91,7 @@ def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
 
     def loss_fn(params):
         x = jnp.stack([height_indices/image_height, width_indices/image_width], axis=-1)
-        predicted_colors = jax.vmap(state.apply_fn, in_axes=(None, 0))({'params': params}, x)
+        predicted_colors =state.apply_fn({'params': params}, x)
         return jnp.mean((predicted_colors - target_colors)**2)
     
     grad_fn = jax.grad(loss_fn)
@@ -102,7 +110,7 @@ def render_image(state:TrainState, image_height:int, image_width:int, channels:i
         jnp.arange(image_width)/image_width
     )
     x = jnp.stack([height_indices.flatten(), width_indices.flatten()], axis=-1)
-    predicted_colors = jax.vmap(state.apply_fn, in_axes=(None, 0))({'params': state.params}, x)
+    predicted_colors = state.apply_fn({'params': state.params}, x)
     rendered_image = jnp.reshape(predicted_colors, (image_height, image_width, channels))
     rendered_image = jnp.transpose(rendered_image, (1, 0, 2))
     return rendered_image

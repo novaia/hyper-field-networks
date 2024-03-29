@@ -3,7 +3,7 @@ import jax
 from jax import numpy as jnp
 from fields import ngp_image
 import matplotlib.pyplot as plt
-import argparse, os, json
+import os, json, argparse
 
 def generate_param_map(module, start_pos=0):
     param_map = {}

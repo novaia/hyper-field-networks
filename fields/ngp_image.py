@@ -3,14 +3,12 @@ import jax.numpy as jnp
 import flax.linen as nn
 from flax.training.train_state import TrainState
 from fields.common.nn import MultiResolutionHashEncoding, FeedForward
+import os, argparse, json
 from functools import partial
-import json
 import optax
 from PIL import Image
 import matplotlib.pyplot as plt
 from typing import Tuple, Union, Any
-import argparse
-import os
 from timeit import default_timer as timer
 
 class NGPImage(nn.Module):

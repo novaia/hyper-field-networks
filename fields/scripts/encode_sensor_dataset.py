@@ -36,8 +36,6 @@ def main():
     parser.add_argument('--render', action='store_true')
     args = parser.parse_args()
     
-    print(args.field_type)
-
     if not os.path.exists(args.output_path):
         os.makedirs(args.output_path)
     
@@ -48,7 +46,7 @@ def main():
     dataset = get_dataset(args.input_path)
     dataset_iterator = dataset.iter(batch_size=1)
     num_samples = len(dataset)
-    print(len(dataset))
+    print('Samples in dataset:', num_samples)
 
     model = ngp_image.create_model_from_config(config)
     state = ngp_image.create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
@@ -64,6 +62,7 @@ def main():
     print('Param to pixel ratio:', num_params/num_pixels)
 
     num_retries = 4
+    loss_threshold = 4e-6
     for i in range(num_samples):
         image = next(dataset_iterator)['image'][0] / 255.0
         state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)
@@ -77,7 +76,7 @@ def main():
             )
             full_image_loss = jnp.mean(image - rendered_image)**2
             print(f'Sample {i}, attempt {k}, loss: {full_image_loss}')
-            if full_image_loss < 4e-7:
+            if full_image_loss < loss_threshold:
                 break
         plt.imsave(os.path.join(args.output_path, f'{i}.jpg'), rendered_image)
 

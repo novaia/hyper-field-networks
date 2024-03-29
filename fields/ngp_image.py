@@ -43,13 +43,11 @@ class NGPImage(nn.Module):
         return x
 
 def train_loop(
-    steps:int, state:TrainState, image:jax.Array, batch_size:int, return_final_loss:bool=False
-) -> Union[TrainState, Tuple[TrainState, float]]:
+    steps:int, state:TrainState, image:jax.Array, batch_size:int
+) -> TrainState:
     for step in range(steps):
         step_key = jax.random.PRNGKey(step)
-        loss, state = train_step(state, image, batch_size, step_key)
-    if return_final_loss:
-        return state, loss
+        state = train_step(state, image, batch_size)
     return state
 
 def benchmark_train_loop(image, batch_size, steps, state):
@@ -80,16 +78,23 @@ def benchmark_train_loop(image, batch_size, steps, state):
 def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
     image_height = image.shape[0]
     image_width = image.shape[1]
-    
-    KEY = jax.random.PRNGKey(state.step)
-    height_key, width_key = jax.random.split(KEY)
-    height_indices = jax.random.randint(height_key, (batch_size,), 0, image_height)
-    width_indices = jax.random.randint(width_key, (batch_size,), 0, image_width)
+    channels = image.shape[2]
+    all_height_indices = jnp.arange(image_height)
+    all_width_indices = jnp.arange(image_width)
+    index_mesh = jnp.reshape(
+        jnp.stack(jnp.meshgrid(all_height_indices, all_width_indices), axis=-1), 
+        newshape=(-1, 2)
+    )
+
+    key = jax.random.PRNGKey(state.step)
+    selected_indices = jax.random.choice(key, a=index_mesh, shape=(batch_size,), replace=False)
+    height_indices = selected_indices[:, 0]
+    width_indices = selected_indices[:, 1]
     target_colors = image[height_indices, width_indices]
 
     def loss_fn(params):
         x = jnp.stack([height_indices/image_height, width_indices/image_width], axis=-1)
-        predicted_colors =state.apply_fn({'params': params}, x)
+        predicted_colors = state.apply_fn({'params': params}, x)
         return jnp.mean((predicted_colors - target_colors)**2)
     
     grad_fn = jax.grad(loss_fn)

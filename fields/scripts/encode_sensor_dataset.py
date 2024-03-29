@@ -8,6 +8,7 @@ from PIL import Image
 import copy
 import json
 import matplotlib.pyplot as plt
+from datasets import load_dataset, Dataset
 
 def train(input_path:str, output_path:str, config:dict, render:bool):
     if not os.path.exists(output_path):
@@ -54,16 +55,65 @@ def train(input_path:str, output_path:str, config:dict, render:bool):
         del output_dict
         pil_image.close()
 
+def get_dataset(dataset_path):
+    if dataset_path.endswith('/'):
+        glob_pattern = f'{dataset_path}*.parquet'
+    else:
+        glob_pattern = f'{dataset_path}/*.parquet'
+    parquet_files = glob.glob(glob_pattern)
+    assert len(parquet_files) > 0, 'No parquet files were found in dataset directory.'
+    print(f'Found {len(parquet_files)} parquet files in dataset directory.')
+    dataset = load_dataset(
+        'parquet', 
+        data_files={'train': parquet_files},
+        split='train',
+        num_proc=8
+    )
+    dataset = dataset.with_format('jax')
+    return dataset
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', type=str, default='configs/ngp_image.json')
+    parser.add_argument('--config_path', type=str, required=True)
     parser.add_argument('--input_path', type=str, required=True)
     parser.add_argument('--output_path', type=str, required=True)
+    parser.add_argument('--field_type', type=str, choices=['ngp_image', 'ngp_nerf'], required=True)
     parser.add_argument('--render', action='store_true')
     args = parser.parse_args()
+    
+    print(args.field_type)
+
+    if not os.path.exists(args.output_path):
+        os.makedirs(args.output_path)
+    
     with open(args.config_path, 'r') as f:
         config = json.load(f)
-    train(args.input_path, args.output_path, config, args.render)
+    channels = config['channels']
+
+    dataset = get_dataset(args.input_path)
+    dataset_iterator = dataset.iter(batch_size=1)
+    num_samples = len(dataset)
+    print(len(dataset))
+
+    model = ngp_image.create_model_from_config(config)
+    state = ngp_image.create_train_state(model, config['learning_rate'], jax.random.PRNGKey(0))
+    initial_params = copy.deepcopy(state.params)
+    initial_opt_state = copy.deepcopy(state.opt_state)
+    initial_tx = copy.deepcopy(state.tx)
+    
+    for i in range(num_samples):
+        image = next(dataset_iterator)['image'][0] / 255.0
+        state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)
+        print('sample', i)
+        print(state.opt_state)
+        state = ngp_image.train_loop(
+            config['train_steps'], state, image, config['batch_size']
+        )
+        if args.render:
+            rendered_image = ngp_image.render_image(
+                state, image.shape[0], image.shape[1], channels=channels
+            )
+            plt.imsave(os.path.join(args.output_path, f'{i}.jpg'), rendered_image)
 
 if __name__ == '__main__':
     main()

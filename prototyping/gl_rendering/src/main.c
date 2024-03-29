@@ -9,8 +9,10 @@
 #include "mesh.h"
 #include "transform.h"
 
-int window_width = 256;
-int window_height = 256;
+#define DATA_PATH(path) "/home/hayden/repos/g3dm/data/"path
+
+int window_width = 1280;
+int window_height = 720;
 const char* window_title = "Synthetic 3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
@@ -184,179 +186,43 @@ int main()
     {
         return -1;
     }
-    
-    const int num_object_colors = 9;
-    const float object_colors[27] = {
-        0.95f, 0.22f, 0.1f,
-        0.1f, 0.93f, 0.22f,
-        0.1f, 0.21f, 0.88f,
-        0.99f, 0.62f, 0.33f,
-        0.33f, 0.63f, 0.99f,
-        0.62f, 0.33f, 0.99f,
-        0.33f, 0.58f, 0.27f,
-        0.87f, 0.21f, 0.77f,
-        0.11f, 0.91f, 0.89f
-    };
 
-    const int num_meshes = 27;
-    const char mesh_paths[27][100] = {
-        "/home/hayden/repos/g3dm/data/monsters/alien.obj",
-        "/home/hayden/repos/g3dm/data/monsters/alpaking.obj",
-        "/home/hayden/repos/g3dm/data/monsters/armabee.obj",
-        "/home/hayden/repos/g3dm/data/monsters/birb.obj",
-        "/home/hayden/repos/g3dm/data/monsters/blue_demon.obj",
-        "/home/hayden/repos/g3dm/data/monsters/bunny.obj",
-        "/home/hayden/repos/g3dm/data/monsters/cactoro.obj",
-        "/home/hayden/repos/g3dm/data/monsters/demon.obj",
-        "/home/hayden/repos/g3dm/data/monsters/dino.obj",
-        "/home/hayden/repos/g3dm/data/monsters/dragon_evolved.obj",
-        "/home/hayden/repos/g3dm/data/monsters/dragon.obj",
-        "/home/hayden/repos/g3dm/data/monsters/fish.obj",
-        "/home/hayden/repos/g3dm/data/monsters/frog.obj",
-        "/home/hayden/repos/g3dm/data/monsters/ghost.obj",
-        "/home/hayden/repos/g3dm/data/monsters/ghost_skull.obj",
-        "/home/hayden/repos/g3dm/data/monsters/glub_evolved.obj",
-        "/home/hayden/repos/g3dm/data/monsters/glub.obj",
-        "/home/hayden/repos/g3dm/data/monsters/goleling_evolved.obj",
-        "/home/hayden/repos/g3dm/data/monsters/goleling.obj",
-        "/home/hayden/repos/g3dm/data/monsters/monkroose.obj",
-        "/home/hayden/repos/g3dm/data/monsters/mushnub.obj",
-        "/home/hayden/repos/g3dm/data/monsters/mushroom_king.obj",
-        "/home/hayden/repos/g3dm/data/monsters/orc_skull.obj",
-        "/home/hayden/repos/g3dm/data/monsters/pigeon.obj",
-        "/home/hayden/repos/g3dm/data/monsters/squidle.obj",
-        "/home/hayden/repos/g3dm/data/monsters/tribale.obj",
-        "/home/hayden/repos/g3dm/data/monsters/yeti.obj"
-    };
-    gl_mesh_t gl_meshes[num_meshes]; 
-    for(int i = 0; i < num_meshes; i++)
-    {
-        mesh_t* mesh = load_obj(mesh_paths[i], 100000, 300000, 100000);
-        if(!mesh) { return - 1; }
-        gl_meshes[i] = mesh_to_gl_mesh(mesh);
-        free(mesh->vertices);
-        free(mesh->indices);
-        free(mesh->normals);
-        free(mesh);
-    }
-    const int num_active_meshes = 3;
-    int gl_mesh_indices[3] = {5, 10, 17};
-    int object_color_indices[3] = {0, 2, 4};
-
+    const char* mesh_path = DATA_PATH("monsters/orc_skull.obj");
+    gl_mesh_t gl_mesh;
+    mesh_t* mesh = load_obj(mesh_path, 100000, 300000, 100000);
+    if(!mesh) { return - 1; }
+    gl_mesh = mesh_to_gl_mesh(mesh);
+    free(mesh->vertices);
+    free(mesh->indices);
+    free(mesh->normals);
+    free(mesh);
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    
-    const int num_rotation_matrices = 5;
-    mat4 rotation_matrices[5] = {
-        get_y_rotation_matrix(0.0f),
-        get_y_rotation_matrix(45.0f),
-        get_y_rotation_matrix(-45.0f),
-        get_y_rotation_matrix(-90.0f),
-        get_y_rotation_matrix(90.0f)
-    };
-    int rotation_indices[3] = {0, 1, 2};    
+    mat4 rotation_matrix = get_y_rotation_matrix(0.0f);
+    float mesh_position_offset[3] = {0.0f, -1.5f, -3.0f};
+    float object_color[3] = {0.8f, 0.13f, 0.42f};
+    float light_position[3] = {1.0f, 1.0f, 0.0f};
 
-    float mesh_position_offsets[9] = {
-        -2.5f, -2.0f, -6.0f,
-        2.5f, -2.0f, -6.0f,
-        0.0f, -2.0f, -6.0f
-    };
-
-    const int num_environments = 2;
-    float ambient_strengths[2] = {0.5f, 0.1f};
-    float bg_colors[6] = {
-        1.0f, 1.0f, 1.0f,
-        0.0f, 0.0f, 0.0f
-    };
-    int environment_index = 0;
-    
-    const int num_light_positions = 3;
-    float light_positions[9] = {
-        1.0f, 0.2f, 1.0f,
-        -1.0f, 1.0f, 1.0f,
-        -1.0f, 2.0f, -3.0f
-    };
-    int light_position_index = 0;
-
-    int generated_images = 0;
     glEnable(GL_DEPTH_TEST);
-    char current_output_path[100];
-    int first_frame = 1;
-    uint32_t bucket_index = 0;
-    uint32_t generations_in_current_bucket = 0;
-    mkdir("/home/hayden/repos/g3dm/data/monster_renders/0", 0755);
-    size_t path_size = sizeof(char)*100;
     while(!glfwWindowShouldClose(window))
     {
-        if(randomize_scene)
-        {
-            for(int i = 0; i < num_active_meshes; i++)
-            {
-                gl_mesh_indices[i] = rand() % num_meshes;
-                object_color_indices[i] = rand() % num_object_colors;
-                rotation_indices[i] = rand() % num_rotation_matrices;   
-                environment_index = rand() % num_environments;
-                light_position_index = rand() % num_light_positions;
-            }
-            randomize_scene = 0;
-        }
-        const int bg_color_offset = environment_index * 3;
-        glClearColor(
-            bg_colors[bg_color_offset], 
-            bg_colors[bg_color_offset+1], 
-            bg_colors[bg_color_offset+2], 
-            1.0f
-        );
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        for(int i = 0; i < num_active_meshes; i++)
-        {
-            gl_mesh_t mesh = gl_meshes[gl_mesh_indices[i]];
-            glBindVertexArray(mesh.vao);
-            glUseProgram(mesh_shader.shader_program);
-            glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
-            glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrices[rotation_indices[i]].data);
-            glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offsets + (i * 3));
-            glUniform3fv(mesh_shader.object_color_location, 1, object_colors + (object_color_indices[i] * 3));
-            glUniform1f(mesh_shader.ambient_strength_location, ambient_strengths[environment_index]);
-            glUniform3fv(mesh_shader.light_position_location, 1, light_positions + (light_position_index * 3));
-            glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, NULL);
-        }
-
+        glBindVertexArray(gl_mesh.vao);
+        glUseProgram(mesh_shader.shader_program);
+        glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
+        glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
+        glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offset);
+        glUniform3fv(mesh_shader.object_color_location, 1, object_color);
+        glUniform1f(mesh_shader.ambient_strength_location, 0.7f); 
+        glUniform3fv(mesh_shader.light_position_location, 1, light_position);
+        glDrawElements(GL_TRIANGLES, gl_mesh.num_indices, GL_UNSIGNED_INT, NULL);
         glfwSwapBuffers(window);
         glfwPollEvents();
-        snprintf(
-            current_output_path, 
-            path_size, 
-            "/home/hayden/repos/g3dm/data/monster_renders/%d/%d.png", 
-            bucket_index,
-            generations_in_current_bucket
-        );
-        save_frame_to_png(current_output_path, window_width, window_height);
-        generations_in_current_bucket++;
-        if(generations_in_current_bucket >= 3000)
-        {
-            generations_in_current_bucket = 0;
-            bucket_index++;
-            char bucket_path[100];
-            snprintf(
-                bucket_path, 
-                path_size, 
-                "/home/hayden/repos/g3dm/data/monster_renders/%d", 
-                bucket_index
-            );
-            mkdir(bucket_path, 0755);
-        }
-        if(first_frame)
-        {
-            // Override the image generated on the first frame.
-            generations_in_current_bucket--;
-            first_frame = 0;
-        }
-        randomize_scene = 1;
     }
     glfwDestroyWindow(window);
     glfwTerminate();

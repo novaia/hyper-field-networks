@@ -8,6 +8,7 @@ OUTPUT_FILE="src/shaders.h"
 
 # Create or overwrite the output file
 echo "/* Generated shader header file */" > $OUTPUT_FILE
+echo -e "#ifdef __cplusplus\nextern "C" {\n#endif" >> $OUTPUT_FILE
 
 # Loop through all .vert and .frag files in the shaders folder
 for shader_file in $SHADERS_FOLDER/*.{vert,frag}; do
@@ -30,3 +31,5 @@ for shader_file in $SHADERS_FOLDER/*.{vert,frag}; do
     # Append the shader string to the output file with the appropriate suffix
     echo "const char* ${shader_name}${shader_suffix} = \"$shader_content\";" >> $OUTPUT_FILE
 done
+
+echo -e "#ifdef __cplusplus\n}\n#endif\n" >> $OUTPUT_FILE

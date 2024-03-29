@@ -101,6 +101,12 @@ def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
     grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
     
+    def standardize_fn(param):
+        mean = jnp.mean(param)
+        std = jnp.std(param)
+        return (param - mean) / std
+
+    state = state.replace(params=jax.tree_map(standardize_fn, state.params))   
     return state
 
 def create_train_state(model:nn.Module, learning_rate:float, KEY) -> TrainState:

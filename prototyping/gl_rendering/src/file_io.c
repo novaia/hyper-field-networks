@@ -7,6 +7,110 @@
 #include <GLFW/glfw3.h>
 #include "mesh.h"
 
+typedef struct
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride;
+    float* pixels;
+} image_t;
+
+
+image_t* load_png(const char* file_name)
+{
+    FILE* fp = fopen(file_name, "rb");
+    if(!fp)
+    {
+        printf("Error: could not open %s\n", file_name);
+        return NULL; 
+    }
+    
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if(!png)
+    {
+        printf("Error: could not create PNG read struct.\n");
+        fclose(fp);
+        return NULL;
+    }
+    png_infop info = png_create_info_struct(png);
+    if(!info)
+    {
+        printf("Error: could not create PNG info struct.\n");
+        fclose(fp);
+        return NULL;
+    }
+    
+    png_init_io(png, fp);
+    png_read_info(png, info);
+    const int width = png_get_image_width(png, info);
+    const int height = png_get_image_height(png, info);
+    const png_byte color_type = png_get_color_type(png, info);
+    const png_byte bit_depth = png_get_bit_depth(png, info);
+
+    if(bit_depth == 16)
+    {
+        png_set_strip_16(png);
+    }
+    if(color_type == PNG_COLOR_TYPE_PALETTE)
+    {
+        png_set_palette_to_rgb(png);
+    }
+    if(color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
+    {
+        png_set_expand_gray_1_2_4_to_8(png);
+    }
+    if(png_get_valid(png, info, PNG_INFO_tRNS))
+    {
+        png_set_tRNS_to_alpha(png);
+    }
+    // These color_type don't have an alpha channel, so fill it with 0xff.
+    if(
+        color_type == PNG_COLOR_TYPE_RGB ||
+        color_type == PNG_COLOR_TYPE_GRAY ||
+        color_type == PNG_COLOR_TYPE_PALETTE
+    ){
+        png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
+    }
+    if(
+        color_type == PNG_COLOR_TYPE_GRAY ||
+        color_type == PNG_COLOR_TYPE_GRAY_ALPHA
+    ){
+        png_set_gray_to_rgb(png);
+    }
+    png_read_update_info(png, info);
+    
+    png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
+    for(int y = 0; y < height; y++)
+    {
+        row_pointers[y] = (png_bytep)malloc(png_get_rowbytes(png, info));
+    }
+    png_read_image(png, row_pointers);
+
+    fclose(fp);
+    png_destroy_read_struct(&png, &info, NULL);
+    
+    image_t* image = (image_t*)malloc(sizeof(image_t));
+    image->width = width;
+    image->height = height;
+    image->stride = 4;
+    for(int y = 0; y < height; y++)
+    {
+        int row_offset = y * width;
+        png_bytep row = row_pointers[y];
+        for(int x = 0; x < width; x++)
+        {
+            int pixel_offset = (row_offset + x) * image->stride;
+            png_bytep px = &row[x * image->stride];
+            image->pixels[pixel_offset] = px[0];
+            image->pixels[pixel_offset + 1] = px[1];
+            image->pixels[pixel_offset + 2] = px[2];
+            image->pixels[pixel_offset + 3] = px[3];
+        }
+    }
+    free(row_pointers);
+    return image;
+}
+
 static inline int min_int(int a, int b) { return (a < b) ? a : b; }
 
 static inline float string_section_to_float(long start, long end, char* full_string)
@@ -33,8 +137,26 @@ static inline int string_section_to_int(long start, long end, char* full_string)
     return (int)atoi(string_section);
 }
 
+typedef struct
+{
+    image_t* image;
+} mtl_data_t;
+
+mtl_data_t* load_mtl(const char* path)
+{
+    FILE* fp = fopen(path, "r");
+    if(!fp)
+    {
+        fprintf(stderr, "Could not open %s\n", path);
+        return NULL;
+    }
+    mtl_data_t* mtl_data = (mtl_data_t*)malloc(sizeof(mtl_data_t));
+    mtl_data->image = NULL;
+    return mtl_data;   
+}
+
 mesh_t* load_obj(
-    const char* path, 
+    const char* path,
     const uint32_t max_vertices, 
     const uint32_t max_indices,
     const uint32_t max_normals
@@ -66,6 +188,7 @@ mesh_t* load_obj(
     int is_vertex = 0;
     int is_face = 0;
     int is_normal = 0;
+    int is_mtl = 0;
     // Vertices.
     int parsed_vertices = 0;
     int vertex_offset = 0;
@@ -84,6 +207,12 @@ mesh_t* load_obj(
     const size_t normal_buffer_size = sizeof(float) * max_normals * 3;
     float* normal_buffer = (float*)malloc(normal_buffer_size);
     long normal_x_start = -1, normal_y_start = -1, normal_z_start = -1, normal_end = -1; 
+    // MTL paths.
+    char* mtl_path = NULL;
+    long mtl_path_start = -1;
+    long mtl_path_end = -1;
+    long mtl_path_length = 0;
+
     for(long i = 0; i < file_length; i++)
     {
         const char current_char = file_chars[i];
@@ -110,6 +239,18 @@ mesh_t* load_obj(
             else if(current_char == 'v' && next_char == 'n')
             {
                 is_normal = 1;
+            }
+            else if(current_char == 'm')
+            {
+                if(mtl_path == NULL)
+                {
+                    is_mtl = 1;
+                }
+                else
+                {
+                    printf("Detected an MTL path but the MTL path has already been set, skipping...");
+                    ignore_current_line = 1;
+                }
             }
             is_start_of_line = 0;
         }
@@ -214,14 +355,64 @@ mesh_t* load_obj(
                     is_normal = 0;
                 }               
             }
+            else if(is_mtl)
+            {
+                if(mtl_path_start == -1 && current_char == ' ')
+                {
+                    mtl_path_start = i+1;
+                }
+                else if(current_char == '\n')
+                {
+
+                    mtl_path_end = i;
+                    if(mtl_path_start == -1)
+                    {
+                        printf("MTL path end detected but the start index was not set\n");
+                        return NULL;
+                    }
+                    mtl_path_length = mtl_path_end - mtl_path_start;
+                    mtl_path = (char*)malloc(sizeof(char) * (mtl_path_length+1));
+                    long mtl_char_offset = mtl_path_start;
+                    for(long k = 0; k < mtl_path_length; k++)
+                    {
+                        mtl_path[k] = file_chars[mtl_char_offset++];
+                    }
+                    mtl_path[mtl_path_length] = '\0';            
+
+                    is_mtl = 0;
+                    mtl_path_start = -1;
+                    mtl_path_end = -1;
+                }
+            }
         }
-        
         if(current_char == '\n')
         {
             // Reset state for next line.
             ignore_current_line = 0;
             is_start_of_line = 1;
         }
+    }
+    
+    if(mtl_path)
+    {
+        uint32_t obj_path_length = (uint32_t)strlen(path);
+        uint32_t obj_root_path_length = 0;
+        for(uint32_t i = obj_path_length; i > 0; --i)
+        {
+            if(path[i] == '/') 
+            { 
+                obj_root_path_length = i+1;
+                break;
+            }
+        }
+        char obj_root_path[obj_root_path_length+1];
+        memcpy(obj_root_path, path, sizeof(char) * obj_root_path_length);
+        obj_root_path[obj_root_path_length] = '\0';
+        uint32_t full_mtl_path_length = obj_root_path_length + mtl_path_length + 1;
+        char full_mtl_path[full_mtl_path_length];
+        snprintf(full_mtl_path, full_mtl_path_length, "%s%s", obj_root_path, mtl_path);
+        printf("%s\n", full_mtl_path);
+        //mtl_data_t* mtl_data = load_mtl(full_mtl_path);
     }
 
     const size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;

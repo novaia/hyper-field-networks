@@ -187,7 +187,7 @@ int main()
         return -1;
     }
 
-    const char* mesh_path = DATA_PATH("monsters/orc_skull.obj");
+    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
     gl_mesh_t gl_mesh;
     mesh_t* mesh = load_obj(mesh_path, 100000, 300000, 100000);
     if(!mesh) { return - 1; }

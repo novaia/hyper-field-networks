@@ -105,29 +105,22 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
 typedef struct
 {
     uint32_t vao, vbo, ibo, nbo;
-    int num_indices, num_normals, num_vertices;
+    uint32_t num_vertices, num_vertex_scalars;
 } gl_mesh_t;
 
 gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
 {
-    uint32_t vao, vbo, ibo, nbo;
+    uint32_t vao, vbo, nbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
     glGenBuffers(1, &nbo);
     glBindVertexArray(vao);
-    glGenBuffers(1, &ibo);
     
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    glBufferData(
-        GL_ELEMENT_ARRAY_BUFFER, 
-        sizeof(GL_UNSIGNED_INT) * mesh->num_indices, 
-        mesh->indices, 
-        GL_STATIC_DRAW
-    );
+    const uint32_t num_vertex_scalars = mesh->num_vertices * 3;
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(
         GL_ARRAY_BUFFER, 
-        sizeof(GL_FLOAT) * mesh->num_vertices * 3, 
+        sizeof(GL_FLOAT) * num_vertex_scalars, 
         mesh->vertices, 
         GL_STATIC_DRAW
     );
@@ -137,7 +130,7 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glBindBuffer(GL_ARRAY_BUFFER, nbo);
     glBufferData(
         GL_ARRAY_BUFFER,
-        sizeof(GL_FLOAT) * mesh->num_normals * 3,
+        sizeof(GL_FLOAT) * num_vertex_scalars,
         mesh->normals,
         GL_STATIC_DRAW
     );
@@ -147,10 +140,9 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     gl_mesh_t gl_mesh = { 
-        .vao = vao, .vbo = vbo, .ibo = ibo, .nbo = nbo,
-        .num_indices = mesh->num_indices,
-        .num_normals = mesh->num_normals,
-        .num_vertices = mesh->num_vertices
+        .vao = vao, .vbo = vbo, .nbo = nbo,
+        .num_vertices = mesh->num_vertices,
+        .num_vertex_scalars = num_vertex_scalars
     };
     return gl_mesh;
 }
@@ -187,14 +179,15 @@ int main()
         return -1;
     }
 
-    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
+    const char* mesh_path = DATA_PATH("3d_models/sonic_flat/sonic_flat.obj");
     gl_mesh_t gl_mesh;
     mesh_t* mesh = load_obj(mesh_path, 100000, 300000, 100000);
     if(!mesh) { return - 1; }
     gl_mesh = mesh_to_gl_mesh(mesh);
     free(mesh->vertices);
-    free(mesh->indices);
     free(mesh->normals);
+    free(mesh->texture_coords);
+    free(mesh->material);
     free(mesh);
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
@@ -202,11 +195,11 @@ int main()
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    mat4 rotation_matrix = get_y_rotation_matrix(0.0f);
+    mat4 rotation_matrix = get_y_rotation_matrix(45.0f);
     float mesh_position_offset[3] = {0.0f, -1.5f, -3.0f};
     float object_color[3] = {0.8f, 0.13f, 0.42f};
     float light_position[3] = {1.0f, 1.0f, 0.0f};
-
+    
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
@@ -220,7 +213,7 @@ int main()
         glUniform3fv(mesh_shader.object_color_location, 1, object_color);
         glUniform1f(mesh_shader.ambient_strength_location, 0.7f); 
         glUniform3fv(mesh_shader.light_position_location, 1, light_position);
-        glDrawElements(GL_TRIANGLES, gl_mesh.num_indices, GL_UNSIGNED_INT, NULL);
+        glDrawArrays(GL_TRIANGLES, 0, gl_mesh.num_vertices);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

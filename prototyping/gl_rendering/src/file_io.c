@@ -277,6 +277,7 @@ mesh_t* load_obj(
     int is_vertex = 0;
     int is_face = 0;
     int is_normal = 0;
+    int is_texture_coord = 0;
     int is_mtl = 0;
     // Vertices.
     int parsed_vertices = 0;
@@ -288,6 +289,7 @@ mesh_t* load_obj(
     const size_t index_buffer_size = sizeof(uint32_t) * max_indices;
     uint32_t* vertex_index_buffer = (uint32_t*)malloc(index_buffer_size);
     uint32_t* normal_index_buffer = (uint32_t*)malloc(index_buffer_size);
+    uint32_t* texture_index_buffer = (uint32_t*)malloc(index_buffer_size);
     int parsed_indices = 0;
     long index_group_start = -1, vertex_index_end = -1, texture_index_end = -1, normal_index_end = -1;
     // Normals.
@@ -296,11 +298,15 @@ mesh_t* load_obj(
     const size_t normal_buffer_size = sizeof(float) * max_normals * 3;
     float* normal_buffer = (float*)malloc(normal_buffer_size);
     long normal_x_start = -1, normal_y_start = -1, normal_z_start = -1, normal_end = -1; 
+    // Texture coords.
+    const uint32_t max_texture_coords = max_normals;
+    int parsed_texture_coords = 0;
+    int texture_coord_offset = 0;
+    float* texture_coord_buffer = (float*)malloc(sizeof(float) * max_normals * 2);
+    long texture_coord_start = -1, texture_coord_x_end = -1, texture_coord_y_end = -1;
     // MTL paths.
     char* mtl_path = NULL;
-    long mtl_path_start = -1;
-    long mtl_path_end = -1;
-    long mtl_path_length = 0;
+    long mtl_path_start = -1, mtl_path_end = -1, mtl_path_length = 0;
 
     for(long i = 0; i < file_length; i++)
     {
@@ -320,8 +326,7 @@ mesh_t* load_obj(
             else if(current_char == 'v' && next_char == ' ')
             {
                 is_vertex = 1;
-            }
-            else if(current_char == 'f')
+            } else if(current_char == 'f')
             {
                 is_face = 1;
             }
@@ -340,6 +345,10 @@ mesh_t* load_obj(
                     printf("Detected an MTL path but the MTL path has already been set, skipping...");
                     ignore_current_line = 1;
                 }
+            }
+            else if(current_char == 'v' && next_char == 't')
+            {
+                is_texture_coord = 1;
             }
             is_start_of_line = 0;
         }
@@ -397,6 +406,8 @@ mesh_t* load_obj(
                     normal_index_end = i;
                     vertex_index_buffer[parsed_indices] = 
                         (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
+                    texture_index_buffer[parsed_indices] = 
+                        (uint32_t)string_section_to_int(vertex_index_end+1, texture_index_end, file_chars) - 1;
                     normal_index_buffer[parsed_indices] =
                         (uint32_t)string_section_to_int(texture_index_end+1, normal_index_end, file_chars) - 1;
                     parsed_indices++;
@@ -473,6 +484,36 @@ mesh_t* load_obj(
                     mtl_path_end = -1;
                 }
             }
+            else if(is_texture_coord)
+            {
+                if(texture_coord_start == -1 && current_char == ' ')
+                {
+                    texture_coord_start = i+1;
+                }
+                else if(texture_coord_x_end == -1 && current_char == ' ')
+                {
+                    texture_coord_x_end = i;
+                }
+                else if(current_char == '\n')
+                {
+                    if(parsed_texture_coords >= max_texture_coords)
+                    {
+                        printf("Exceed maximum number of texture coords in buffer\n");
+                        return NULL;
+                    }
+                    texture_coord_y_end = i;
+                    texture_coord_buffer[texture_coord_offset++] = 
+                        string_section_to_float(texture_coord_start, texture_coord_x_end, file_chars);
+                    texture_coord_buffer[texture_coord_offset++] = 
+                        string_section_to_float(texture_coord_x_end+1, texture_coord_y_end, file_chars);
+                    parsed_texture_coords++;
+                    
+                    is_texture_coord = 0;
+                    texture_coord_start = -1;
+                    texture_coord_x_end = -1;
+                    texture_coord_y_end = -1;
+                }
+            }
         }
         if(current_char == '\n')
         {
@@ -482,6 +523,11 @@ mesh_t* load_obj(
         }
     }
     
+    printf(
+        "Parsed %d vertices, %d normals, %d texture coords, and %d indices\n", 
+        parsed_vertices, parsed_normals, parsed_texture_coords, parsed_indices
+    );
+
     material_t* material;
     if(mtl_path)
     {
@@ -509,40 +555,49 @@ mesh_t* load_obj(
             return NULL;
         }
     }
-
-    const size_t parsed_vertices_size = sizeof(float) * parsed_vertices * 3;
-    // Resolve the normal indices to get an ordered normal buffer.
-    // There should be one normal in the ordered_normal_buffer for each vertex in the vertex_buffer.
-    float* ordered_normal_buffer = (float*)malloc(parsed_vertices_size);
+    const size_t ordered_scalars_size = sizeof(float) * parsed_indices;
+    float* ordered_vertices = (float*)malloc(ordered_scalars_size * 3);
+    float* ordered_texture_coords = (float*)malloc(ordered_scalars_size * 2);
+    float* ordered_normals = (float*)malloc(ordered_scalars_size * 3);
     for(int i = 0; i < parsed_indices; i++)
     {
-        const int ordered_normal_offset = vertex_index_buffer[i] * 3;
-        const int unordered_normal_offset = normal_index_buffer[i] * 3;
-        ordered_normal_buffer[ordered_normal_offset] = normal_buffer[unordered_normal_offset];
-        ordered_normal_buffer[ordered_normal_offset + 1] = normal_buffer[unordered_normal_offset + 1];
-        ordered_normal_buffer[ordered_normal_offset + 2] = normal_buffer[unordered_normal_offset + 2];
+        const uint32_t vertex_offset = vertex_index_buffer[i] * 3;
+        const uint32_t ordered_vertex_offset = i * 3;
+        ordered_vertices[ordered_vertex_offset] = vertex_buffer[vertex_offset];
+        ordered_vertices[ordered_vertex_offset+1] = vertex_buffer[vertex_offset+1];
+        ordered_vertices[ordered_vertex_offset+2] = vertex_buffer[vertex_offset+2];
+
+        const uint32_t texture_coord_offset = texture_index_buffer[i] * 2;
+        const uint32_t ordered_texture_coord_offset = i * 2;
+        ordered_texture_coords[ordered_texture_coord_offset] = texture_coord_buffer[texture_coord_offset];
+        ordered_texture_coords[ordered_texture_coord_offset+1] = texture_coord_buffer[texture_coord_offset+1];
+
+        const uint32_t normal_offset = normal_index_buffer[i] * 3;
+        const uint32_t ordered_normal_offset = ordered_vertex_offset;
+        ordered_normals[ordered_normal_offset] = normal_buffer[normal_offset];
+        ordered_normals[ordered_normal_offset+1] = normal_buffer[normal_offset+1];
+        ordered_normals[ordered_normal_offset+2] = normal_buffer[normal_offset+2];
+        /*printf(
+            "%d %d %d %d\n", 
+            normal_offset,
+            ordered_normals[ordered_normal_offset], 
+            ordered_normals[ordered_normal_offset+1],
+            ordered_normals[ordered_normal_offset+2]
+        );*/
     }
+    free(vertex_buffer);
+    free(texture_coord_buffer);
+    free(normal_buffer);
+    free(vertex_index_buffer);
+    free(texture_index_buffer);
+    free(normal_index_buffer);
 
     mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
+    mesh->num_vertices = parsed_indices;
+    mesh->vertices = ordered_vertices;
+    mesh->normals = ordered_normals;
+    mesh->texture_coords = ordered_texture_coords;
     mesh->material = material;
-    mesh->vertices = (float*)malloc(parsed_vertices_size);
-    mesh->num_vertices = parsed_vertices;
-    memcpy(mesh->vertices, vertex_buffer, parsed_vertices_size);
-
-    const size_t parsed_indices_size = sizeof(uint32_t) * parsed_indices;
-    mesh->indices = (uint32_t*)malloc(sizeof(uint32_t) * parsed_indices);
-    mesh->num_indices = parsed_indices;
-    memcpy(mesh->indices, vertex_index_buffer, parsed_indices_size);
-
-    mesh->normals = (float*)malloc(parsed_vertices_size);
-    mesh->num_normals = parsed_vertices;
-    memcpy(mesh->normals, ordered_normal_buffer, parsed_vertices_size);
-    
-    free(vertex_buffer);
-    free(vertex_index_buffer);
-    free(normal_index_buffer);
-    free(normal_buffer);
-    free(ordered_normal_buffer);
     return mesh;
 }
 

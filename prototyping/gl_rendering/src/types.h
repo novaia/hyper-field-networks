@@ -18,12 +18,10 @@ typedef struct
 
 typedef struct 
 { 
+    uint32_t num_vertices;
     float* vertices; 
-    int num_vertices; 
-    uint32_t* indices; 
-    int num_indices;
     float* normals;
-    int num_normals;
+    float* texture_coords;
     material_t* material;
 } mesh_t;
 

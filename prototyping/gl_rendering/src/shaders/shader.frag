@@ -6,6 +6,7 @@ uniform vec3 light_pos;
 
 in vec3 frag_normal;
 in vec3 frag_pos;
+in vec2 frag_texture_coord;
 
 void main()
 {
@@ -33,5 +34,6 @@ void main()
         + (diffuse * diffuse_blend) 
         + (specular * specular_blend)
     ) * object_color;
-    gl_FragColor = vec4(color, 1.0f);
+    //gl_FragColor = vec4(color, 1.0f);
+    gl_FragColor = vec4(frag_texture_coord, 1.0f, 1.0f);
 }

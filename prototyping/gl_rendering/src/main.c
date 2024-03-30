@@ -104,16 +104,17 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
 
 typedef struct
 {
-    uint32_t vao, vbo, ibo, nbo;
+    uint32_t vao, vbo, ibo, nbo, tbo;
     uint32_t num_vertices, num_vertex_scalars;
 } gl_mesh_t;
 
 gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
 {
-    uint32_t vao, vbo, nbo;
+    uint32_t vao, vbo, nbo, tbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
     glGenBuffers(1, &nbo);
+    glGenBuffers(1, &tbo);
     glBindVertexArray(vao);
     
     const uint32_t num_vertex_scalars = mesh->num_vertices * 3;
@@ -136,11 +137,21 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     );
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 3, (void*)0);
     glEnableVertexAttribArray(1);
+   
+    glBindBuffer(GL_ARRAY_BUFFER, tbo);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        sizeof(GL_FLOAT) * mesh->num_vertices * 2,
+        mesh->texture_coords,
+        GL_STATIC_DRAW
+    );
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 2, (void*)0);
+    glEnableVertexAttribArray(2);
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     gl_mesh_t gl_mesh = { 
-        .vao = vao, .vbo = vbo, .nbo = nbo,
+        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo,
         .num_vertices = mesh->num_vertices,
         .num_vertex_scalars = num_vertex_scalars
     };

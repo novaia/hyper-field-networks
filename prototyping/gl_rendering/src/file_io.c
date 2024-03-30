@@ -571,6 +571,11 @@ mesh_t* load_obj(
         const uint32_t ordered_texture_coord_offset = i * 2;
         ordered_texture_coords[ordered_texture_coord_offset] = texture_coord_buffer[texture_coord_offset];
         ordered_texture_coords[ordered_texture_coord_offset+1] = texture_coord_buffer[texture_coord_offset+1];
+        /*printf(
+            "%f %f\n", 
+            ordered_texture_coords[ordered_texture_coord_offset],
+            ordered_texture_coords[ordered_texture_coord_offset+1]
+        );*/
 
         const uint32_t normal_offset = normal_index_buffer[i] * 3;
         const uint32_t ordered_normal_offset = ordered_vertex_offset;

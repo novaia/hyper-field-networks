@@ -230,14 +230,18 @@ int main()
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    mat4 rotation_matrix = get_y_rotation_matrix(-15.0f);
     float mesh_position_offset[3] = {0.0f, -1.5f, -3.0f};
     float object_color[3] = {0.8f, 0.13f, 0.42f};
     float light_position[3] = {1.0f, 1.0f, 0.0f};
     
+    float y_rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
+        y_rot += 1.0f;
+        if(y_rot > 360.0f) { y_rot -= 360.0f; }
+        else if(y_rot < 0.0f) { y_rot += 360.0f; }
+        mat4 rotation_matrix = get_y_rotation_matrix(y_rot);
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glBindVertexArray(gl_mesh.vao);

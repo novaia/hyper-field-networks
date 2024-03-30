@@ -104,17 +104,18 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
 
 typedef struct
 {
-    uint32_t vao, vbo, ibo, nbo, tbo;
+    uint32_t vao, vbo, ibo, nbo, tbo, texture;
     uint32_t num_vertices, num_vertex_scalars;
 } gl_mesh_t;
 
 gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
 {
-    uint32_t vao, vbo, nbo, tbo;
+    uint32_t vao, vbo, nbo, tbo, texture;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
     glGenBuffers(1, &nbo);
     glGenBuffers(1, &tbo);
+    glGenTextures(1, &texture);
     glBindVertexArray(vao);
     
     const uint32_t num_vertex_scalars = mesh->num_vertices * 3;
@@ -150,8 +151,27 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+    
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        mesh->material->texture->width,
+        mesh->material->texture->height,
+        0,
+        GL_RGBA,
+        GL_FLOAT,
+        mesh->material->texture->pixels
+    );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
     gl_mesh_t gl_mesh = { 
-        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo,
+        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo, .texture = texture,
         .num_vertices = mesh->num_vertices,
         .num_vertex_scalars = num_vertex_scalars
     };
@@ -166,6 +186,7 @@ typedef struct
     uint32_t position_offset_location;
     uint32_t ambient_strength_location;
     uint32_t light_position_location;
+    uint32_t texture_location;
     uint32_t shader_program;
 } mesh_shader_t;
 
@@ -178,6 +199,7 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
     mesh_shader.position_offset_location = glGetUniformLocation(shader_program, "position_offset");
     mesh_shader.ambient_strength_location = glGetUniformLocation(shader_program, "ambient_strength");
     mesh_shader.light_position_location = glGetUniformLocation(shader_program, "light_pos");
+    mesh_shader.texture_location = glGetUniformLocation(shader_program, "texture_sampler");
     mesh_shader.shader_program = shader_program;
     return mesh_shader;
 }
@@ -190,7 +212,7 @@ int main()
         return -1;
     }
 
-    const char* mesh_path = DATA_PATH("3d_models/sonic_flat/sonic_flat.obj");
+    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
     gl_mesh_t gl_mesh;
     mesh_t* mesh = load_obj(mesh_path, 100000, 300000, 100000);
     if(!mesh) { return - 1; }
@@ -198,6 +220,8 @@ int main()
     free(mesh->vertices);
     free(mesh->normals);
     free(mesh->texture_coords);
+    free(mesh->material->texture->pixels);
+    free(mesh->material->texture);
     free(mesh->material);
     free(mesh);
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
@@ -206,7 +230,7 @@ int main()
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    mat4 rotation_matrix = get_y_rotation_matrix(45.0f);
+    mat4 rotation_matrix = get_y_rotation_matrix(-15.0f);
     float mesh_position_offset[3] = {0.0f, -1.5f, -3.0f};
     float object_color[3] = {0.8f, 0.13f, 0.42f};
     float light_position[3] = {1.0f, 1.0f, 0.0f};
@@ -224,6 +248,11 @@ int main()
         glUniform3fv(mesh_shader.object_color_location, 1, object_color);
         glUniform1f(mesh_shader.ambient_strength_location, 0.7f); 
         glUniform3fv(mesh_shader.light_position_location, 1, light_position);
+        
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, gl_mesh.texture);
+        glUniform1i(mesh_shader.texture_location, 0);
+        
         glDrawArrays(GL_TRIANGLES, 0, gl_mesh.num_vertices);
         glfwSwapBuffers(window);
         glfwPollEvents();

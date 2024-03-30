@@ -3,6 +3,7 @@
 uniform float ambient_strength;
 uniform vec3 object_color;
 uniform vec3 light_pos;
+uniform sampler2D texture_sampler;
 
 in vec3 frag_normal;
 in vec3 frag_pos;
@@ -28,12 +29,12 @@ void main()
     vec3 reflect_dir = normalize(reflect(light_dir, normal));
     float specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), 64.0f);
     vec3 specular = specular_strength * light_color;
-
+    
+    vec4 texture_color = texture(texture_sampler, frag_texture_coord);
     vec3 color = (
         ambient 
         + (diffuse * diffuse_blend) 
         + (specular * specular_blend)
-    ) * object_color;
-    //gl_FragColor = vec4(color, 1.0f);
-    gl_FragColor = vec4(frag_texture_coord, 1.0f, 1.0f);
+    ) * texture_color.rgb;
+    gl_FragColor = vec4(color, 1.0f);
 }

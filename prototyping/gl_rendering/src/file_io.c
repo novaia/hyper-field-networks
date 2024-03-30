@@ -93,10 +93,10 @@ image_t* load_png(const char* file_name)
         {
             int pixel_offset = (row_offset + x) * image->stride;
             png_bytep px = &row[x * image->stride];
-            image->pixels[pixel_offset] = px[0];
-            image->pixels[pixel_offset + 1] = px[1];
-            image->pixels[pixel_offset + 2] = px[2];
-            image->pixels[pixel_offset + 3] = px[3];
+            image->pixels[pixel_offset] = px[0]/255.0f;
+            image->pixels[pixel_offset + 1] = px[1]/255.0f;
+            image->pixels[pixel_offset + 2] = px[2]/255.0f;
+            image->pixels[pixel_offset + 3] = px[3]/255.0f;
         }
     }
     free(row_pointers);

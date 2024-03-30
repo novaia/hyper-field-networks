@@ -5,15 +5,7 @@
 #include <png.h>
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
-#include "mesh.h"
-
-typedef struct
-{
-    uint32_t width;
-    uint32_t height;
-    uint32_t stride;
-    float* pixels;
-} image_t;
+#include "types.h"
 
 image_t* load_png(const char* file_name)
 {
@@ -92,6 +84,7 @@ image_t* load_png(const char* file_name)
     image->width = width;
     image->height = height;
     image->stride = 4;
+    image->pixels = (float*)malloc(sizeof(float) * width * height * image->stride);
     for(int y = 0; y < height; y++)
     {
         int row_offset = y * width;
@@ -136,12 +129,7 @@ static inline int string_section_to_int(long start, long end, char* full_string)
     return (int)atoi(string_section);
 }
 
-typedef struct
-{
-    image_t* image;
-} mtl_data_t;
-
-mtl_data_t* load_mtl(const char* path)
+material_t* load_mtl(const char* path)
 {
     FILE* fp = fopen(path, "r");
     if(!fp)
@@ -224,6 +212,8 @@ mtl_data_t* load_mtl(const char* path)
         }
     }
 
+    material_t* mtl_data = (material_t*)malloc(sizeof(material_t));
+    mtl_data->texture = NULL;
     if(texture_path)
     {
         uint32_t mtl_path_length = (uint32_t)strlen(path);
@@ -243,10 +233,14 @@ mtl_data_t* load_mtl(const char* path)
         char full_texture_path[full_texture_path_length];
         snprintf(full_texture_path, full_texture_path_length, "%s%s", mtl_root_path, texture_path);
         printf("%s\n", full_texture_path);
+        mtl_data->texture = load_png(full_texture_path);
+        if(!mtl_data->texture)
+        {
+            printf("Could not load material's texture\n");
+            free(mtl_data);
+            return NULL;
+        }
     }
-    return NULL;
-    mtl_data_t* mtl_data = (mtl_data_t*)malloc(sizeof(mtl_data_t));
-    mtl_data->image = NULL;
     return mtl_data;   
 }
 
@@ -488,6 +482,7 @@ mesh_t* load_obj(
         }
     }
     
+    material_t* material;
     if(mtl_path)
     {
         uint32_t obj_path_length = (uint32_t)strlen(path);
@@ -507,12 +502,11 @@ mesh_t* load_obj(
         char full_mtl_path[full_mtl_path_length];
         snprintf(full_mtl_path, full_mtl_path_length, "%s%s", obj_root_path, mtl_path);
         printf("%s\n", full_mtl_path);
-        mtl_data_t* mtl_data = load_mtl(full_mtl_path);
-        free(mtl_path);
-        if(mtl_data)
+        material = load_mtl(full_mtl_path);
+        if(!material)
         {
-            free(mtl_data->image);
-            free(mtl_data);
+            printf("Could not load material\n");
+            return NULL;
         }
     }
 
@@ -530,6 +524,7 @@ mesh_t* load_obj(
     }
 
     mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
+    mesh->material = material;
     mesh->vertices = (float*)malloc(parsed_vertices_size);
     mesh->num_vertices = parsed_vertices;
     memcpy(mesh->vertices, vertex_buffer, parsed_vertices_size);

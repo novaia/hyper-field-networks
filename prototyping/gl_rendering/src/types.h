@@ -3,6 +3,19 @@
 extern "C" {
 #endif
 
+typedef struct
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride;
+    float* pixels;
+} image_t;
+
+typedef struct
+{
+    image_t* texture;
+} material_t;
+
 typedef struct 
 { 
     float* vertices; 
@@ -11,6 +24,7 @@ typedef struct
     int num_indices;
     float* normals;
     int num_normals;
+    material_t* material;
 } mesh_t;
 
 #ifdef __cplusplus

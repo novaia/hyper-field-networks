@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "shaders.h"
 #include "file_io.h"
-#include "mesh.h"
+#include "types.h"
 #include "transform.h"
 
 #define DATA_PATH(path) "/home/hayden/repos/g3dm/data/"path

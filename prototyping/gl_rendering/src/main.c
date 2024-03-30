@@ -13,7 +13,7 @@
 
 int window_width = 1280;
 int window_height = 720;
-const char* window_title = "Synthetic 3D";
+const char* window_title = "3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
 float window_height_to_width_ratio = 0.0f;

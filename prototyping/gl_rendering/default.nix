@@ -3,7 +3,7 @@ let
     glad = import ./dependencies/glad { inherit pkgs; };
 in
 pkgs.stdenv.mkDerivation {
-    pname = "synthetic3d";
+    pname = "3d";
     version = "v0.0.0";
     src = ./.;
     buildInputs = with pkgs; [ 
@@ -14,10 +14,10 @@ pkgs.stdenv.mkDerivation {
     buildPhase = ''
         bash shaders_to_header.sh
         gcc -std=c99 -c ./src/main.c ./src/file_io.c ./src/transform.c
-        gcc main.o file_io.o transform.o -lglfw -lglad -lm -lpng -o synthetic3d
+        gcc main.o file_io.o transform.o -lglfw -lglad -lm -lpng -o 3d 
     '';
     installPhase = ''
         mkdir -p $out/bin
-        cp synthetic3d $out/bin
+        cp 3d $out/bin
     '';
 }

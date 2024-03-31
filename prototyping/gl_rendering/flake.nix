@@ -16,6 +16,32 @@
             };
         };
     in {
+        devShells = let
+            glad = import ./dependencies/glad { inherit pkgs; };
+        in rec {
+            default = pkgs.mkShell {
+                buildInputs = with pkgs; [
+                    libpng
+                    glfw
+                    glad
+                    clang-tools
+                ];
+                dot_clangd = ''
+                    CompileFlags:                     # Tweak the parse settings
+                        Add:
+                            - "-I${pkgs.libpng}/include
+                            - "-I${glad}/include
+                            - "-I${pkgs.glfw}/include
+                    Remove: "-W*"                   # strip all other warning-related flags
+                    Compiler: "clang++"             # Change argv[0] of compile flags to clang++
+                    # vim: ft=yaml:
+                '';
+                shellHook = ''
+                    echo "use \`echo \$dot_clangd >.clangd\` for development"
+                    [[ "$-" == *i* ]] && exec "$SHELL"
+                '';
+            };
+        };
         packages = {
             default = pkgs.callPackage ./. {};
         };

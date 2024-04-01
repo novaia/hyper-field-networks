@@ -161,6 +161,27 @@ void save_frame_to_png(const char* filename, unsigned int width, unsigned int he
     fclose(file);
 }
 
+static inline size_t get_base_path_length(const char* full_path)
+{
+    size_t full_path_length = strlen(full_path);
+    size_t base_path_length = 0;
+    for(size_t i = full_path_length; i > 0; --i)
+    {
+        if(full_path[i] == '/')
+        {
+            base_path_length = i+1;
+            break;
+        }
+    }
+    return base_path_length;
+}
+
+static inline void join_base_path_and_target(
+    const char* base_path, const char* target, char* dest, size_t combined_length
+){
+    snprintf(dest, combined_length, "%s%s", base_path, target);
+}
+
 static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 
 static inline float string_section_to_float(long start, long end, const char* full_string)
@@ -181,27 +202,40 @@ static inline unsigned int string_section_to_uint(long start, long end, const ch
     return (unsigned)atoi(string_section);
 }
 
-material_t* load_mtl(const char* path)
+static int read_text_file(const char* file_path, char** file_chars, long* file_length)
 {
-    FILE* fp = fopen(path, "r");
+    FILE* fp = fopen(file_path, "r");
     if(!fp)
     {
-        fprintf(stderr, "Could not open %s\n", path);
-        return NULL;
+        fprintf(stderr, "Could not open %s\n", file_path);
+        return -1;
     }
     fseek(fp, 0, SEEK_END);
-    long file_length = ftell(fp);
+    *file_length = ftell(fp);
     rewind(fp);
-    char* file_chars = malloc(sizeof(char) * (file_length + 1));
+    *file_chars = (char*)malloc(sizeof(char) * (*file_length + 1));
     if(!file_chars)
     {
-        fprintf(stderr, "Could not allocate memory for reading %s\n", path);
+        fprintf(stderr, "Could not allocate memory for reading %s\n", file_path);
         fclose(fp);
-        return NULL;
+        return -1;
     }
-    size_t read_size = fread(file_chars, sizeof(char), file_length, fp);
-    file_chars[read_size] = '\0';
+    size_t read_size = fread(*file_chars, sizeof(char), *file_length, fp);
+    (*file_chars)[read_size] = '\0';
     fclose(fp);
+}
+
+static material_t* load_mtl(
+    const char* mtl_path, const char* base_path, size_t base_path_length
+){
+    char* file_chars = NULL;
+    long file_length = 0;
+    int error = read_text_file(mtl_path, &file_chars, &file_length);
+    if(error) 
+    {
+        free(file_chars);
+        return NULL; 
+    }
     
     unsigned int ignore_current_line = 0;
     unsigned int is_start_of_line = 1;
@@ -209,7 +243,7 @@ material_t* load_mtl(const char* path)
     long map_start = -1;
     long map_end = -1;
     char* texture_path = NULL;
-    long texture_path_length = 0;
+    size_t texture_path_length = 0;
 
     for(long i = 0; i < file_length; i++)
     {
@@ -241,13 +275,9 @@ material_t* load_mtl(const char* path)
                 else if(current_char == '\n')
                 {
                     map_end = i;
-                    texture_path_length = map_end - map_start;
+                    texture_path_length = (size_t)(map_end - map_start);
                     texture_path = (char*)malloc(sizeof(char) * (texture_path_length+1));
-                    long texture_char_offset = map_start;
-                    for(long k = 0; k < texture_path_length; k++)
-                    {
-                        texture_path[k] = file_chars[texture_char_offset++];
-                    }
+                    memcpy(texture_path, &file_chars[map_start], sizeof(char) * texture_path_length);
                     texture_path[texture_path_length] = '\0';            
 
                     is_map = 0;
@@ -268,31 +298,17 @@ material_t* load_mtl(const char* path)
     mtl_data->texture = NULL;
     if(texture_path)
     {
-        size_t mtl_path_length = strlen(path);
-        size_t mtl_root_path_length = 0;
-        for(size_t i = mtl_path_length; i > 0; --i)
-        {
-            if(path[i] == '/') 
-            { 
-                mtl_root_path_length = i+1;
-                break;
-            }
-        }
-        char mtl_root_path[mtl_root_path_length+1];
-        memcpy(mtl_root_path, path, sizeof(char) * mtl_root_path_length);
-        mtl_root_path[mtl_root_path_length] = '\0';
-        size_t full_texture_path_length = mtl_root_path_length + texture_path_length + 1;
+        size_t full_texture_path_length = base_path_length + texture_path_length + 1;
         char full_texture_path[full_texture_path_length];
-        snprintf(
-            full_texture_path, full_texture_path_length, 
-            "%s%s", mtl_root_path, texture_path
-        );
+        join_base_path_and_target(base_path, texture_path, full_texture_path, full_texture_path_length);
+        free(texture_path);
         printf("%s\n", full_texture_path);
         mtl_data->texture = load_png(full_texture_path);
         if(!mtl_data->texture)
         {
             printf("Could not load material's texture\n");
             free(mtl_data);
+            free(file_chars);
             return NULL;
         }
     }
@@ -305,27 +321,15 @@ mesh_t* load_obj(
     const unsigned int max_indices,
     const unsigned int max_normals
 ){
-    FILE* fp = fopen(path, "r");
-    if(!fp)
-    {
-        fprintf(stderr, "Could not open %s\n", path);
-        return NULL;
+    char* file_chars = NULL;
+    long file_length = 0;
+    int error = read_text_file(path, &file_chars, &file_length);
+    if(error) 
+    { 
+        free(file_chars);
+        return NULL; 
     }
 
-    fseek(fp, 0, SEEK_END);
-    long file_length = ftell(fp);
-    rewind(fp);
-    char* file_chars = malloc(sizeof(char) * (file_length + 1));
-    if(!file_chars)
-    {
-        fprintf(stderr, "Could not allocate memory for reading %s\n", path);
-        fclose(fp);
-        return NULL;
-    }
-    size_t read_size = fread(file_chars, sizeof(char), file_length, fp);
-    file_chars[read_size] = '\0';
-    fclose(fp);
-    
     // Parser line state.    
     unsigned int ignore_current_line = 0;
     unsigned int is_start_of_line = 1;
@@ -341,10 +345,10 @@ mesh_t* load_obj(
     float* vertex_buffer = (float*)malloc(vertex_buffer_size);
     long vertex_x_start = -1, vertex_y_start = -1, vertex_z_start = -1, vertex_end = -1;
     // Indices.
-    const size_t index_buffer_size = sizeof(uint32_t) * max_indices;
-    unsigned int* vertex_index_buffer = (uint32_t*)malloc(index_buffer_size);
-    unsigned int* normal_index_buffer = (uint32_t*)malloc(index_buffer_size);
-    unsigned int* texture_index_buffer = (uint32_t*)malloc(index_buffer_size);
+    const size_t index_buffer_size = sizeof(unsigned int) * max_indices;
+    unsigned int* vertex_index_buffer = (unsigned int*)malloc(index_buffer_size);
+    unsigned int* normal_index_buffer = (unsigned int*)malloc(index_buffer_size);
+    unsigned int* texture_index_buffer = (unsigned int*)malloc(index_buffer_size);
     int parsed_indices = 0;
     long index_group_start = -1, vertex_index_end = -1, texture_index_end = -1, normal_index_end = -1;
     // Normals.
@@ -361,8 +365,8 @@ mesh_t* load_obj(
     long texture_coord_start = -1, texture_coord_x_end = -1, texture_coord_y_end = -1;
     // MTL paths.
     char* mtl_path = NULL;
-    long mtl_path_start = -1, mtl_path_end = -1, mtl_path_length = 0;
-
+    long mtl_path_start = -1, mtl_path_end = -1;
+    size_t mtl_path_length = 0;
     for(long i = 0; i < file_length; i++)
     {
         const char current_char = file_chars[i];
@@ -422,6 +426,7 @@ mesh_t* load_obj(
                     if(parsed_vertices >= max_vertices)
                     {
                         printf("Exceeded maximum number of vertices in buffer\n");
+                        free(file_chars);
                         return NULL;
                     }
                     
@@ -455,9 +460,10 @@ mesh_t* load_obj(
                     if(parsed_indices >= max_indices)
                     {
                         printf("Exceeded maximum number of indices in buffer\n");
+                        free(file_chars);
                         return NULL;
                     }
-
+                    
                     normal_index_end = i;
                     vertex_index_buffer[parsed_indices] = 
                         string_section_to_uint(index_group_start+1, vertex_index_end, file_chars) - 1;
@@ -494,6 +500,8 @@ mesh_t* load_obj(
                     if(parsed_normals >= max_normals)
                     {
                         printf("Exceeded maximum number of normals in buffer\n");
+                        free(file_chars);
+                        return NULL;
                     }
 
                     normal_end = i;
@@ -523,17 +531,13 @@ mesh_t* load_obj(
                     if(mtl_path_start == -1)
                     {
                         printf("MTL path end detected but the start index was not set\n");
+                        free(file_chars);
                         return NULL;
                     }
-                    mtl_path_length = mtl_path_end - mtl_path_start;
+                    mtl_path_length = (size_t)(mtl_path_end - mtl_path_start);
                     mtl_path = (char*)malloc(sizeof(char) * (mtl_path_length+1));
-                    long mtl_char_offset = mtl_path_start;
-                    for(long k = 0; k < mtl_path_length; k++)
-                    {
-                        mtl_path[k] = file_chars[mtl_char_offset++];
-                    }
+                    memcpy(mtl_path, &file_chars[mtl_path_start], sizeof(char) * mtl_path_length);
                     mtl_path[mtl_path_length] = '\0';            
-
                     is_mtl = 0;
                     mtl_path_start = -1;
                     mtl_path_end = -1;
@@ -554,6 +558,7 @@ mesh_t* load_obj(
                     if(parsed_texture_coords >= max_texture_coords)
                     {
                         printf("Exceed maximum number of texture coords in buffer\n");
+                        free(file_chars);
                         return NULL;
                     }
                     texture_coord_y_end = i;
@@ -582,31 +587,23 @@ mesh_t* load_obj(
         "Parsed %d vertices, %d normals, %d texture coords, and %d indices\n", 
         parsed_vertices, parsed_normals, parsed_texture_coords, parsed_indices
     );
-
+    
     material_t* material;
     if(mtl_path)
     {
-        const size_t obj_path_length = strlen(path);
-        size_t obj_root_path_length = 0;
-        for(size_t i = obj_path_length; i > 0; --i)
-        {
-            if(path[i] == '/') 
-            { 
-                obj_root_path_length = i+1;
-                break;
-            }
-        }
-        char obj_root_path[obj_root_path_length+1];
-        memcpy(obj_root_path, path, sizeof(char) * obj_root_path_length);
-        obj_root_path[obj_root_path_length] = '\0';
-        unsigned int full_mtl_path_length = obj_root_path_length + mtl_path_length + 1;
+        const size_t base_path_length = get_base_path_length(path);
+        char base_path[base_path_length+1];
+        memcpy(base_path, path, sizeof(char) * base_path_length);
+        base_path[base_path_length] = '\0';
+
+        size_t full_mtl_path_length = base_path_length + mtl_path_length + 1;
         char full_mtl_path[full_mtl_path_length];
-        snprintf(full_mtl_path, full_mtl_path_length, "%s%s", obj_root_path, mtl_path);
-        printf("%s\n", full_mtl_path);
-        material = load_mtl(full_mtl_path);
+        join_base_path_and_target(base_path, mtl_path, full_mtl_path, full_mtl_path_length);
+        material = load_mtl(full_mtl_path, base_path, base_path_length);
         if(!material)
         {
             printf("Could not load material\n");
+            free(file_chars);
             return NULL;
         }
     }
@@ -639,6 +636,7 @@ mesh_t* load_obj(
     free(vertex_index_buffer);
     free(texture_index_buffer);
     free(normal_index_buffer);
+    free(file_chars);
 
     mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
     mesh->num_vertices = parsed_indices;

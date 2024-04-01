@@ -167,11 +167,8 @@ static inline float string_section_to_float(long start, long end, char* full_str
 {
     int char_count = min_int((int)(end - start), 10);
     char string_section[char_count+1];
-    for(int i = 0; i < char_count; i++)
-    {
-        string_section[i] = full_string[start + (long)i];
-    }
     string_section[char_count] = '\0';
+    memcpy(string_section, &full_string[start], sizeof(char) * char_count);
     return (float)atof(string_section);
 }
 
@@ -179,11 +176,8 @@ static inline int string_section_to_int(long start, long end, char* full_string)
 {
     int char_count = min_int((int)(end - start), 10);
     char string_section[char_count+1];
-    for(int i = 0; i < char_count; i++)
-    {
-        string_section[i] = full_string[start + (long)i];
-    }
     string_section[char_count] = '\0';
+    memcpy(string_section, &full_string[start], sizeof(char) * char_count);
     return (int)atoi(string_section);
 }
 

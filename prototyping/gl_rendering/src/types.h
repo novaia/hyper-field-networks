@@ -1,9 +1,9 @@
+#include <stdint.h>
+
 #pragma once
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
 
 typedef struct
 {

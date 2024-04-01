@@ -518,6 +518,22 @@ static inline int parse_obj_face(
     return -1;
 }
 
+static inline int seek_end_of_line(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t start_offset, size_t* line_end 
+){
+    for(size_t i = start_offset; start_offset < file_chars_length; i++)
+    {
+        if(file_chars[i] == '\n')
+        {
+            *line_end = i;
+            return 0;
+        }
+    }
+    printf("Reached end of file while seeking end of line\n");
+    return -1;
+}
+
 int load_obj_refactor(const char* path, const unsigned int max_vertices, const unsigned int max_indices)
 {
     char* file_chars = NULL;
@@ -536,7 +552,6 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
     unsigned int parsed_vertices = 0;
     
     const size_t indices_size = sizeof(unsigned int) * max_indices;
-    unsigned int* all_indices = (unsigned int*)malloc(indices_size * 3);
     unsigned int* vertex_indices = (unsigned int*)malloc(indices_size);
     unsigned int* texture_indices = (unsigned int*)malloc(indices_size); 
     unsigned int* normal_indices = (unsigned int*)malloc(indices_size); 
@@ -548,7 +563,17 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
     while(current_char_offset < file_chars_length)
     {
         const char current_char = file_chars[current_char_offset];
-        if(last_char == 'v' && current_char == ' ')
+        if(last_char == '#' || last_char == 'o')
+        {
+            // Ignore current line by going to the end of it.
+            size_t line_end = current_char_offset;
+            error = seek_end_of_line(
+                file_chars, file_chars_length, current_char_offset, &line_end
+            );
+            if(error) { break; }
+            current_char_offset = line_end;
+        }
+        else if(last_char == 'v' && current_char == ' ')
         {
             parsed_vertices++;
             if(parsed_vertices > max_vertices)
@@ -600,7 +625,9 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
     if(error)
     {
         free(vertices);
-        free(all_indices);
+        free(vertex_indices);
+        free(texture_indices);
+        free(normal_indices);
         return -1;
     }
     printf("Parsed %d vertices\n", parsed_vertices);

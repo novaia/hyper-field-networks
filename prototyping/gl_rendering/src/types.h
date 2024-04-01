@@ -7,9 +7,9 @@ extern "C" {
 
 typedef struct
 {
-    uint32_t width;
-    uint32_t height;
-    uint32_t stride;
+    unsigned int width;
+    unsigned int height;
+    unsigned int stride;
     float* pixels;
 } image_t;
 
@@ -20,7 +20,7 @@ typedef struct
 
 typedef struct 
 { 
-    uint32_t num_vertices;
+    unsigned int num_vertices;
     float* vertices; 
     float* normals;
     float* texture_coords;

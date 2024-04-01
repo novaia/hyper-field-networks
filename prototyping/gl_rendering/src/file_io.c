@@ -33,8 +33,8 @@ image_t* load_png(const char* file_name)
     
     png_init_io(png, fp);
     png_read_info(png, info);
-    const int width = png_get_image_width(png, info);
-    const int height = png_get_image_height(png, info);
+    const unsigned int width = (unsigned int)png_get_image_width(png, info);
+    const unsigned int height = (unsigned int)png_get_image_height(png, info);
     const png_byte color_type = png_get_color_type(png, info);
     const png_byte bit_depth = png_get_bit_depth(png, info);
 
@@ -85,13 +85,13 @@ image_t* load_png(const char* file_name)
     image->height = height;
     image->stride = 4;
     image->pixels = (float*)malloc(sizeof(float) * width * height * image->stride);
-    for(int y = 0; y < height; y++)
+    for(unsigned int y = 0; y < height; y++)
     {
-        int row_offset = y * width;
+        unsigned int row_offset = y * width;
         png_bytep row = row_pointers[y];
         for(int x = 0; x < width; x++)
         {
-            int pixel_offset = (row_offset + x) * image->stride;
+            unsigned int pixel_offset = (row_offset + x) * image->stride;
             png_bytep px = &row[x * image->stride];
             image->pixels[pixel_offset] = px[0]/255.0f;
             image->pixels[pixel_offset + 1] = px[1]/255.0f;
@@ -103,7 +103,7 @@ image_t* load_png(const char* file_name)
     return image;
 }
 
-void save_frame_to_png(const char* filename, int width, int height)
+void save_frame_to_png(const char* filename, unsigned int width, unsigned int height)
 {
     FILE* file = fopen(filename, "wb");
     if(!file) 
@@ -161,24 +161,24 @@ void save_frame_to_png(const char* filename, int width, int height)
     fclose(file);
 }
 
-static inline int min_int(int a, int b) { return (a < b) ? a : b; }
+static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 
-static inline float string_section_to_float(long start, long end, char* full_string)
+static inline float string_section_to_float(long start, long end, const char* full_string)
 {
-    int char_count = min_int((int)(end - start), 10);
+    unsigned int char_count = min_uint((unsigned int)(end - start), 10);
     char string_section[char_count+1];
     string_section[char_count] = '\0';
     memcpy(string_section, &full_string[start], sizeof(char) * char_count);
     return (float)atof(string_section);
 }
 
-static inline int string_section_to_int(long start, long end, char* full_string)
+static inline unsigned int string_section_to_uint(long start, long end, const char* full_string)
 {
-    int char_count = min_int((int)(end - start), 10);
+    unsigned int char_count = min_uint((unsigned int)(end - start), 10);
     char string_section[char_count+1];
     string_section[char_count] = '\0';
     memcpy(string_section, &full_string[start], sizeof(char) * char_count);
-    return (int)atoi(string_section);
+    return (unsigned)atoi(string_section);
 }
 
 material_t* load_mtl(const char* path)
@@ -203,9 +203,9 @@ material_t* load_mtl(const char* path)
     file_chars[read_size] = '\0';
     fclose(fp);
     
-    int ignore_current_line = 0;
-    int is_start_of_line = 1;
-    int is_map = 0;
+    unsigned int ignore_current_line = 0;
+    unsigned int is_start_of_line = 1;
+    unsigned int is_map = 0;
     long map_start = -1;
     long map_end = -1;
     char* texture_path = NULL;
@@ -268,9 +268,9 @@ material_t* load_mtl(const char* path)
     mtl_data->texture = NULL;
     if(texture_path)
     {
-        uint32_t mtl_path_length = (uint32_t)strlen(path);
-        uint32_t mtl_root_path_length = 0;
-        for(uint32_t i = mtl_path_length; i > 0; --i)
+        size_t mtl_path_length = strlen(path);
+        size_t mtl_root_path_length = 0;
+        for(size_t i = mtl_path_length; i > 0; --i)
         {
             if(path[i] == '/') 
             { 
@@ -281,9 +281,12 @@ material_t* load_mtl(const char* path)
         char mtl_root_path[mtl_root_path_length+1];
         memcpy(mtl_root_path, path, sizeof(char) * mtl_root_path_length);
         mtl_root_path[mtl_root_path_length] = '\0';
-        uint32_t full_texture_path_length = mtl_root_path_length + texture_path_length + 1;
+        size_t full_texture_path_length = mtl_root_path_length + texture_path_length + 1;
         char full_texture_path[full_texture_path_length];
-        snprintf(full_texture_path, full_texture_path_length, "%s%s", mtl_root_path, texture_path);
+        snprintf(
+            full_texture_path, full_texture_path_length, 
+            "%s%s", mtl_root_path, texture_path
+        );
         printf("%s\n", full_texture_path);
         mtl_data->texture = load_png(full_texture_path);
         if(!mtl_data->texture)
@@ -298,9 +301,9 @@ material_t* load_mtl(const char* path)
 
 mesh_t* load_obj(
     const char* path,
-    const uint32_t max_vertices, 
-    const uint32_t max_indices,
-    const uint32_t max_normals
+    const unsigned int max_vertices, 
+    const unsigned int max_indices,
+    const unsigned int max_normals
 ){
     FILE* fp = fopen(path, "r");
     if(!fp)
@@ -324,36 +327,36 @@ mesh_t* load_obj(
     fclose(fp);
     
     // Parser line state.    
-    int ignore_current_line = 0;
-    int is_start_of_line = 1;
-    int is_vertex = 0;
-    int is_face = 0;
-    int is_normal = 0;
-    int is_texture_coord = 0;
-    int is_mtl = 0;
+    unsigned int ignore_current_line = 0;
+    unsigned int is_start_of_line = 1;
+    unsigned int is_vertex = 0;
+    unsigned int is_face = 0;
+    unsigned int is_normal = 0;
+    unsigned int is_texture_coord = 0;
+    unsigned int is_mtl = 0;
     // Vertices.
-    int parsed_vertices = 0;
-    int vertex_offset = 0;
+    unsigned int parsed_vertices = 0;
+    unsigned int vertex_offset = 0;
     const size_t vertex_buffer_size = sizeof(uint32_t) * max_vertices * 3;
     float* vertex_buffer = (float*)malloc(vertex_buffer_size);
     long vertex_x_start = -1, vertex_y_start = -1, vertex_z_start = -1, vertex_end = -1;
     // Indices.
     const size_t index_buffer_size = sizeof(uint32_t) * max_indices;
-    uint32_t* vertex_index_buffer = (uint32_t*)malloc(index_buffer_size);
-    uint32_t* normal_index_buffer = (uint32_t*)malloc(index_buffer_size);
-    uint32_t* texture_index_buffer = (uint32_t*)malloc(index_buffer_size);
+    unsigned int* vertex_index_buffer = (uint32_t*)malloc(index_buffer_size);
+    unsigned int* normal_index_buffer = (uint32_t*)malloc(index_buffer_size);
+    unsigned int* texture_index_buffer = (uint32_t*)malloc(index_buffer_size);
     int parsed_indices = 0;
     long index_group_start = -1, vertex_index_end = -1, texture_index_end = -1, normal_index_end = -1;
     // Normals.
-    int parsed_normals = 0;
-    int normal_offset = 0;
+    unsigned int parsed_normals = 0;
+    unsigned int normal_offset = 0;
     const size_t normal_buffer_size = sizeof(float) * max_normals * 3;
     float* normal_buffer = (float*)malloc(normal_buffer_size);
     long normal_x_start = -1, normal_y_start = -1, normal_z_start = -1, normal_end = -1; 
     // Texture coords.
-    const uint32_t max_texture_coords = max_normals;
-    int parsed_texture_coords = 0;
-    int texture_coord_offset = 0;
+    const unsigned int max_texture_coords = max_normals;
+    unsigned int parsed_texture_coords = 0;
+    unsigned int texture_coord_offset = 0;
     float* texture_coord_buffer = (float*)malloc(sizeof(float) * max_normals * 2);
     long texture_coord_start = -1, texture_coord_x_end = -1, texture_coord_y_end = -1;
     // MTL paths.
@@ -457,11 +460,11 @@ mesh_t* load_obj(
 
                     normal_index_end = i;
                     vertex_index_buffer[parsed_indices] = 
-                        (uint32_t)string_section_to_int(index_group_start+1, vertex_index_end, file_chars) - 1;
+                        string_section_to_uint(index_group_start+1, vertex_index_end, file_chars) - 1;
                     texture_index_buffer[parsed_indices] = 
-                        (uint32_t)string_section_to_int(vertex_index_end+1, texture_index_end, file_chars) - 1;
+                        string_section_to_uint(vertex_index_end+1, texture_index_end, file_chars) - 1;
                     normal_index_buffer[parsed_indices] =
-                        (uint32_t)string_section_to_int(texture_index_end+1, normal_index_end, file_chars) - 1;
+                        string_section_to_uint(texture_index_end+1, normal_index_end, file_chars) - 1;
                     parsed_indices++;
 
                     if(current_char == '\n') 
@@ -583,9 +586,9 @@ mesh_t* load_obj(
     material_t* material;
     if(mtl_path)
     {
-        uint32_t obj_path_length = (uint32_t)strlen(path);
-        uint32_t obj_root_path_length = 0;
-        for(uint32_t i = obj_path_length; i > 0; --i)
+        const size_t obj_path_length = strlen(path);
+        size_t obj_root_path_length = 0;
+        for(size_t i = obj_path_length; i > 0; --i)
         {
             if(path[i] == '/') 
             { 
@@ -596,7 +599,7 @@ mesh_t* load_obj(
         char obj_root_path[obj_root_path_length+1];
         memcpy(obj_root_path, path, sizeof(char) * obj_root_path_length);
         obj_root_path[obj_root_path_length] = '\0';
-        uint32_t full_mtl_path_length = obj_root_path_length + mtl_path_length + 1;
+        unsigned int full_mtl_path_length = obj_root_path_length + mtl_path_length + 1;
         char full_mtl_path[full_mtl_path_length];
         snprintf(full_mtl_path, full_mtl_path_length, "%s%s", obj_root_path, mtl_path);
         printf("%s\n", full_mtl_path);
@@ -613,19 +616,19 @@ mesh_t* load_obj(
     float* ordered_normals = (float*)malloc(ordered_scalars_size * 3);
     for(int i = 0; i < parsed_indices; i++)
     {
-        const uint32_t vertex_offset = vertex_index_buffer[i] * 3;
-        const uint32_t ordered_vertex_offset = i * 3;
+        const unsigned int vertex_offset = vertex_index_buffer[i] * 3;
+        const unsigned int ordered_vertex_offset = i * 3;
         ordered_vertices[ordered_vertex_offset] = vertex_buffer[vertex_offset];
         ordered_vertices[ordered_vertex_offset+1] = vertex_buffer[vertex_offset+1];
         ordered_vertices[ordered_vertex_offset+2] = vertex_buffer[vertex_offset+2];
 
-        const uint32_t texture_coord_offset = texture_index_buffer[i] * 2;
-        const uint32_t ordered_texture_coord_offset = i * 2;
+        const unsigned int texture_coord_offset = texture_index_buffer[i] * 2;
+        const unsigned int ordered_texture_coord_offset = i * 2;
         ordered_texture_coords[ordered_texture_coord_offset] = texture_coord_buffer[texture_coord_offset];
         ordered_texture_coords[ordered_texture_coord_offset+1] = texture_coord_buffer[texture_coord_offset+1];
         
-        const uint32_t normal_offset = normal_index_buffer[i] * 3;
-        const uint32_t ordered_normal_offset = ordered_vertex_offset;
+        const unsigned int normal_offset = normal_index_buffer[i] * 3;
+        const unsigned int ordered_normal_offset = ordered_vertex_offset;
         ordered_normals[ordered_normal_offset] = normal_buffer[normal_offset];
         ordered_normals[ordered_normal_offset+1] = normal_buffer[normal_offset+1];
         ordered_normals[ordered_normal_offset+2] = normal_buffer[normal_offset+2];
@@ -645,5 +648,3 @@ mesh_t* load_obj(
     mesh->material = material;
     return mesh;
 }
-
-

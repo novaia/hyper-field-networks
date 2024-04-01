@@ -11,13 +11,12 @@
 
 #define DATA_PATH(path) "/home/hayden/repos/g3dm/data/"path
 
-int window_width = 1280;
-int window_height = 720;
+unsigned int window_width = 1280;
+unsigned int window_height = 720;
 const char* window_title = "3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
 float window_height_to_width_ratio = 0.0f;
-int randomize_scene = 1;
 
 static void error_callback(int error, const char* description)
 {
@@ -105,7 +104,7 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
 typedef struct
 {
     uint32_t vao, vbo, ibo, nbo, tbo, texture;
-    uint32_t num_vertices, num_vertex_scalars;
+    unsigned int num_vertices, num_vertex_scalars;
 } gl_mesh_t;
 
 gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
@@ -118,7 +117,7 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glGenTextures(1, &texture);
     glBindVertexArray(vao);
     
-    const uint32_t num_vertex_scalars = mesh->num_vertices * 3;
+    const unsigned int num_vertex_scalars = mesh->num_vertices * 3;
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(
         GL_ARRAY_BUFFER, 

@@ -534,6 +534,51 @@ static inline int seek_end_of_line(
     return -1;
 }
 
+static inline int validate_obj_mtl_label(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t label_start, size_t* label_end
+){
+    // IMPORTANT: do not remove the trailing space.
+    const char true_label[7] = {'m', 't', 'l', 'l', 'i', 'b', ' '};
+    const unsigned int label_length = 7;
+    unsigned int label_char_offset = 0;
+    for(size_t i = label_start; i < file_chars_length; i++)
+    {
+        if(true_label[label_char_offset++] != file_chars[i])
+        {
+            printf("Encountered invalid MTL label while parsing OBJ file\n");
+            return -1;
+        }
+        else if(label_char_offset == label_length)
+        {
+            *label_end = i; 
+            return 0;
+        }
+    }
+    printf("Reached end of file while validating OBJ MTL label\n");
+    return -1;
+}
+
+static inline int parse_obj_mtl_path(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t path_start, size_t* line_end, 
+    size_t* path_length, char** path
+){
+    for(size_t i = path_start; i < file_chars_length; i++)
+    {
+        if(file_chars[i] != '\n') { continue; }
+        const size_t path_end = i;
+        const size_t __path_length = path_end - path_start;
+        *path = (char*)malloc(sizeof(char) * (__path_length + 1));
+        memcpy(*path, &file_chars[path_start], sizeof(char) * __path_length);
+        (*path)[__path_length] = '\0'; 
+        *path_length = __path_length;
+        return 0;
+    }
+    printf("Reached end of file while parsing OBJ MTL path\n");
+    return -1;
+}
+
 int load_obj_refactor(const char* path, const unsigned int max_vertices, const unsigned int max_indices)
 {
     char* file_chars = NULL;
@@ -545,7 +590,7 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
         return -1;
     }
     const size_t file_chars_length = (size_t)file_length;
-    size_t current_char_offset = 0;
+    size_t current_char_offset = 1;
     
     float* vertices = (float*)malloc(sizeof(float) * max_vertices);
     unsigned int vertex_offset = 0;
@@ -557,23 +602,16 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
     unsigned int* normal_indices = (unsigned int*)malloc(indices_size); 
     unsigned int parsed_indices = 0;
     unsigned int vertex_index_offset = 0, texture_index_offset = 0, normal_index_offset = 0;
+    
+    size_t mtl_path_length = 0;
+    char* mtl_path = NULL;
 
-    char last_char = file_chars[current_char_offset++];
     int error = 0;
     while(current_char_offset < file_chars_length)
     {
+        const char last_char = file_chars[current_char_offset - 1];
         const char current_char = file_chars[current_char_offset];
-        if(last_char == '#' || last_char == 'o')
-        {
-            // Ignore current line by going to the end of it.
-            size_t line_end = current_char_offset;
-            error = seek_end_of_line(
-                file_chars, file_chars_length, current_char_offset, &line_end
-            );
-            if(error) { break; }
-            current_char_offset = line_end;
-        }
-        else if(last_char == 'v' && current_char == ' ')
+        if(last_char == 'v' && current_char == ' ')
         {
             parsed_vertices++;
             if(parsed_vertices > max_vertices)
@@ -588,7 +626,7 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
                 &vertices[vertex_offset++], &vertices[vertex_offset++], &vertices[vertex_offset++]
             );
             if(error) { break; }
-            current_char_offset = line_end;
+            current_char_offset = line_end + 2;
         }
         else if(last_char == 'f' && current_char == ' ')
         {
@@ -616,11 +654,34 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
                 &normal_indices[normal_index_offset++]
             );
             if(error) { break; }
-            current_char_offset = line_end;
+            current_char_offset = line_end + 2;
         }
-        
-        last_char = file_chars[current_char_offset];
-        current_char_offset++;
+        else if(last_char == 'm' && current_char == 't')
+        {
+            size_t mtl_label_end = current_char_offset;
+            error = validate_obj_mtl_label(
+                file_chars, file_chars_length, current_char_offset-1, &mtl_label_end
+            );
+            if(error) { break; }
+            current_char_offset = mtl_label_end + 1;
+            size_t line_end = current_char_offset;
+            error = parse_obj_mtl_path(
+                file_chars, file_chars_length, current_char_offset, 
+                &line_end, &mtl_path_length, &mtl_path
+            );
+            if(error) { break; }
+            current_char_offset = line_end + 2;
+        }
+        else 
+        {
+            // Skip to start of next line.
+            size_t line_end = current_char_offset;
+            error = seek_end_of_line(
+                file_chars, file_chars_length, current_char_offset, &line_end
+            );
+            if(error) { break; }
+            current_char_offset = line_end + 2;
+        }
     }
     if(error)
     {
@@ -632,6 +693,7 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
     }
     printf("Parsed %d vertices\n", parsed_vertices);
     printf("Parsed %d indices\n", parsed_indices);
+    printf("MTL path %s\n", mtl_path);
 }
 
 mesh_t* load_obj(

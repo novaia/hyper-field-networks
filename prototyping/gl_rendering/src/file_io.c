@@ -315,6 +315,77 @@ static material_t* load_mtl(
     return mtl_data;   
 }
 
+static inline int is_valid_vertex_char(const char c)
+{
+    switch(c)
+    {
+        case '-': return 1;
+        case '.': return 1;
+        case '1': return 1;
+        case '2': return 1;
+        case '3': return 1;
+        case '4': return 1;
+        case '5': return 1;
+        case '6': return 1;
+        case '7': return 1;
+        case '8': return 1;
+        case '9': return 1;
+        default: return 0;
+    }
+}
+
+static inline int parse_obj_vertex(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t vertex_start, size_t* line_end, 
+    float* vertex_x, float* vertex_y, float* vertex_z
+){
+    unsigned int vertex_x_parsed = 0, vertex_y_parsed = 0;
+    size_t vertex_x_end = 0, vertex_y_end = 0, vertex_z_end = 0;
+    for(size_t i = vertex_start; i < file_chars_length; i++)
+    {
+        const char current_char = file_chars[i];
+        if(current_char == ' ')
+        {
+            if(!vertex_x_parsed)
+            {
+                vertex_x_parsed = 1;
+                vertex_x_end = i;
+            }
+            else if(!vertex_y_parsed)
+            {
+                vertex_y_parsed;
+                vertex_y_end = i;
+            }
+        }
+        else if(current_char == '\n')
+        {
+            vertex_z_end = i;
+            if(!vertex_x_parsed)
+            {
+                printf("Reached end of obj vertex line without parsing the x element\n");
+                return -1;
+            }
+            else if(!vertex_y_parsed)
+            {
+                printf("Reached end of obj vertex line without parsing the y element\n");
+                return -1;
+            }
+            *vertex_x = string_section_to_float(vertex_start, vertex_x_end, file_chars);
+            *vertex_y = string_section_to_float(vertex_x_end, vertex_y_end, file_chars);
+            *vertex_z = string_section_to_float(vertex_y_end, vertex_z_end, file_chars);
+            *line_end = vertex_z_end;
+            return 0;
+        }
+        else if(!is_valid_vertex_char(current_char))
+        {
+            printf("Invalid character encountered when parsing obj vertex: \'%c\'\n", current_char);
+            return -1;
+        }
+    }
+    printf("Reached end of obj file while parsing a vertex\n");
+    return -1;
+}
+
 mesh_t* load_obj(
     const char* path,
     const unsigned int max_vertices, 

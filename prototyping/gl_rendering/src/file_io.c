@@ -321,6 +321,7 @@ static inline int is_valid_vertex_char(const char c)
     {
         case '-': return 1;
         case '.': return 1;
+        case '0': return 1;
         case '1': return 1;
         case '2': return 1;
         case '3': return 1;
@@ -353,7 +354,7 @@ static inline int parse_obj_vertex(
             }
             else if(!vertex_y_parsed)
             {
-                vertex_y_parsed;
+                vertex_y_parsed = 1;
                 vertex_y_end = i;
             }
         }
@@ -384,6 +385,48 @@ static inline int parse_obj_vertex(
     }
     printf("Reached end of obj file while parsing a vertex\n");
     return -1;
+}
+
+int load_obj_refactor(const char* path, const unsigned int max_vertices)
+{
+    char* file_chars = NULL;
+    long file_length = 0;
+    int error = read_text_file(path, &file_chars, &file_length);
+    if(error) 
+    { 
+        free(file_chars);
+        return NULL; 
+    }
+    const size_t file_chars_length = (size_t)file_length;
+    size_t current_char_offset = 0;
+    
+    float* vertices = (float*)malloc(sizeof(float) * max_vertices);
+    unsigned int vertex_offset = 0;
+    unsigned int parsed_vertices = 0;
+    
+    char last_char = file_chars[current_char_offset++];
+    while(current_char_offset < file_chars_length)
+    {
+        const char current_char = file_chars[current_char_offset];
+        if(last_char == 'v' && current_char == ' ')
+        {
+            size_t line_end = current_char_offset;
+            const int error = parse_obj_vertex(
+                file_chars, file_chars_length, current_char_offset, &line_end,
+                &vertices[vertex_offset++], &vertices[vertex_offset++], &vertices[vertex_offset++]
+            );
+            if(error)
+            {
+                free(vertices);
+                return -1;
+            }
+            parsed_vertices++;
+            current_char_offset = line_end;
+        }
+        last_char = current_char;
+        current_char_offset++;
+    }
+    printf("Parsed %d vertices\n", parsed_vertices);
 }
 
 mesh_t* load_obj(

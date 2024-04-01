@@ -205,13 +205,16 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
 
 int main()
 {
+    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
+    load_obj_refactor(mesh_path, 100000);
+    return 0;
+
     GLFWwindow* window = init_gl();
     if(!window)
     {
         return -1;
     }
-
-    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
+        
     gl_mesh_t gl_mesh;
     mesh_t* mesh = load_obj(mesh_path, 100000, 300000, 100000);
     if(!mesh) { return - 1; }

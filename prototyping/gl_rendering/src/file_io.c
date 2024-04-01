@@ -103,6 +103,64 @@ image_t* load_png(const char* file_name)
     return image;
 }
 
+void save_frame_to_png(const char* filename, int width, int height)
+{
+    FILE* file = fopen(filename, "wb");
+    if(!file) 
+    {
+        fprintf(stderr, "Error opening file '%s' for writing\n", filename);
+        return;
+    }
+
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if(!png) 
+    {
+        fprintf(stderr, "Error creating PNG write struct\n");
+        fclose(file);
+        return;
+    }
+
+    png_infop info = png_create_info_struct(png);
+    if(!info) 
+    {
+        fprintf(stderr, "Error creating PNG info struct\n");
+        png_destroy_write_struct(&png, NULL);
+        fclose(file);
+        return;
+    }
+
+    if(setjmp(png_jmpbuf(png))) 
+    {
+        fprintf(stderr, "Error setting jump buffer for PNG\n");
+        png_destroy_write_struct(&png, &info);
+        fclose(file);
+        return;
+    }
+
+    png_init_io(png, file);
+    png_set_IHDR(
+        png, info, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+        PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT
+    );
+    png_write_info(png, info);
+
+    unsigned char* pixels = (unsigned char*)malloc(width * height * 3);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+    png_bytep rows[height];
+    for(int i = 0; i < height; ++i) 
+    {
+        rows[height - 1 - i] = pixels + (i * width * 3);
+    }
+
+    png_write_image(png, rows);
+    png_write_end(png, NULL);
+
+    free(pixels);
+    png_destroy_write_struct(&png, &info);
+    fclose(file);
+}
+
 static inline int min_int(int a, int b) { return (a < b) ? a : b; }
 
 static inline float string_section_to_float(long start, long end, char* full_string)
@@ -571,24 +629,12 @@ mesh_t* load_obj(
         const uint32_t ordered_texture_coord_offset = i * 2;
         ordered_texture_coords[ordered_texture_coord_offset] = texture_coord_buffer[texture_coord_offset];
         ordered_texture_coords[ordered_texture_coord_offset+1] = texture_coord_buffer[texture_coord_offset+1];
-        /*printf(
-            "%f %f\n", 
-            ordered_texture_coords[ordered_texture_coord_offset],
-            ordered_texture_coords[ordered_texture_coord_offset+1]
-        );*/
-
+        
         const uint32_t normal_offset = normal_index_buffer[i] * 3;
         const uint32_t ordered_normal_offset = ordered_vertex_offset;
         ordered_normals[ordered_normal_offset] = normal_buffer[normal_offset];
         ordered_normals[ordered_normal_offset+1] = normal_buffer[normal_offset+1];
         ordered_normals[ordered_normal_offset+2] = normal_buffer[normal_offset+2];
-        /*printf(
-            "%d %d %d %d\n", 
-            normal_offset,
-            ordered_normals[ordered_normal_offset], 
-            ordered_normals[ordered_normal_offset+1],
-            ordered_normals[ordered_normal_offset+2]
-        );*/
     }
     free(vertex_buffer);
     free(texture_coord_buffer);
@@ -606,53 +652,4 @@ mesh_t* load_obj(
     return mesh;
 }
 
-void save_frame_to_png(const char* filename, int width, int height)
-{
-    FILE* file = fopen(filename, "wb");
-    if (!file) {
-        fprintf(stderr, "Error opening file '%s' for writing\n", filename);
-        return;
-    }
 
-    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png) {
-        fprintf(stderr, "Error creating PNG write struct\n");
-        fclose(file);
-        return;
-    }
-
-    png_infop info = png_create_info_struct(png);
-    if (!info) {
-        fprintf(stderr, "Error creating PNG info struct\n");
-        png_destroy_write_struct(&png, NULL);
-        fclose(file);
-        return;
-    }
-
-    if (setjmp(png_jmpbuf(png))) {
-        fprintf(stderr, "Error setting jump buffer for PNG\n");
-        png_destroy_write_struct(&png, &info);
-        fclose(file);
-        return;
-    }
-
-    png_init_io(png, file);
-    png_set_IHDR(png, info, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-    png_write_info(png, info);
-
-    unsigned char* pixels = (unsigned char*)malloc(width * height * 3);
-    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
-
-    png_bytep rows[height];
-    for (int i = 0; i < height; ++i) {
-        rows[height - 1 - i] = pixels + (i * width * 3);
-    }
-
-    png_write_image(png, rows);
-    png_write_end(png, NULL);
-
-    free(pixels);
-    png_destroy_write_struct(&png, &info);
-    fclose(file);
-}

@@ -315,7 +315,7 @@ static material_t* load_mtl(
     return mtl_data;   
 }
 
-static inline int is_valid_vertex_char(const char c)
+static inline int is_valid_vec3_char(const char c)
 {
     switch(c)
     {
@@ -335,55 +335,56 @@ static inline int is_valid_vertex_char(const char c)
     }
 }
 
-static inline int parse_obj_vertex(
+// Vertices and normals are both vec3's so they can be parsed with the same function.
+static inline int parse_obj_vec3(
     const char* file_chars, const size_t file_chars_length, 
-    const size_t vertex_start, size_t* line_end, 
-    float* vertex_x, float* vertex_y, float* vertex_z
+    const size_t vec3_start, size_t* line_end, 
+    float* x, float* y, float* z
 ){
-    unsigned int vertex_x_parsed = 0, vertex_y_parsed = 0;
-    size_t vertex_x_end = 0, vertex_y_end = 0, vertex_z_end = 0;
-    for(size_t i = vertex_start; i < file_chars_length; i++)
+    unsigned int x_parsed = 0, y_parsed = 0;
+    size_t x_end = 0, y_end = 0, z_end = 0;
+    for(size_t i = vec3_start; i < file_chars_length; i++)
     {
         const char current_char = file_chars[i];
         if(current_char == ' ')
         {
-            if(!vertex_x_parsed)
+            if(!x_parsed)
             {
-                vertex_x_parsed = 1;
-                vertex_x_end = i;
+                x_parsed = 1;
+                x_end = i;
             }
-            else if(!vertex_y_parsed)
+            else if(!y_parsed)
             {
-                vertex_y_parsed = 1;
-                vertex_y_end = i;
+                y_parsed = 1;
+                y_end = i;
             }
         }
         else if(current_char == '\n')
         {
-            if(!vertex_x_parsed)
+            if(!x_parsed)
             {
-                printf("Reached end of OBJ vertex line without parsing the x element\n");
+                printf("Reached end of OBJ vertex/normal line without parsing the x element\n");
                 return -1;
             }
-            else if(!vertex_y_parsed)
+            else if(!y_parsed)
             {
-                printf("Reached end of OBJ vertex line without parsing the y element\n");
+                printf("Reached end of OBJ vertex/normal line without parsing the y element\n");
                 return -1;
             }
-            vertex_z_end = i;
-            *vertex_x = string_section_to_float(vertex_start, vertex_x_end, file_chars);
-            *vertex_y = string_section_to_float(vertex_x_end, vertex_y_end, file_chars);
-            *vertex_z = string_section_to_float(vertex_y_end, vertex_z_end, file_chars);
-            *line_end = vertex_z_end;
+            z_end = i;
+            *x = string_section_to_float(vec3_start, x_end, file_chars);
+            *y = string_section_to_float(x_end, y_end, file_chars);
+            *z = string_section_to_float(y_end, z_end, file_chars);
+            *line_end = z_end;
             return 0;
         }
-        else if(!is_valid_vertex_char(current_char))
+        else if(!is_valid_vec3_char(current_char))
         {
-            printf("Invalid character encountered when parsing OBJ vertex: \'%c\'\n", current_char);
+            printf("Invalid character encountered when parsing OBJ vertex/normal: \'%c\'\n", current_char);
             return -1;
         }
     }
-    printf("Reached end of OBJ file while parsing a vertex\n");
+    printf("Reached end of OBJ file while parsing a vertex/normal\n");
     return -1;
 }
 
@@ -579,8 +580,12 @@ static inline int parse_obj_mtl_path(
     return -1;
 }
 
-int load_obj_refactor(const char* path, const unsigned int max_vertices, const unsigned int max_indices)
-{
+int load_obj_refactor(
+    const char* path, 
+    const unsigned int max_vertices, 
+    const unsigned int max_normals,
+    const unsigned int max_indices
+){
     char* file_chars = NULL;
     long file_length = 0;
     const int file_read_error = read_text_file(path, &file_chars, &file_length);
@@ -592,10 +597,14 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
     const size_t file_chars_length = (size_t)file_length;
     size_t current_char_offset = 1;
     
-    float* vertices = (float*)malloc(sizeof(float) * max_vertices);
+    float* vertices = (float*)malloc(sizeof(float) * max_vertices * 3);
     unsigned int vertex_offset = 0;
     unsigned int parsed_vertices = 0;
     
+    float* normals = (float*)malloc(sizeof(float) * max_normals * 3);
+    unsigned int normal_offset = 0;
+    unsigned int parsed_normals = 0;
+
     const size_t indices_size = sizeof(unsigned int) * max_indices;
     unsigned int* vertex_indices = (unsigned int*)malloc(indices_size);
     unsigned int* texture_indices = (unsigned int*)malloc(indices_size); 
@@ -621,9 +630,28 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
                 break;
             }
             size_t line_end = current_char_offset;
-            error = parse_obj_vertex(
+            error = parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
                 &vertices[vertex_offset++], &vertices[vertex_offset++], &vertices[vertex_offset++]
+            );
+            if(error) { break; }
+            current_char_offset = line_end + 2;
+        }
+        else if(last_char == 'v' && current_char == 'n')
+        {
+            parsed_normals++;
+            if(parsed_normals > max_normals)
+            {
+                printf("Exceeded maximum number of normals while parsing OBJ file\n");
+                error = 1;
+                break;
+            }
+            // Increment char offset so normal parse doesn't start on 'n'.
+            current_char_offset++;
+            size_t line_end = current_char_offset;
+            error = parse_obj_vec3(
+                file_chars, file_chars_length, current_char_offset, &line_end,
+                &normals[normal_offset++], &normals[normal_offset++], &normals[normal_offset++]
             );
             if(error) { break; }
             current_char_offset = line_end + 2;
@@ -692,6 +720,7 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices, const u
         return -1;
     }
     printf("Parsed %d vertices\n", parsed_vertices);
+    printf("Parsed %d normals\n", parsed_normals);
     printf("Parsed %d indices\n", parsed_indices);
     printf("MTL path %s\n", mtl_path);
 }

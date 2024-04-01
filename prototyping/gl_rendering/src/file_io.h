@@ -4,7 +4,12 @@
 extern "C" {
 #endif
 
-int load_obj_refactor(const char* path, const unsigned int max_vertices);
+int load_obj_refactor(
+    const char* path, 
+    const unsigned int max_vertices, 
+    const unsigned int max_normals,
+    const unsigned int max_indices
+);
 
 mesh_t* load_obj(
     const char* path, 

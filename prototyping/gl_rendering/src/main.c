@@ -206,7 +206,7 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
 int main()
 {
     const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
-    load_obj_refactor(mesh_path, 100000);
+    load_obj_refactor(mesh_path, 100000, 100000, 100000);
     return 0;
 
     GLFWwindow* window = init_gl();

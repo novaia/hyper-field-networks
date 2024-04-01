@@ -54,6 +54,7 @@ def main():
     parser.add_argument('--input_path', type=str, required=True)
     parser.add_argument('--output_path', type=str, required=True)
     parser.add_argument('--field_type', type=str, choices=['ngp_image', 'ngp_nerf'], required=True)
+    parser.add_argument('--start_table', type=int, default=0)
     parser.add_argument('--render', action='store_true')
     args = parser.parse_args()
     
@@ -88,12 +89,13 @@ def main():
 
     samples_per_table = 1500
     samples_in_current_table = 0
-    current_table_index = 0
+    start_sample = samples_per_table * args.start_table
+    current_table_index = args.start_table
     num_retries = 4
     loss_threshold = 4e-6
     pq_table_data = []
-    for i in range(num_samples):
-        image = next(dataset_iterator)['image'][0] / 255.0
+    for i in range(start_sample, num_samples):
+        image = dataset[i]['image'] / 255.0
         state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)
         
         for k in range(num_retries):

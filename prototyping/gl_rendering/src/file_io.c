@@ -360,17 +360,17 @@ static inline int parse_obj_vertex(
         }
         else if(current_char == '\n')
         {
-            vertex_z_end = i;
             if(!vertex_x_parsed)
             {
-                printf("Reached end of obj vertex line without parsing the x element\n");
+                printf("Reached end of OBJ vertex line without parsing the x element\n");
                 return -1;
             }
             else if(!vertex_y_parsed)
             {
-                printf("Reached end of obj vertex line without parsing the y element\n");
+                printf("Reached end of OBJ vertex line without parsing the y element\n");
                 return -1;
             }
+            vertex_z_end = i;
             *vertex_x = string_section_to_float(vertex_start, vertex_x_end, file_chars);
             *vertex_y = string_section_to_float(vertex_x_end, vertex_y_end, file_chars);
             *vertex_z = string_section_to_float(vertex_y_end, vertex_z_end, file_chars);
@@ -379,23 +379,154 @@ static inline int parse_obj_vertex(
         }
         else if(!is_valid_vertex_char(current_char))
         {
-            printf("Invalid character encountered when parsing obj vertex: \'%c\'\n", current_char);
+            printf("Invalid character encountered when parsing OBJ vertex: \'%c\'\n", current_char);
             return -1;
         }
     }
-    printf("Reached end of obj file while parsing a vertex\n");
+    printf("Reached end of OBJ file while parsing a vertex\n");
     return -1;
 }
 
-int load_obj_refactor(const char* path, const unsigned int max_vertices)
+static inline int parse_obj_index_group(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t index_group_start, size_t* index_group_end,
+    unsigned int* vertex_index, unsigned int* texture_index, unsigned int* normal_index
+){
+    // OBJ index group format: "vertex_index/texture_index/normal_index", where each *_index
+    // is 1-based index. Example: 12/2/17.
+    // texture_index and normal_index are optional, but we require all of our models to have them
+    // and throw an error if they don't.
+    unsigned int vertex_index_parsed = 0, texture_index_parsed = 0;
+    size_t vertex_index_end = 0, texture_index_end = 0, normal_index_end = 0;
+    for(size_t i = index_group_start; i < file_chars_length; i++)
+    {
+        const char current_char = file_chars[i];
+        if(current_char == '/')
+        {
+            if(!vertex_index_parsed)
+            {
+                vertex_index_parsed = 1;
+                vertex_index_end = i;
+            }
+            else if(!texture_index_parsed)
+            {
+                texture_index_parsed = 1;
+                texture_index_end = i;
+            }
+        }
+        else if((current_char == ' ' || current_char == '\n') && vertex_index_parsed)
+        {
+            normal_index_end = i;
+            if(!texture_index_parsed)
+            {
+                printf("Reached end of OBJ index group without parsing the texture index\n");
+                return -1;
+            }
+            // OBJ indices are 1-based so if we get back a 0 index then we know something is wrong.
+            // If the index is valid then we subtract 1 to make it 0-based.
+            *vertex_index = string_section_to_uint(index_group_start, vertex_index_end, file_chars);
+            if(*vertex_index == 0)
+            {
+                printf("Vertex index of OBJ index group was either missing or invalid\n");
+                return -1;
+            }
+            (*vertex_index)--;
+            // Add 1 to the last index end to get the next index's start position.
+            // This is so that next index doesn't start with a '/' which would be converted into 0 by atoi().
+            *texture_index = string_section_to_uint(vertex_index_end+1, texture_index_end, file_chars);
+            if(*texture_index == 0)
+            {
+                printf("Texture index of OBJ index group was either missing or invalid\n");
+                return -1;
+            }
+            (*texture_index)--;
+            *normal_index = string_section_to_uint(texture_index_end+1, normal_index_end, file_chars);
+            if(*normal_index == 0)
+            {
+                printf("Normal index of OBJ index group was either missing or invalid\n");
+                return -1;
+            }
+            (*normal_index)--;
+            *index_group_end = normal_index_end;
+            return 0;
+        }
+    }
+    printf("Reached end of OBJ file while parsing an index group\n");
+    return -1;
+}
+
+static inline int parse_obj_face(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t face_start, size_t* line_end,
+    unsigned int* vertex_index_1, unsigned int* vertex_index_2, unsigned int* vertex_index_3,
+    unsigned int* texture_index_1, unsigned int* texture_index_2, unsigned int* texture_index_3,
+    unsigned int* normal_index_1, unsigned int* normal_index_2, unsigned int* normal_index_3
+){
+    unsigned int index_group_1_parsed = 0, index_group_2_parsed = 0;
+    size_t current_char_offset = face_start;
+    int error = 0;
+    while(current_char_offset < file_chars_length)
+    {
+        size_t index_group_end = current_char_offset;
+        if(!index_group_1_parsed)
+        {
+            error = parse_obj_index_group(
+                file_chars, file_chars_length, 
+                current_char_offset, &index_group_end,
+                vertex_index_1, texture_index_1, normal_index_1
+            );
+            index_group_1_parsed = 1;
+        }
+        else if(!index_group_2_parsed)
+        {
+            error = parse_obj_index_group(
+                file_chars, file_chars_length,
+                current_char_offset, &index_group_end,
+                vertex_index_2, texture_index_2, normal_index_2
+            );
+            index_group_2_parsed = 1;
+        }
+        else
+        {
+            error = parse_obj_index_group(
+                file_chars, file_chars_length, 
+                current_char_offset, &index_group_end, 
+                vertex_index_3, texture_index_3, normal_index_3
+            );
+            if(file_chars[index_group_end] != '\n')
+            {
+                printf(
+                    "%s %s %s\n",
+                    "Parsed 3 OBJ index groups in current face without reaching a newline,",
+                    "the OBJ file may have non-triangulated geometry which is not supported",
+                    "by this program, or the OBJ file may be corrupted"
+                );
+                return -1;
+            }
+            *line_end = index_group_end;
+            return 0;
+        }
+
+        if(error) { break; }
+        current_char_offset = index_group_end;
+    }
+    // Only print the end of file error if there was no other error that cause the loop to break.
+    if(!error)
+    {
+        printf("Reached end of OBJ file while parsing a face\n");
+    }
+    return -1;
+}
+
+int load_obj_refactor(const char* path, const unsigned int max_vertices, const unsigned int max_indices)
 {
     char* file_chars = NULL;
     long file_length = 0;
-    int error = read_text_file(path, &file_chars, &file_length);
-    if(error) 
+    const int file_read_error = read_text_file(path, &file_chars, &file_length);
+    if(file_read_error) 
     { 
         free(file_chars);
-        return NULL; 
+        return -1;
     }
     const size_t file_chars_length = (size_t)file_length;
     size_t current_char_offset = 0;
@@ -404,29 +535,76 @@ int load_obj_refactor(const char* path, const unsigned int max_vertices)
     unsigned int vertex_offset = 0;
     unsigned int parsed_vertices = 0;
     
+    const size_t indices_size = sizeof(unsigned int) * max_indices;
+    unsigned int* all_indices = (unsigned int*)malloc(indices_size * 3);
+    unsigned int* vertex_indices = (unsigned int*)malloc(indices_size);
+    unsigned int* texture_indices = (unsigned int*)malloc(indices_size); 
+    unsigned int* normal_indices = (unsigned int*)malloc(indices_size); 
+    unsigned int parsed_indices = 0;
+    unsigned int vertex_index_offset = 0, texture_index_offset = 0, normal_index_offset = 0;
+
     char last_char = file_chars[current_char_offset++];
+    int error = 0;
     while(current_char_offset < file_chars_length)
     {
         const char current_char = file_chars[current_char_offset];
         if(last_char == 'v' && current_char == ' ')
         {
+            parsed_vertices++;
+            if(parsed_vertices > max_vertices)
+            {
+                printf("Exceeded maximum number of vertices while parsing OBJ file\n");
+                error = 1;
+                break;
+            }
             size_t line_end = current_char_offset;
-            const int error = parse_obj_vertex(
+            error = parse_obj_vertex(
                 file_chars, file_chars_length, current_char_offset, &line_end,
                 &vertices[vertex_offset++], &vertices[vertex_offset++], &vertices[vertex_offset++]
             );
-            if(error)
-            {
-                free(vertices);
-                return -1;
-            }
-            parsed_vertices++;
+            if(error) { break; }
             current_char_offset = line_end;
         }
-        last_char = current_char;
+        else if(last_char == 'f' && current_char == ' ')
+        {
+            parsed_indices += 3;
+            if(parsed_indices > max_indices)
+            {
+                printf("Exceeded maximum number of indices while parsing OBJ file\n");
+                error = 1;
+                break;
+            }
+            size_t line_end = current_char_offset;
+            error = parse_obj_face(
+                file_chars, file_chars_length, current_char_offset, &line_end, 
+                // Index group 1.
+                &vertex_indices[vertex_index_offset++], 
+                &texture_indices[texture_index_offset++],
+                &normal_indices[normal_index_offset++],
+                // Index group 2.
+                &vertex_indices[vertex_index_offset++], 
+                &texture_indices[texture_index_offset++],
+                &normal_indices[normal_index_offset++],
+                // Index group 3.
+                &vertex_indices[vertex_index_offset++], 
+                &texture_indices[texture_index_offset++],
+                &normal_indices[normal_index_offset++]
+            );
+            if(error) { break; }
+            current_char_offset = line_end;
+        }
+        
+        last_char = file_chars[current_char_offset];
         current_char_offset++;
     }
+    if(error)
+    {
+        free(vertices);
+        free(all_indices);
+        return -1;
+    }
     printf("Parsed %d vertices\n", parsed_vertices);
+    printf("Parsed %d indices\n", parsed_indices);
 }
 
 mesh_t* load_obj(

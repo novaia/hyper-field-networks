@@ -315,7 +315,7 @@ static material_t* load_mtl(
     return mtl_data;   
 }
 
-static inline int is_valid_vec3_char(const char c)
+static inline int is_valid_vec_char(const char c)
 {
     switch(c)
     {
@@ -378,13 +378,51 @@ static inline int parse_obj_vec3(
             *line_end = z_end;
             return 0;
         }
-        else if(!is_valid_vec3_char(current_char))
+        else if(!is_valid_vec_char(current_char))
         {
             printf("Invalid character encountered when parsing OBJ vertex/normal: \'%c\'\n", current_char);
             return -1;
         }
     }
     printf("Reached end of OBJ file while parsing a vertex/normal\n");
+    return -1;
+}
+
+static inline int parse_obj_vec2(
+    const char* file_chars, const size_t file_chars_length, 
+    const size_t vec2_start, size_t* line_end, 
+    float* x, float* y
+){
+    unsigned int x_parsed = 0;
+    size_t x_end = 0, y_end = 0;
+    for(size_t i = vec2_start; i < file_chars_length; i++)
+    {
+        const char current_char = file_chars[i];
+        if(current_char == ' ')
+        {
+            x_parsed = 1;
+            x_end = i;
+        }
+        else if(current_char == '\n')
+        {
+            if(!x_parsed)
+            {
+                printf("Reached end of OBJ texture coord line without parsing the x element\n");
+                return -1;
+            }
+            y_end = i;
+            *x = string_section_to_float(vec2_start, x_end, file_chars);
+            *y = string_section_to_float(x_end, y_end, file_chars);
+            *line_end = y_end;
+            return 0;
+        }
+        else if(!is_valid_vec_char(current_char))
+        {
+            printf("Invalid character encountered while parsing OBJ texture coord: \'%c\'\n", current_char);
+            return -1;
+        }
+    }
+    printf("Reached end of OBJ file while parsing a texture coord\n");
     return -1;
 }
 
@@ -601,6 +639,10 @@ int load_obj_refactor(
     unsigned int vertex_offset = 0;
     unsigned int parsed_vertices = 0;
     
+    float* texture_coords = (float*)malloc(sizeof(float) * max_indices * 2);
+    unsigned int texture_coord_offset = 0;
+    unsigned int parsed_texture_coords = 0;
+
     float* normals = (float*)malloc(sizeof(float) * max_normals * 3);
     unsigned int normal_offset = 0;
     unsigned int parsed_normals = 0;
@@ -629,6 +671,8 @@ int load_obj_refactor(
                 error = 1;
                 break;
             }
+            // Increment by 1 to skip over space space character.
+            current_char_offset++;
             size_t line_end = current_char_offset;
             error = parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
@@ -636,6 +680,26 @@ int load_obj_refactor(
             );
             if(error) { break; }
             current_char_offset = line_end + 2;
+        }
+        else if(last_char == 'v' && current_char == 't')
+        {
+            parsed_texture_coords++;
+            if(parsed_texture_coords > max_indices)
+            {
+                printf("Exceed maximum number of texture coords (max_indices) while parsing OBJ file\n");
+                error = -1;
+                break;
+            }
+            // Increment by 2 to skip over t and space characters.
+            current_char_offset += 2;
+            size_t line_end = current_char_offset;
+            error = parse_obj_vec2(
+                file_chars, file_chars_length, current_char_offset, &line_end,
+                &texture_coords[texture_coord_offset++], &texture_coords[texture_coord_offset++]
+            );
+            if(error) { break; }
+            current_char_offset = line_end + 2;
+
         }
         else if(last_char == 'v' && current_char == 'n')
         {
@@ -646,8 +710,8 @@ int load_obj_refactor(
                 error = 1;
                 break;
             }
-            // Increment char offset so normal parse doesn't start on 'n'.
-            current_char_offset++;
+            // Incrememebt by 2 to skip over n and space characters.
+            current_char_offset += 2;
             size_t line_end = current_char_offset;
             error = parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
@@ -720,6 +784,7 @@ int load_obj_refactor(
         return -1;
     }
     printf("Parsed %d vertices\n", parsed_vertices);
+    printf("Parsed %d texture coords\n", parsed_texture_coords);
     printf("Parsed %d normals\n", parsed_normals);
     printf("Parsed %d indices\n", parsed_indices);
     printf("MTL path %s\n", mtl_path);

@@ -652,7 +652,7 @@ mesh_t* load_obj_refactor(
     unsigned int* texture_indices = (unsigned int*)malloc(indices_size); 
     unsigned int* normal_indices = (unsigned int*)malloc(indices_size); 
     unsigned int parsed_indices = 0;
-    unsigned int vertex_index_offset = 0, texture_index_offset = 0, normal_index_offset = 0;
+    unsigned int index_offset = 0;
     
     size_t mtl_path_length = 0;
     char* mtl_path = NULL;
@@ -674,9 +674,12 @@ mesh_t* load_obj_refactor(
             // Increment by 1 to skip over space space character.
             current_char_offset++;
             size_t line_end = current_char_offset;
+            const unsigned int x_offset = vertex_offset++;
+            const unsigned int y_offset = vertex_offset++;
+            const unsigned int z_offset = vertex_offset++;
             error = parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
-                &vertices[vertex_offset++], &vertices[vertex_offset++], &vertices[vertex_offset++]
+                &vertices[x_offset], &vertices[y_offset], &vertices[z_offset]
             );
             if(error) { break; }
             current_char_offset = line_end + 2;
@@ -693,9 +696,11 @@ mesh_t* load_obj_refactor(
             // Increment by 2 to skip over t and space characters.
             current_char_offset += 2;
             size_t line_end = current_char_offset;
+            const unsigned int x_offset = texture_coord_offset++;
+            const unsigned int y_offset = texture_coord_offset++;
             error = parse_obj_vec2(
                 file_chars, file_chars_length, current_char_offset, &line_end,
-                &texture_coords[texture_coord_offset++], &texture_coords[texture_coord_offset++]
+                &texture_coords[x_offset], &texture_coords[y_offset]
             );
             if(error) { break; }
             current_char_offset = line_end + 2;
@@ -713,9 +718,12 @@ mesh_t* load_obj_refactor(
             // Incremement by 2 to skip over n and space characters.
             current_char_offset += 2;
             size_t line_end = current_char_offset;
+            const unsigned int x_offset = normal_offset++;
+            const unsigned int y_offset = normal_offset++;
+            const unsigned int z_offset = normal_offset++;
             error = parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
-                &normals[normal_offset++], &normals[normal_offset++], &normals[normal_offset++]
+                &normals[x_offset], &normals[y_offset],&normals[z_offset]
             );
             if(error) { break; }
             current_char_offset = line_end + 2;
@@ -730,20 +738,23 @@ mesh_t* load_obj_refactor(
                 break;
             }
             size_t line_end = current_char_offset;
+            const unsigned int group_1_offset = index_offset++;
+            const unsigned int group_2_offset = index_offset++;
+            const unsigned int group_3_offset = index_offset++;
             error = parse_obj_face(
                 file_chars, file_chars_length, current_char_offset, &line_end, 
                 // Index group 1.
-                &vertex_indices[vertex_index_offset++], 
-                &texture_indices[texture_index_offset++],
-                &normal_indices[normal_index_offset++],
+                &vertex_indices[group_1_offset],
+                &texture_indices[group_1_offset],
+                &normal_indices[group_1_offset],
                 // Index group 2.
-                &vertex_indices[vertex_index_offset++], 
-                &texture_indices[texture_index_offset++],
-                &normal_indices[normal_index_offset++],
+                &vertex_indices[group_2_offset],
+                &texture_indices[group_2_offset],
+                &normal_indices[group_2_offset],
                 // Index group 3.
-                &vertex_indices[vertex_index_offset++], 
-                &texture_indices[texture_index_offset++],
-                &normal_indices[normal_index_offset++]
+                &vertex_indices[group_3_offset],
+                &texture_indices[group_3_offset],
+                &normal_indices[group_3_offset]
             );
             if(error) { break; }
             current_char_offset = line_end + 2;
@@ -787,12 +798,6 @@ mesh_t* load_obj_refactor(
         free(file_chars);
         return NULL;
     }
-
-    printf("Parsed %d vertices\n", parsed_vertices);
-    printf("Parsed %d texture coords\n", parsed_texture_coords);
-    printf("Parsed %d normals\n", parsed_normals);
-    printf("Parsed %d indices\n", parsed_indices);
-    printf("MTL path %s\n", mtl_path);
 
     material_t* material;
     if(mtl_path)
@@ -848,11 +853,6 @@ mesh_t* load_obj_refactor(
         ordered_normals[ordered_normal_offset+1] = normals[normal_offset+1];
         ordered_normals[ordered_normal_offset+2] = normals[normal_offset+2];
     }
-
-    //for(unsigned int i = 0; i < parsed_indices; i++)
-    //{
-    //    printf("%d ", normal_indices[i]);
-    //}
 
     free(vertices);
     free(texture_coords);

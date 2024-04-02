@@ -497,9 +497,9 @@ static inline int parse_obj_index_group(
 static inline int parse_obj_face(
     const char* file_chars, const size_t file_chars_length, 
     const size_t face_start, size_t* line_end,
-    unsigned int* vertex_index_1, unsigned int* vertex_index_2, unsigned int* vertex_index_3,
-    unsigned int* texture_index_1, unsigned int* texture_index_2, unsigned int* texture_index_3,
-    unsigned int* normal_index_1, unsigned int* normal_index_2, unsigned int* normal_index_3
+    unsigned int* vertex_index_1, unsigned int* texture_index_1, unsigned int* normal_index_1,
+    unsigned int* vertex_index_2, unsigned int* texture_index_2, unsigned int* normal_index_2,
+    unsigned int* vertex_index_3, unsigned int* texture_index_3, unsigned int* normal_index_3
 ){
     unsigned int index_group_1_parsed = 0, index_group_2_parsed = 0;
     size_t current_char_offset = face_start;
@@ -849,10 +849,10 @@ mesh_t* load_obj_refactor(
         ordered_normals[ordered_normal_offset+2] = normals[normal_offset+2];
     }
 
-    for(unsigned int i = 0; i < parsed_indices; i++)
-    {
-        printf("%d ", normal_indices[i]);
-    }
+    //for(unsigned int i = 0; i < parsed_indices; i++)
+    //{
+    //    printf("%d ", normal_indices[i]);
+    //}
 
     free(vertices);
     free(texture_coords);

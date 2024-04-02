@@ -37,4 +37,5 @@ void main()
         + (specular * specular_blend)
     ) * texture_color.rgb;
     gl_FragColor = vec4(color, 1.0f);
+    //gl_FragColor = vec4(normal, 1.0f);
 }

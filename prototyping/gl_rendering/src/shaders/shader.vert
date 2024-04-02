@@ -14,7 +14,7 @@ out vec2 frag_texture_coord;
 void main()
 {
     frag_texture_coord = texture_coord;
-    frag_normal = vertex_normal;
+    frag_normal = (rotation_matrix * vec4(vertex_normal, 1.0f)).xyz;
     vec4 rotated_pos = rotation_matrix * vec4(vertex_pos, 1.0f);
     vec3 shifted_pos = rotated_pos.xyz + position_offset; 
     frag_pos = shifted_pos;

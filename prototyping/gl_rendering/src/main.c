@@ -211,7 +211,6 @@ int main()
         return -1;
     }
 
-
     gl_mesh_t gl_mesh;
     const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
     mesh_t* mesh = load_obj(mesh_path, 100000, 100000, 100000);
@@ -242,7 +241,7 @@ int main()
         if(y_rot > 360.0f) { y_rot -= 360.0f; }
         else if(y_rot < 0.0f) { y_rot += 360.0f; }
         mat4 rotation_matrix = get_y_rotation_matrix(y_rot);
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glBindVertexArray(gl_mesh.vao);
         glUseProgram(mesh_shader.shader_program);
@@ -250,7 +249,7 @@ int main()
         glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
         glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offset);
         glUniform3fv(mesh_shader.object_color_location, 1, object_color);
-        glUniform1f(mesh_shader.ambient_strength_location, 0.7f); 
+        glUniform1f(mesh_shader.ambient_strength_location, 0.1f); 
         glUniform3fv(mesh_shader.light_position_location, 1, light_position);
         
         glActiveTexture(GL_TEXTURE0);

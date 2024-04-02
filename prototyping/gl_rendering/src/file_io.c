@@ -161,27 +161,6 @@ void save_frame_to_png(const char* filename, unsigned int width, unsigned int he
     fclose(file);
 }
 
-static inline size_t get_base_path_length(const char* full_path)
-{
-    size_t full_path_length = strlen(full_path);
-    size_t base_path_length = 0;
-    for(size_t i = full_path_length; i > 0; --i)
-    {
-        if(full_path[i] == '/')
-        {
-            base_path_length = i+1;
-            break;
-        }
-    }
-    return base_path_length;
-}
-
-static inline void join_base_path_and_target(
-    const char* base_path, const char* target, char* dest, size_t combined_length
-){
-    snprintf(dest, combined_length, "%s%s", base_path, target);
-}
-
 static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 
 static inline float string_section_to_float(long start, long end, const char* full_string)
@@ -677,7 +656,7 @@ obj_t* load_obj(
     free(normal_indices);
     free(file_chars);
 
-    obj_t* obj = (obj_t*)malloc(sizeof(obj));
+    obj_t* obj = (obj_t*)malloc(sizeof(obj_t));
     obj->num_vertices = parsed_indices;
     obj->vertices = ordered_vertices;
     obj->normals = ordered_normals;

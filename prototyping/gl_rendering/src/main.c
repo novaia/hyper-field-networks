@@ -102,7 +102,7 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
 }
 typedef struct
 {
-    uint32_t vao, vbo, ibo, nbo, tbo, texture;
+    uint32_t vao, vbo, ibo, nbo, tbo, texture_id;
     unsigned int num_vertices, num_vertex_scalars;
 } gl_mesh_t;
 
@@ -169,7 +169,7 @@ gl_mesh_t obj_to_gl_mesh(obj_t* obj, image_t* texture)
     glBindTexture(GL_TEXTURE_2D, 0);
 
     gl_mesh_t gl_mesh = { 
-        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo, .texture = texture_id,
+        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo, .texture_id = texture_id,
         .num_vertices = obj->num_vertices,
         .num_vertex_scalars = num_vertex_scalars
     };
@@ -217,19 +217,20 @@ int main()
         printf("Failed to load obj\n");
         return -1; 
     }
-    image_t* texture = load_png(DATA_PATH("3d_models/sonic/sonic.png"));
+    const char* texture_path = DATA_PATH("3d_models/sonic/sonic.png");
+    image_t* texture = load_png(texture_path);
     if(!texture) 
     { 
         printf("Failed to load texture\n");
         return -1; 
     }
-    const gl_mesh_t gl_mesh = obj_to_gl_mesh(obj, texture);
-    free(obj->vertices);
+    gl_mesh_t gl_mesh = obj_to_gl_mesh(obj, texture);
+    /*free(obj->vertices);
     free(obj->normals);
     free(obj->texture_coords);
     free(obj);
     free(texture->pixels);
-    free(texture);
+    free(texture);*/
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );
@@ -260,7 +261,7 @@ int main()
         glUniform3fv(mesh_shader.light_position_location, 1, light_position);
         
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, gl_mesh.texture);
+        glBindTexture(GL_TEXTURE_2D, gl_mesh.texture_id);
         glUniform1i(mesh_shader.texture_location, 0);
         
         glDrawArrays(GL_TRIANGLES, 0, gl_mesh.num_vertices);

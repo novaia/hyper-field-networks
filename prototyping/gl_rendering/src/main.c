@@ -211,11 +211,10 @@ int main()
         return -1;
     }
 
-    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
-    mesh_t* mesh = load_obj_refactor(mesh_path, 100000, 100000, 100000);
 
     gl_mesh_t gl_mesh;
-    //mesh_t* mesh_2 = load_obj(mesh_path, 100000, 300000, 100000);
+    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
+    mesh_t* mesh = load_obj(mesh_path, 100000, 100000, 100000);
     if(!mesh) { return - 1; }
     gl_mesh = mesh_to_gl_mesh(mesh);
     free(mesh->vertices);

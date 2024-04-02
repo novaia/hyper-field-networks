@@ -24,8 +24,7 @@ typedef struct
     float* vertices; 
     float* normals;
     float* texture_coords;
-    material_t* material;
-} mesh_t;
+} obj_t;
 
 #ifdef __cplusplus
 } // extern "C"

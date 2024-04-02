@@ -100,29 +100,28 @@ uint32_t create_shader_program(const char* vertex_shader_source, const char* fra
     glDeleteShader(fragment_shader);
     return shader_program;
 }
-
 typedef struct
 {
     uint32_t vao, vbo, ibo, nbo, tbo, texture;
     unsigned int num_vertices, num_vertex_scalars;
 } gl_mesh_t;
 
-gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
+gl_mesh_t obj_to_gl_mesh(obj_t* obj, image_t* texture)
 {
-    uint32_t vao, vbo, nbo, tbo, texture;
+    uint32_t vao, vbo, nbo, tbo, texture_id;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
     glGenBuffers(1, &nbo);
     glGenBuffers(1, &tbo);
-    glGenTextures(1, &texture);
+    glGenTextures(1, &texture_id);
     glBindVertexArray(vao);
     
-    const unsigned int num_vertex_scalars = mesh->num_vertices * 3;
+    const unsigned int num_vertex_scalars = obj->num_vertices * 3;
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(
         GL_ARRAY_BUFFER, 
         sizeof(GL_FLOAT) * num_vertex_scalars, 
-        mesh->vertices, 
+        obj->vertices, 
         GL_STATIC_DRAW
     );
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 3, (void*)0);
@@ -132,7 +131,7 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glBufferData(
         GL_ARRAY_BUFFER,
         sizeof(GL_FLOAT) * num_vertex_scalars,
-        mesh->normals,
+        obj->normals,
         GL_STATIC_DRAW
     );
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 3, (void*)0);
@@ -141,8 +140,8 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glBindBuffer(GL_ARRAY_BUFFER, tbo);
     glBufferData(
         GL_ARRAY_BUFFER,
-        sizeof(GL_FLOAT) * mesh->num_vertices * 2,
-        mesh->texture_coords,
+        sizeof(GL_FLOAT) * obj->num_vertices * 2,
+        obj->texture_coords,
         GL_STATIC_DRAW
     );
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 2, (void*)0);
@@ -151,17 +150,17 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     
-    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
         GL_RGBA,
-        mesh->material->texture->width,
-        mesh->material->texture->height,
+        texture->width,
+        texture->height,
         0,
         GL_RGBA,
         GL_FLOAT,
-        mesh->material->texture->pixels
+        texture->pixels
     );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -170,8 +169,8 @@ gl_mesh_t mesh_to_gl_mesh(mesh_t* mesh)
     glBindTexture(GL_TEXTURE_2D, 0);
 
     gl_mesh_t gl_mesh = { 
-        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo, .texture = texture,
-        .num_vertices = mesh->num_vertices,
+        .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo, .texture = texture_id,
+        .num_vertices = obj->num_vertices,
         .num_vertex_scalars = num_vertex_scalars
     };
     return gl_mesh;
@@ -211,18 +210,26 @@ int main()
         return -1;
     }
 
-    gl_mesh_t gl_mesh;
-    const char* mesh_path = DATA_PATH("3d_models/sonic/sonic.obj");
-    mesh_t* mesh = load_obj(mesh_path, 100000, 100000, 100000);
-    if(!mesh) { return - 1; }
-    gl_mesh = mesh_to_gl_mesh(mesh);
-    free(mesh->vertices);
-    free(mesh->normals);
-    free(mesh->texture_coords);
-    free(mesh->material->texture->pixels);
-    free(mesh->material->texture);
-    free(mesh->material);
-    free(mesh);
+    const char* obj_path = DATA_PATH("3d_models/sonic/sonic.obj");
+    obj_t* obj = load_obj(obj_path, 100000, 100000, 100000);
+    if(!obj) 
+    {
+        printf("Failed to load obj\n");
+        return -1; 
+    }
+    image_t* texture = load_png(DATA_PATH("3d_models/sonic/sonic.png"));
+    if(!texture) 
+    { 
+        printf("Failed to load texture\n");
+        return -1; 
+    }
+    const gl_mesh_t gl_mesh = obj_to_gl_mesh(obj, texture);
+    free(obj->vertices);
+    free(obj->normals);
+    free(obj->texture_coords);
+    free(obj);
+    free(texture->pixels);
+    free(texture);
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );

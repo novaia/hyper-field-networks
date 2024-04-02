@@ -223,96 +223,7 @@ static int read_text_file(const char* file_path, char** file_chars, long* file_l
     size_t read_size = fread(*file_chars, sizeof(char), *file_length, fp);
     (*file_chars)[read_size] = '\0';
     fclose(fp);
-}
-
-static material_t* load_mtl(
-    const char* mtl_path, const char* base_path, size_t base_path_length
-){
-    char* file_chars = NULL;
-    long file_length = 0;
-    int error = read_text_file(mtl_path, &file_chars, &file_length);
-    if(error) 
-    {
-        free(file_chars);
-        return NULL; 
-    }
-    
-    unsigned int ignore_current_line = 0;
-    unsigned int is_start_of_line = 1;
-    unsigned int is_map = 0;
-    long map_start = -1;
-    long map_end = -1;
-    char* texture_path = NULL;
-    size_t texture_path_length = 0;
-
-    for(long i = 0; i < file_length; i++)
-    {
-        const char current_char = file_chars[i];
-        if(is_start_of_line)
-        {
-            // If i == file_length then parsing is finished so the loop can be broken
-            // in order to prevent next_char from being out of bounds.
-            if(i == file_length) { break; }
-            const char next_char = file_chars[i+1];
-            if(current_char == 'm' && next_char == 'a')
-            {
-                is_map = 1;
-            }
-            else
-            {
-                ignore_current_line = 1;
-            }
-            is_start_of_line = 0;
-        }
-        else if(!ignore_current_line)
-        {
-            if(is_map)
-            {
-                if(map_start == -1 && current_char == ' ')
-                {
-                    map_start = i+1;   
-                }
-                else if(current_char == '\n')
-                {
-                    map_end = i;
-                    texture_path_length = (size_t)(map_end - map_start);
-                    texture_path = (char*)malloc(sizeof(char) * (texture_path_length+1));
-                    memcpy(texture_path, &file_chars[map_start], sizeof(char) * texture_path_length);
-                    texture_path[texture_path_length] = '\0';            
-
-                    is_map = 0;
-                    map_start = -1;
-                    map_end = -1;
-                }
-            }
-        }
-
-        if(current_char == '\n')
-        {
-            is_start_of_line = 1;
-            ignore_current_line = 0;
-        }
-    }
-
-    material_t* mtl_data = (material_t*)malloc(sizeof(material_t));
-    mtl_data->texture = NULL;
-    if(texture_path)
-    {
-        size_t full_texture_path_length = base_path_length + texture_path_length + 1;
-        char full_texture_path[full_texture_path_length];
-        join_base_path_and_target(base_path, texture_path, full_texture_path, full_texture_path_length);
-        free(texture_path);
-        printf("%s\n", full_texture_path);
-        mtl_data->texture = load_png(full_texture_path);
-        if(!mtl_data->texture)
-        {
-            printf("Could not load material's texture\n");
-            free(mtl_data);
-            free(file_chars);
-            return NULL;
-        }
-    }
-    return mtl_data;   
+    return 0;
 }
 
 static inline int is_valid_vec_char(const char c)
@@ -573,52 +484,7 @@ static inline int seek_end_of_line(
     return -1;
 }
 
-static inline int validate_obj_mtl_label(
-    const char* file_chars, const size_t file_chars_length, 
-    const size_t label_start, size_t* label_end
-){
-    // IMPORTANT: do not remove the trailing space.
-    const char true_label[7] = {'m', 't', 'l', 'l', 'i', 'b', ' '};
-    const unsigned int label_length = 7;
-    unsigned int label_char_offset = 0;
-    for(size_t i = label_start; i < file_chars_length; i++)
-    {
-        if(true_label[label_char_offset++] != file_chars[i])
-        {
-            printf("Encountered invalid MTL label while parsing OBJ file\n");
-            return -1;
-        }
-        else if(label_char_offset == label_length)
-        {
-            *label_end = i; 
-            return 0;
-        }
-    }
-    printf("Reached end of file while validating OBJ MTL label\n");
-    return -1;
-}
-
-static inline int parse_obj_mtl_path(
-    const char* file_chars, const size_t file_chars_length, 
-    const size_t path_start, size_t* line_end, 
-    size_t* path_length, char** path
-){
-    for(size_t i = path_start; i < file_chars_length; i++)
-    {
-        if(file_chars[i] != '\n') { continue; }
-        const size_t path_end = i;
-        const size_t __path_length = path_end - path_start;
-        *path = (char*)malloc(sizeof(char) * (__path_length + 1));
-        memcpy(*path, &file_chars[path_start], sizeof(char) * __path_length);
-        (*path)[__path_length] = '\0'; 
-        *path_length = __path_length;
-        return 0;
-    }
-    printf("Reached end of file while parsing OBJ MTL path\n");
-    return -1;
-}
-
-mesh_t* load_obj(
+obj_t* load_obj(
     const char* path, 
     const unsigned int max_vertices, 
     const unsigned int max_normals,
@@ -630,7 +496,7 @@ mesh_t* load_obj(
     if(file_read_error) 
     { 
         free(file_chars);
-        return -1;
+        return NULL;
     }
     const size_t file_chars_length = (size_t)file_length;
     size_t current_char_offset = 1;
@@ -654,9 +520,6 @@ mesh_t* load_obj(
     unsigned int parsed_indices = 0;
     unsigned int index_offset = 0;
     
-    size_t mtl_path_length = 0;
-    char* mtl_path = NULL;
-
     int error = 0;
     while(current_char_offset < file_chars_length)
     {
@@ -759,22 +622,6 @@ mesh_t* load_obj(
             if(error) { break; }
             current_char_offset = line_end + 2;
         }
-        else if(last_char == 'm' && current_char == 't')
-        {
-            size_t mtl_label_end = current_char_offset;
-            error = validate_obj_mtl_label(
-                file_chars, file_chars_length, current_char_offset-1, &mtl_label_end
-            );
-            if(error) { break; }
-            current_char_offset = mtl_label_end + 1;
-            size_t line_end = current_char_offset;
-            error = parse_obj_mtl_path(
-                file_chars, file_chars_length, current_char_offset, 
-                &line_end, &mtl_path_length, &mtl_path
-            );
-            if(error) { break; }
-            current_char_offset = line_end + 2;
-        }
         else 
         {
             // Skip to start of next line.
@@ -794,38 +641,6 @@ mesh_t* load_obj(
         free(vertex_indices);
         free(texture_indices);
         free(normal_indices);
-        free(mtl_path);
-        free(file_chars);
-        return NULL;
-    }
-
-    material_t* material;
-    if(mtl_path)
-    {
-        const size_t base_path_length = get_base_path_length(path);
-        char base_path[base_path_length+1];
-        memcpy(base_path, path, sizeof(char) * base_path_length);
-        base_path[base_path_length] = '\0';
-
-        size_t full_mtl_path_length = base_path_length + mtl_path_length + 1;
-        char full_mtl_path[full_mtl_path_length];
-        join_base_path_and_target(base_path, mtl_path, full_mtl_path, full_mtl_path_length);
-        material = load_mtl(full_mtl_path, base_path, base_path_length);
-        if(!material)
-        {
-            printf("Could not load material\n");
-            error = -1;
-        }
-    }
-    if(error)
-    {
-        free(vertices);
-        free(texture_coords);
-        free(normals);
-        free(vertex_indices);
-        free(texture_indices);
-        free(normal_indices);
-        free(mtl_path);
         free(file_chars);
         return NULL;
     }
@@ -862,11 +677,10 @@ mesh_t* load_obj(
     free(normal_indices);
     free(file_chars);
 
-    mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
-    mesh->num_vertices = parsed_indices;
-    mesh->vertices = ordered_vertices;
-    mesh->normals = ordered_normals;
-    mesh->texture_coords = ordered_texture_coords;
-    mesh->material = material;
-    return mesh;
+    obj_t* obj = (obj_t*)malloc(sizeof(obj));
+    obj->num_vertices = parsed_indices;
+    obj->vertices = ordered_vertices;
+    obj->normals = ordered_normals;
+    obj->texture_coords = ordered_texture_coords;
+    return obj;
 }

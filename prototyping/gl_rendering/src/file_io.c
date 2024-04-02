@@ -618,7 +618,7 @@ static inline int parse_obj_mtl_path(
     return -1;
 }
 
-int load_obj_refactor(
+mesh_t* load_obj_refactor(
     const char* path, 
     const unsigned int max_vertices, 
     const unsigned int max_normals,
@@ -787,7 +787,6 @@ int load_obj_refactor(
         free(file_chars);
         return NULL;
     }
-    error = 0;
 
     printf("Parsed %d vertices\n", parsed_vertices);
     printf("Parsed %d texture coords\n", parsed_texture_coords);
@@ -825,8 +824,53 @@ int load_obj_refactor(
         free(file_chars);
         return NULL;
     }
-}
 
+    const size_t ordered_scalars_size = sizeof(float) * parsed_indices;
+    float* ordered_vertices = (float*)malloc(ordered_scalars_size * 3);
+    float* ordered_texture_coords = (float*)malloc(ordered_scalars_size * 2);
+    float* ordered_normals = (float*)malloc(ordered_scalars_size * 3);
+    for(int i = 0; i < parsed_indices; i++)
+    {
+        vertex_offset = vertex_indices[i] * 3;
+        const unsigned int ordered_vertex_offset = i * 3;
+        ordered_vertices[ordered_vertex_offset] = vertices[vertex_offset];
+        ordered_vertices[ordered_vertex_offset+1] = vertices[vertex_offset+1];
+        ordered_vertices[ordered_vertex_offset+2] = vertices[vertex_offset+2];
+
+        texture_coord_offset = texture_indices[i] * 2;
+        const unsigned int ordered_texture_coord_offset = i * 2;
+        ordered_texture_coords[ordered_texture_coord_offset] = texture_coords[texture_coord_offset];
+        ordered_texture_coords[ordered_texture_coord_offset+1] = texture_coords[texture_coord_offset+1];
+        
+        normal_offset = normal_indices[i] * 3;
+        const unsigned int ordered_normal_offset = ordered_vertex_offset;
+        ordered_normals[ordered_normal_offset] = normals[normal_offset];
+        ordered_normals[ordered_normal_offset+1] = normals[normal_offset+1];
+        ordered_normals[ordered_normal_offset+2] = normals[normal_offset+2];
+    }
+
+    for(unsigned int i = 0; i < parsed_indices; i++)
+    {
+        printf("%d ", normal_indices[i]);
+    }
+
+    free(vertices);
+    free(texture_coords);
+    free(normals);
+    free(vertex_indices);
+    free(texture_indices);
+    free(normal_indices);
+    free(file_chars);
+
+    mesh_t* mesh = (mesh_t*)malloc(sizeof(mesh_t));
+    mesh->num_vertices = parsed_indices;
+    mesh->vertices = ordered_vertices;
+    mesh->normals = ordered_normals;
+    mesh->texture_coords = ordered_texture_coords;
+    mesh->material = material;
+    return mesh;
+}
+/*
 mesh_t* load_obj(
     const char* path,
     const unsigned int max_vertices, 
@@ -1158,3 +1202,4 @@ mesh_t* load_obj(
     mesh->material = material;
     return mesh;
 }
+*/

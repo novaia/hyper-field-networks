@@ -710,7 +710,7 @@ int load_obj_refactor(
                 error = 1;
                 break;
             }
-            // Incrememebt by 2 to skip over n and space characters.
+            // Incremement by 2 to skip over n and space characters.
             current_char_offset += 2;
             size_t line_end = current_char_offset;
             error = parse_obj_vec3(
@@ -778,16 +778,53 @@ int load_obj_refactor(
     if(error)
     {
         free(vertices);
+        free(texture_coords);
+        free(normals);
         free(vertex_indices);
         free(texture_indices);
         free(normal_indices);
-        return -1;
+        free(mtl_path);
+        free(file_chars);
+        return NULL;
     }
+    error = 0;
+
     printf("Parsed %d vertices\n", parsed_vertices);
     printf("Parsed %d texture coords\n", parsed_texture_coords);
     printf("Parsed %d normals\n", parsed_normals);
     printf("Parsed %d indices\n", parsed_indices);
     printf("MTL path %s\n", mtl_path);
+
+    material_t* material;
+    if(mtl_path)
+    {
+        const size_t base_path_length = get_base_path_length(path);
+        char base_path[base_path_length+1];
+        memcpy(base_path, path, sizeof(char) * base_path_length);
+        base_path[base_path_length] = '\0';
+
+        size_t full_mtl_path_length = base_path_length + mtl_path_length + 1;
+        char full_mtl_path[full_mtl_path_length];
+        join_base_path_and_target(base_path, mtl_path, full_mtl_path, full_mtl_path_length);
+        material = load_mtl(full_mtl_path, base_path, base_path_length);
+        if(!material)
+        {
+            printf("Could not load material\n");
+            error = -1;
+        }
+    }
+    if(error)
+    {
+        free(vertices);
+        free(texture_coords);
+        free(normals);
+        free(vertex_indices);
+        free(texture_indices);
+        free(normal_indices);
+        free(mtl_path);
+        free(file_chars);
+        return NULL;
+    }
 }
 
 mesh_t* load_obj(

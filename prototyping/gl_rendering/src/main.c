@@ -269,7 +269,7 @@ int main()
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    float light_position[3] = {1.0f, 1.0f, 0.0f};
+    float light_position[3] = {10.0f, 3.0f, 0.0f};
     
     float y_rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
@@ -289,7 +289,7 @@ int main()
             glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
             glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
             glUniform3fv(mesh_shader.position_offset_location, 1, current_element.location);
-            glUniform1f(mesh_shader.ambient_strength_location, 0.1f); 
+            glUniform1f(mesh_shader.ambient_strength_location, 0.00f); 
             glUniform3fv(mesh_shader.light_position_location, 1, light_position);
             
             glActiveTexture(GL_TEXTURE0);

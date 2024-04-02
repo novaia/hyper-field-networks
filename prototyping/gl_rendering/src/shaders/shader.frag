@@ -1,17 +1,18 @@
 #version 330 core
 
 uniform float ambient_strength;
-uniform vec3 light_pos;
 uniform sampler2D texture_sampler;
 
 in vec3 frag_normal;
 in vec3 frag_pos;
 in vec2 frag_texture_coord;
+in vec3 frag_light_pos;
 
 void main()
 {
+    vec3 light_pos = frag_light_pos;
     vec3 light_color = vec3(1.0f);
-    float diffuse_blend = 0.6f;
+    float diffuse_blend = 1.0f;
     float specular_blend = 1.0f - diffuse_blend;
 
     // Ambient lighting.

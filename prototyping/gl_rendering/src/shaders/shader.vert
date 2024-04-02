@@ -13,11 +13,12 @@ out vec2 frag_texture_coord;
 
 void main()
 {
+    mat4 view_matrix = rotation_matrix;
+    view_matrix[3] = vec4(position_offset, 1.0f);
+    vec4 view_pos = view_matrix * vec4(vertex_pos, 1.0f);
+    gl_Position = perspective_matrix * view_pos;
+
+    frag_pos = view_pos.xyz;
     frag_texture_coord = texture_coord;
     frag_normal = (rotation_matrix * vec4(vertex_normal, 1.0f)).xyz;
-    vec4 rotated_pos = rotation_matrix * vec4(vertex_pos, 1.0f);
-    vec3 shifted_pos = rotated_pos.xyz + position_offset; 
-    frag_pos = shifted_pos;
-    vec4 projected_pos = perspective_matrix * vec4(shifted_pos, 1.0);
-    gl_Position = projected_pos;
 }

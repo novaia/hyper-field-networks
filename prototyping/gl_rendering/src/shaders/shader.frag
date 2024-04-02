@@ -1,7 +1,6 @@
 #version 330 core
 
 uniform float ambient_strength;
-uniform vec3 object_color;
 uniform vec3 light_pos;
 uniform sampler2D texture_sampler;
 

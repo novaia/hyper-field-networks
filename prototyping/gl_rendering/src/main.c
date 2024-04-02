@@ -178,6 +178,22 @@ gl_mesh_t obj_to_gl_mesh(obj_t* obj, image_t* texture)
 
 typedef struct
 {
+    gl_mesh_t mesh;
+    float location[3];
+} scene_element_t;
+
+scene_element_t* init_scene_element(obj_t* obj, image_t* texture, float x, float y, float z)
+{
+    scene_element_t* element = (scene_element_t*)malloc(sizeof(scene_element_t));
+    element->mesh = obj_to_gl_mesh(obj, texture);
+    element->location[0] = x;
+    element->location[1] = y;
+    element->location[2] = z;
+    return element;
+}
+
+typedef struct
+{
     uint32_t perspective_matrix_location;
     uint32_t rotation_matrix_location;
     uint32_t object_color_location;
@@ -202,6 +218,20 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
     return mesh_shader;
 }
 
+image_t* get_placeholder_texture(float value, unsigned int width, unsigned int height)
+{
+    unsigned int num_scalars = width * height * 4;
+    image_t* texture = (image_t*)malloc(sizeof(image_t));
+    texture->width = width;
+    texture->height = height;
+    texture->pixels = (float*)malloc(sizeof(float) * num_scalars);
+    for(unsigned int i = 0; i < num_scalars; i++)
+    {
+        texture->pixels[i] = value;
+    }
+    return texture;
+}
+
 int main()
 {
     GLFWwindow* window = init_gl();
@@ -210,35 +240,35 @@ int main()
         return -1;
     }
 
-    const char* obj_path = DATA_PATH("3d_models/sonic/sonic.obj");
-    obj_t* obj = load_obj(obj_path, 100000, 100000, 100000);
-    if(!obj) 
+    obj_t* elf_obj = load_obj(DATA_PATH("3d_models/elf/elf.obj"), 100000, 100000, 100000);
+    if(!elf_obj) 
     {
         printf("Failed to load obj\n");
         return -1; 
     }
-    const char* texture_path = DATA_PATH("3d_models/sonic/sonic.png");
-    image_t* texture = load_png(texture_path);
+    image_t* texture = get_placeholder_texture(1.0f, 1024, 1024);
     if(!texture) 
     { 
         printf("Failed to load texture\n");
         return -1; 
     }
-    gl_mesh_t gl_mesh = obj_to_gl_mesh(obj, texture);
-    /*free(obj->vertices);
-    free(obj->normals);
-    free(obj->texture_coords);
-    free(obj);
-    free(texture->pixels);
-    free(texture);*/
+    obj_t* platform_obj = load_obj(DATA_PATH("3d_models/platform.obj"), 50, 50, 50);
+    if(!platform_obj)
+    {
+        printf("Failed to load platform obj\n");
+    }
+
+    unsigned int num_scene_elements = 2;
+    scene_element_t** scene_elements = (scene_element_t**)malloc(sizeof(scene_element_t*) * num_scene_elements);
+    scene_elements[0] = init_scene_element(elf_obj, texture, 0.0f, -1.0f, -3.0f);
+    scene_elements[1] = init_scene_element(platform_obj, texture, 0.0f, -1.5f, -3.0f);
+    
     mesh_shader_t mesh_shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );
 
     float aspect_ratio = window_width_f / window_height_f;
     mat4 perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio);
-    float mesh_position_offset[3] = {0.0f, -1.5f, -3.0f};
-    float object_color[3] = {0.8f, 0.13f, 0.42f};
     float light_position[3] = {1.0f, 1.0f, 0.0f};
     
     float y_rot = 0.0f;
@@ -251,20 +281,23 @@ int main()
         mat4 rotation_matrix = get_y_rotation_matrix(y_rot);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glBindVertexArray(gl_mesh.vao);
-        glUseProgram(mesh_shader.shader_program);
-        glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
-        glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
-        glUniform3fv(mesh_shader.position_offset_location, 1, mesh_position_offset);
-        glUniform3fv(mesh_shader.object_color_location, 1, object_color);
-        glUniform1f(mesh_shader.ambient_strength_location, 0.1f); 
-        glUniform3fv(mesh_shader.light_position_location, 1, light_position);
+        for(unsigned int i = 0; i < num_scene_elements; i++)
+        {
+            scene_element_t current_element = *(scene_elements[i]);
+            glBindVertexArray(current_element.mesh.vao);
+            glUseProgram(mesh_shader.shader_program);
+            glUniformMatrix4fv(mesh_shader.perspective_matrix_location, 1, GL_FALSE, perspective_matrix.data);
+            glUniformMatrix4fv(mesh_shader.rotation_matrix_location, 1, GL_FALSE, rotation_matrix.data);
+            glUniform3fv(mesh_shader.position_offset_location, 1, current_element.location);
+            glUniform1f(mesh_shader.ambient_strength_location, 0.1f); 
+            glUniform3fv(mesh_shader.light_position_location, 1, light_position);
+            
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, current_element.mesh.texture_id);
+            glUniform1i(mesh_shader.texture_location, 0);
         
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, gl_mesh.texture_id);
-        glUniform1i(mesh_shader.texture_location, 0);
-        
-        glDrawArrays(GL_TRIANGLES, 0, gl_mesh.num_vertices);
+            glDrawArrays(GL_TRIANGLES, 0, current_element.mesh.num_vertices);
+        }
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

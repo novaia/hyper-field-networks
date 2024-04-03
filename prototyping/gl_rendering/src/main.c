@@ -90,14 +90,26 @@ int main()
         return -1;
     }
 
+    obj_t* sonic_obj = load_obj(DATA_PATH("3d_models/sonic/sonic.obj"), 100000, 100000, 100000);
+    if(!sonic_obj) 
+    {
+        printf("Failed to load obj\n");
+        return -1; 
+    }
+    image_t* sonic_texture = load_png(DATA_PATH("3d_models/sonic/sonic.png"));
+    if(!sonic_texture) 
+    { 
+        printf("Failed to load texture\n");
+        return -1; 
+    }
     obj_t* elf_obj = load_obj(DATA_PATH("3d_models/elf/elf.obj"), 100000, 100000, 100000);
     if(!elf_obj) 
     {
         printf("Failed to load obj\n");
         return -1; 
     }
-    image_t* texture = get_placeholder_texture(1.0f, 1024, 1024);
-    if(!texture) 
+    image_t* placeholder_texture = get_placeholder_texture(1.0f, 1024, 1024);
+    if(!placeholder_texture) 
     { 
         printf("Failed to load texture\n");
         return -1; 
@@ -107,21 +119,33 @@ int main()
     {
         printf("Failed to load platform obj\n");
     }
+    image_t* dingboard_texture = load_png(DATA_PATH("3d_models/dingboard_texture.png"));
+    if(!dingboard_texture) 
+    { 
+        printf("Failed to load texture\n");
+        return -1; 
+    }
     
     int error = 0;
-    scene_t* scene = init_scene(10.0f, 3.0f, 0.0f, 0.3f);
+    scene_t* scene = init_scene(10.0f, 3.0f, 0.0f, 0.5f);
+    unsigned int sonic_mesh_index = 0;
+    error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
+    if(error) { return -1; }
     unsigned int elf_mesh_index = 0;
     error = add_mesh_to_scene(scene, elf_obj, &elf_mesh_index);
     if(error) { return -1; }
-    printf("elf_mesh_index: %d\n", elf_mesh_index);
     unsigned int platform_mesh_index = 0;
     error = add_mesh_to_scene(scene, platform_obj, &platform_mesh_index);
     if(error) { return -1; }
-    printf("platform_mesh_index: %d\n", platform_mesh_index);
     unsigned int texture_index = 0;
-    error = add_texture_to_scene(scene, texture, &texture_index);
+    error = add_texture_to_scene(scene, placeholder_texture, &texture_index);
     if(error) { return -1; }
-    printf("texture index: %d\n", texture_index);
+    unsigned int dingboard_texture_index = 0;
+    error = add_texture_to_scene(scene, dingboard_texture, &dingboard_texture_index);
+    if(error) { return -1; }
+    unsigned int sonic_texture_index = 0;
+    error = add_texture_to_scene(scene, sonic_texture, &sonic_texture_index);
+    if(error) { return -1; }
 
     printf("num_gl_meshes: %d\n", scene->num_gl_meshes);
     printf("num_gl_textures: %d\n", scene->num_gl_textures);
@@ -133,15 +157,26 @@ int main()
         scene->light_position[2]
     );
 
-    mat4 elf_model_matrix = get_model_matrix(0.0f, -1.0f, -3.0f, 0.0f, 0.0f, 0.0f);
-    for(int i = 0; i < 16; i++)
-    {
-        printf("%f ", elf_model_matrix.data[i]);
-    }
+    //mat4 elf_model_matrix = get_model_matrix(0.0f, -1.0f, -3.0f, 0.0f, 0.0f, 0.0f);
+    mat4 elf_model_matrix = get_model_matrix(2.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     printf("\n");
     error = add_scene_element(scene, elf_model_matrix, elf_mesh_index, texture_index);
     if(error) { return -1; }
 
+    mat4 elf_model_matrix_2 = get_model_matrix(-2.0f, -1.0f, 0.0f, 0.0f, 80.0f, 0.0f);
+    error = add_scene_element(scene, elf_model_matrix_2, elf_mesh_index, texture_index);
+    if(error) { return -1; }
+
+    mat4 sonic_model_matrix = get_model_matrix(0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
+    if(error) { return -1; }
+
+    mat4 platform_model_matrix = get_model_matrix(0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    error = add_scene_element(
+        scene, platform_model_matrix, platform_mesh_index, dingboard_texture_index
+    );
+    if(error) { return -1; }
+    
     mesh_shader_t shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );
@@ -152,10 +187,13 @@ int main()
         .view_matrix = get_y_rotation_matrix(0.0)
     };
 
+    float rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        rot += 0.4f;
+        camera.view_matrix = get_lookat_view_matrix(10.0f, rot, 0.0f, 4.0f);
+        glClearColor(0.3f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         render_scene(scene, &camera, &shader);
         glfwSwapBuffers(window);

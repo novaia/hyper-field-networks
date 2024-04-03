@@ -13,7 +13,7 @@ void main()
 {
     vec3 light_pos = frag_light_pos;
     vec3 light_color = vec3(1.0f);
-    float diffuse_blend = 1.0f;
+    float diffuse_blend = 0.6f;
     float specular_blend = 1.0f - diffuse_blend;
 
     // Ambient lighting.
@@ -38,6 +38,4 @@ void main()
         + (specular * specular_blend)
     ) * texture_color.rgb;
     gl_FragColor = vec4(color, 1.0f);
-    gl_FragColor = vec4(normal, 1.0f);
-    //gl_FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 }

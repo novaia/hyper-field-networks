@@ -1,9 +1,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "transform.h"
+#include "matrices.h"
 
-static inline double degrees_to_radians(double degrees)
+inline double degrees_to_radians(double degrees)
 {
     const double pi = 3.14159265358979323846;
     return degrees * (pi / 180.0);
@@ -80,8 +80,8 @@ inline mat4 get_model_matrix(
     const mat4 x_rotation_matrix = get_x_rotation_matrix(rotation_x);
     const mat4 y_rotation_matrix = get_y_rotation_matrix(rotation_y);
     mat4 model_matrix = mat4mul(x_rotation_matrix, y_rotation_matrix);
-    model_matrix[MAT4_X_TRANSLATION_INDEX] = position_x;
-    model_matrix[MAT4_Y_TRANSLATION_INDEX] = position_y;
-    model_matrix[MAT4_Z_TRANSLATION_INDEX] = position_z;
+    model_matrix.data[MAT4_X_TRANSLATION_INDEX] = position_x;
+    model_matrix.data[MAT4_Y_TRANSLATION_INDEX] = position_y;
+    model_matrix.data[MAT4_Z_TRANSLATION_INDEX] = position_z;
     return model_matrix;
 }

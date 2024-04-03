@@ -1,11 +1,27 @@
-#include "types.h"
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+typedef struct
+{
+    unsigned int width;
+    unsigned int height;
+    unsigned int stride;
+    float* pixels;
+} image_t;
+
 image_t* load_png(const char* file_name);
 void save_frame_to_png(const char* filename, unsigned int width, unsigned int height);
+
+typedef struct 
+{ 
+    unsigned int num_vertices;
+    float* vertices; 
+    float* normals;
+    float* texture_coords;
+} obj_t;
 
 obj_t* load_obj(
     const char* path, 

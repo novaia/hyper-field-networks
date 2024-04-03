@@ -13,8 +13,8 @@ pkgs.stdenv.mkDerivation {
     ];
     buildPhase = ''
         bash shaders_to_header.sh
-        gcc -std=c99 -c ./src/main.c ./src/file_io.c ./src/transform.c
-        gcc main.o file_io.o transform.o -lglfw -lglad -lm -lpng -o 3d 
+        gcc -std=c99 -c ./src/main.c ./src/file_io.c ./src/matrices.c ./src/rendering.c
+        gcc main.o file_io.o matrices.o rendering.o -lglfw -lglad -lm -lpng -o 3d 
     '';
     installPhase = ''
         mkdir -p $out/bin

@@ -5,7 +5,7 @@
 #include <png.h>
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
-#include "types.h"
+#include "file_io.h"
 
 image_t* load_png(const char* file_name)
 {

@@ -4,7 +4,8 @@ uniform float ambient_strength;
 uniform sampler2D texture_sampler;
 
 in vec3 frag_normal;
-in vec3 frag_pos;
+in vec3 frag_m_pos;
+in vec3 frag_mv_pos;
 in vec2 frag_texture_coord;
 in vec3 frag_light_pos;
 
@@ -20,12 +21,12 @@ void main()
         
     // Diffuse lighting.
     vec3 normal = normalize(frag_normal);
-    vec3 light_dir = normalize(light_pos - frag_pos);
+    vec3 light_dir = normalize(light_pos - frag_m_pos);
     float diffuse_strength = max(0.0f, dot(normal, light_dir));
     vec3 diffuse = light_color * diffuse_strength;
 
     // Specular lighting.
-    vec3 view_dir = normalize(frag_pos);
+    vec3 view_dir = normalize(frag_mv_pos);
     vec3 reflect_dir = normalize(reflect(light_dir, normal));
     float specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), 64.0f);
     vec3 specular = specular_strength * light_color;
@@ -37,5 +38,6 @@ void main()
         + (specular * specular_blend)
     ) * texture_color.rgb;
     gl_FragColor = vec4(color, 1.0f);
-    //gl_FragColor = vec4(normal, 1.0f);
+    gl_FragColor = vec4(normal, 1.0f);
+    //gl_FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 }

@@ -41,7 +41,13 @@ typedef struct
     gl_texture_t gl_textures[MAX_GL_TEXTURES];
     scene_element_t elements[MAX_SCENE_ELEMENTS];
     float light_direction[3];
+    mat4 light_projection_matrix;
+    mat4 light_view_matrix;
     float ambient_strength;
+    uint32_t depth_map_fbo;
+    uint32_t depth_map;
+    unsigned int depth_map_width;
+    unsigned int depth_map_height;
 } scene_t;
 
 typedef struct
@@ -52,8 +58,18 @@ typedef struct
     uint32_t ambient_strength_location;
     uint32_t light_direction_location;
     uint32_t texture_location;
+    uint32_t light_projection_matrix_location;
+    uint32_t light_view_matrix_location;
     uint32_t shader_program;
 } mesh_shader_t;
+
+typedef struct
+{
+    uint32_t model_matrix_location;
+    uint32_t light_view_matrix_location;
+    uint32_t light_projection_matrix_location;
+    uint32_t shader_program;
+} depth_map_shader_t;
 
 typedef struct
 {
@@ -65,6 +81,7 @@ uint32_t create_shader_program(
     const char* vertex_shader_source, const char* fragment_shader_source
 );
 mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program);
+depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program);
 
 image_t* get_placeholder_texture(float value, unsigned int width, unsigned int height);
 
@@ -79,7 +96,9 @@ int add_scene_element(
     const unsigned int mesh_index, const unsigned int texture_index
 );
 
-void render_scene(scene_t* scene, camera_t* camera, mesh_shader_t* shader);
+void render_scene(
+    scene_t* scene, camera_t* camera, depth_map_shader_t* depth_shader, mesh_shader_t* shader
+);
 
 #ifdef __cplusplus
 } // extern "C"

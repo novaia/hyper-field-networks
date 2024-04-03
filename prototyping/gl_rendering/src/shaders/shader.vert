@@ -7,12 +7,15 @@ uniform mat4 perspective_matrix;
 uniform mat4 view_matrix;
 uniform mat4 model_matrix;
 uniform vec3 light_direction;
+uniform mat4 light_projection_matrix;
+uniform mat4 light_view_matrix;
 
 out vec3 frag_normal;
 out vec3 frag_m_pos;
 out vec3 frag_mv_pos;
 out vec2 frag_texture_coord;
 out vec3 frag_light_direction;
+out vec3 frag_light_space_pos;
 
 void main()
 {
@@ -22,6 +25,7 @@ void main()
     gl_Position = mvp_pos;
     
     mat3 normal_matrix = mat3(model_matrix);
+    frag_light_space_pos = vec3(light_projection_matrix * light_view_matrix * m_pos);
     frag_normal = normal_matrix * vertex_normal;
     frag_light_direction = light_direction;
     frag_m_pos = vec3(m_pos);

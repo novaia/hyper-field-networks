@@ -41,6 +41,33 @@ inline mat4 get_perspective_matrix(
     return perspective_matrix;
 }
 
+extern inline mat4 get_orthogonal_matrix(
+    float left, float right, float bottom, float top, float near_plane, float far_plane
+){
+    float width = right - left;
+    float height = top - bottom;
+    float depth = far_plane - near_plane;
+    
+    mat4 matrix;
+    matrix.data[0] = 2.0f / width;
+    matrix.data[1] = 0.0f;
+    matrix.data[2] = 0.0f;
+    matrix.data[3] = -(right + left) / width;
+    matrix.data[4] = 0.0f;
+    matrix.data[5] = 2.0f / height;
+    matrix.data[6] = 0.0f;
+    matrix.data[7] = -(top + bottom) / height;
+    matrix.data[8] = 0.0f;
+    matrix.data[9] = 0.0f;
+    matrix.data[10] = -2.0f / depth;
+    matrix.data[11] = -(far_plane + near_plane) / depth;
+    matrix.data[12] = 0.0f;
+    matrix.data[13] = 0.0f;
+    matrix.data[14] = 0.0f;
+    matrix.data[15] = 1.0f;
+    return matrix;
+}
+
 inline mat4 get_x_rotation_matrix(float angle)
 {
     const float theta = (float)degrees_to_radians((double)angle);

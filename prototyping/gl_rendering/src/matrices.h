@@ -17,6 +17,9 @@ extern inline mat4 mat4mul(mat4 a, mat4 b);
 extern inline mat4 get_perspective_matrix(
     float fov, float near_plane, float far_plane, float aspect_ratio
 );
+extern inline mat4 get_orthogonal_matrix(
+    float left, float right, float bottom, float top, float near_plane, float far_plane
+);
 extern inline mat4 get_x_rotation_matrix(float angle);
 extern inline mat4 get_y_rotation_matrix(float angle);
 extern inline mat4 get_model_matrix(

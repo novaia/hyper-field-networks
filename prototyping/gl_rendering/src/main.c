@@ -127,7 +127,7 @@ int main()
     }
     
     int error = 0;
-    scene_t* scene = init_scene(1.0f, 0.0f, 0.0f, 0.1f);
+    scene_t* scene = init_scene(1.0f, 1.0f, 1.0f, 0.5f);
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
     if(error) { return -1; }
@@ -180,6 +180,9 @@ int main()
     mesh_shader_t shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );
+    depth_map_shader_t depth_shader = shader_program_to_depth_map_shader(
+        create_shader_program(depth_map_vert, depth_map_frag)
+    );
 
     float aspect_ratio = window_width_f / window_height_f;
     camera_t camera = {
@@ -188,14 +191,11 @@ int main()
     };
 
     float rot = 0.0f;
-    glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
         rot += 0.4f;
         camera.view_matrix = get_lookat_view_matrix(10.0f, rot, 0.0f, 4.0f);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        render_scene(scene, &camera, &shader);
+        render_scene(scene, &camera, &depth_shader, &shader);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

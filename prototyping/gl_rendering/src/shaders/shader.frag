@@ -8,6 +8,7 @@ in vec3 frag_m_pos;
 in vec3 frag_mv_pos;
 in vec2 frag_texture_coord;
 in vec3 frag_light_direction;
+in vec3 frag_light_space_pos;
 
 void main()
 {

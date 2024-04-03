@@ -40,7 +40,7 @@ typedef struct
     gl_mesh_t gl_meshes[MAX_GL_MESHES];
     gl_texture_t gl_textures[MAX_GL_TEXTURES];
     scene_element_t elements[MAX_SCENE_ELEMENTS];
-    float light_position[3];
+    float light_direction[3];
     float ambient_strength;
 } scene_t;
 
@@ -50,7 +50,7 @@ typedef struct
     uint32_t view_matrix_location;
     uint32_t model_matrix_location;
     uint32_t ambient_strength_location;
-    uint32_t light_position_location;
+    uint32_t light_direction_location;
     uint32_t texture_location;
     uint32_t shader_program;
 } mesh_shader_t;

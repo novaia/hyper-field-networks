@@ -30,7 +30,7 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
         .view_matrix_location = glGetUniformLocation(shader_program, "view_matrix"),
         .model_matrix_location = glGetUniformLocation(shader_program, "model_matrix"),
         .ambient_strength_location = glGetUniformLocation(shader_program, "ambient_strength"),
-        .light_position_location = glGetUniformLocation(shader_program, "light_pos"),
+        .light_direction_location= glGetUniformLocation(shader_program, "light_direction"),
         .texture_location = glGetUniformLocation(shader_program, "texture_sampler"),
         .shader_program = shader_program
     };
@@ -133,9 +133,10 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     scene->num_gl_meshes = 0;
     scene->num_gl_textures = 0;
     scene->num_elements = 0;
-    scene->light_position[0] = light_x;
-    scene->light_position[1] = light_y;
-    scene->light_position[2] = light_z;
+    const float light_direction_norm = sqrtf(light_x*light_x + light_y*light_y + light_z*light_z);
+    scene->light_direction[0] = light_x / light_direction_norm;
+    scene->light_direction[1] = light_y / light_direction_norm;
+    scene->light_direction[2] = light_z / light_direction_norm;
     scene->ambient_strength = ambient_strength;
     return scene;
 }
@@ -218,7 +219,7 @@ void render_scene(scene_t* scene, camera_t* camera, mesh_shader_t* shader)
             shader->model_matrix_location, 1, GL_FALSE, element->model_matrix.data
         );
         glUniform1f(shader->ambient_strength_location, scene->ambient_strength); 
-        glUniform3fv(shader->light_position_location, 1, scene->light_position);
+        glUniform3fv(shader->light_direction_location, 1, scene->light_direction);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture->id);

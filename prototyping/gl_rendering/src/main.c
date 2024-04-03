@@ -127,7 +127,7 @@ int main()
     }
     
     int error = 0;
-    scene_t* scene = init_scene(10.0f, 3.0f, 0.0f, 0.5f);
+    scene_t* scene = init_scene(1.0f, 0.0f, 0.0f, 0.1f);
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
     if(error) { return -1; }
@@ -151,10 +151,10 @@ int main()
     printf("num_gl_textures: %d\n", scene->num_gl_textures);
     printf("ambient_strength %f\n", scene->ambient_strength);
     printf(
-        "light_position %f %f %f\n", 
-        scene->light_position[0], 
-        scene->light_position[1],
-        scene->light_position[2]
+        "light_direction %f %f %f\n", 
+        scene->light_direction[0], 
+        scene->light_direction[1],
+        scene->light_direction[2]
     );
 
     //mat4 elf_model_matrix = get_model_matrix(0.0f, -1.0f, -3.0f, 0.0f, 0.0f, 0.0f);
@@ -193,7 +193,7 @@ int main()
     {
         rot += 0.4f;
         camera.view_matrix = get_lookat_view_matrix(10.0f, rot, 0.0f, 4.0f);
-        glClearColor(0.3f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         render_scene(scene, &camera, &shader);
         glfwSwapBuffers(window);

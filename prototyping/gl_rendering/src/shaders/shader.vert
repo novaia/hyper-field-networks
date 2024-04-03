@@ -6,13 +6,13 @@ layout (location = 2) in vec2 texture_coord;
 uniform mat4 perspective_matrix;
 uniform mat4 view_matrix;
 uniform mat4 model_matrix;
-uniform vec3 light_pos;
+uniform vec3 light_direction;
 
 out vec3 frag_normal;
 out vec3 frag_m_pos;
 out vec3 frag_mv_pos;
 out vec2 frag_texture_coord;
-out vec3 frag_light_pos;
+out vec3 frag_light_direction;
 
 void main()
 {
@@ -23,8 +23,8 @@ void main()
     
     mat3 normal_matrix = mat3(model_matrix);
     frag_normal = normal_matrix * vertex_normal;
-    frag_light_pos = light_pos;
-    frag_m_pos = m_pos.xyz;
-    frag_mv_pos = mv_pos.xyz;
+    frag_light_direction = light_direction;
+    frag_m_pos = vec3(m_pos);
+    frag_mv_pos = vec3(mv_pos);
     frag_texture_coord = texture_coord;
 }

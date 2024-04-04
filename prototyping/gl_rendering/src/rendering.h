@@ -60,6 +60,7 @@ typedef struct
     uint32_t texture_location;
     uint32_t light_projection_matrix_location;
     uint32_t light_view_matrix_location;
+    uint32_t depth_map_location;
     uint32_t shader_program;
 } mesh_shader_t;
 

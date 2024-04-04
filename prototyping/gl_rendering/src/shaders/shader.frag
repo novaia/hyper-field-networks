@@ -2,13 +2,15 @@
 
 uniform float ambient_strength;
 uniform sampler2D texture_sampler;
+uniform sampler2D depth_map_sampler;
 
 in vec3 frag_normal;
 in vec3 frag_m_pos;
 in vec3 frag_mv_pos;
 in vec2 frag_texture_coord;
 in vec3 frag_light_direction;
-in vec3 frag_light_space_pos;
+
+in vec4 frag_light_space_pos;
 
 void main()
 {
@@ -33,12 +35,30 @@ void main()
         float specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0f), 64.0f);
         specular = specular_strength * light_color;
     }
-        
+    
+    // Shadow test.
+    vec3 proj = frag_light_space_pos.xyz / frag_light_space_pos.w;
+    vec3 tc = proj;
+    proj = (proj * 0.5f) + 0.5f;
+    float current_depth = proj.z;
+    vec2 depth_map_coord = proj.xy;
+    float closest_depth = texture(depth_map_sampler, depth_map_coord).r;
+    float shadow = (current_depth - 0.00008f) > closest_depth ? 0.0f : 1.0f;
+    //float shadow = 1.0f;
+
     vec4 texture_color = texture(texture_sampler, frag_texture_coord);
-    vec3 color = (
+    //vec4 texture_color = vec4(1.0f);
+
+    /*vec3 color = (
         ambient 
-        + (diffuse * diffuse_blend) 
-        + (specular * specular_blend)
-    ) * texture_color.rgb;
+        + shadow * ((diffuse * diffuse_blend) + (specular * specular_blend))
+    ) * texture_color.rgb;*/
+
+    vec3 color = (ambient + shadow) * texture_color.rgb;
+    //color = vec3(-frag_mv_pos.z/3.0f);
+    //color = vec3(current_depth);
+    //color = vec3(closest_depth);
+    //color = vec3(shadow);
+    //color = proj;
     gl_FragColor = vec4(color, 1.0f);
 }

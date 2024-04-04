@@ -32,6 +32,7 @@ mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program)
         .ambient_strength_location = glGetUniformLocation(shader_program, "ambient_strength"),
         .light_direction_location= glGetUniformLocation(shader_program, "light_direction"),
         .texture_location = glGetUniformLocation(shader_program, "texture_sampler"),
+        .depth_map_location = glGetUniformLocation(shader_program, "depth_map_sampler"),
         .light_view_matrix_location = glGetUniformLocation(shader_program, "light_view_matrix"),
         .light_projection_matrix_location = glGetUniformLocation(
             shader_program, "light_projection_matrix"
@@ -45,9 +46,9 @@ depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program)
 {
     depth_map_shader_t depth_shader = {
         .model_matrix_location = glGetUniformLocation(shader_program, "model_matrix"),
-        .light_view_matrix_location = glGetUniformLocation(shader_program, "ligth_view_matrix"),
+        .light_view_matrix_location = glGetUniformLocation(shader_program, "light_view_matrix"),
         .light_projection_matrix_location = glGetUniformLocation(
-            shader_program, "light_projection_matrix_location"
+            shader_program, "light_projection_matrix"
         ),
         .shader_program = shader_program
     };
@@ -156,8 +157,8 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     scene->light_direction[0] = light_x / light_direction_norm;
     scene->light_direction[1] = light_y / light_direction_norm;
     scene->light_direction[2] = light_z / light_direction_norm;
-    scene->depth_map_width = 1024;
-    scene->depth_map_height = 1024;
+    scene->depth_map_width = 4096;
+    scene->depth_map_height = 4096;
     
     glGenFramebuffers(1, &scene->depth_map_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
@@ -180,12 +181,18 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     );
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) 
+    {
+        printf("Framebuffer was not completed\n");
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
     scene->light_projection_matrix = get_orthogonal_matrix(
-        -10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 1000.0f
+        -6.0f, 6.0f, -6.0f, 6.0f, 0.1f, 100.0f
     );
-    scene->light_view_matrix = get_lookat_view_matrix(0.0f, 90.0f, 0.0f, 10.0f);
+    scene->light_view_matrix = get_lookat_view_matrix(30.0f, 10.0f, 0.0f, 1.0f);
+    printf("fbo %d\n", scene->depth_map_fbo);
+    printf("depth map %d\n", scene->depth_map);
     return scene;
 }
 
@@ -242,13 +249,15 @@ int add_scene_element(
 void render_scene(
     scene_t* scene, camera_t* camera, depth_map_shader_t* depth_shader, mesh_shader_t* shader
 ){
+
     glEnable(GL_DEPTH_TEST);
     glViewport(0, 0, scene->depth_map_width, scene->depth_map_height);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
-    glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    //glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+    glUseProgram(depth_shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {
-        glUseProgram(depth_shader->shader_program);
         scene_element_t* element = &scene->elements[i];
         gl_mesh_t* mesh = &scene->gl_meshes[element->mesh_index];
         glUniformMatrix4fv(
@@ -265,10 +274,11 @@ void render_scene(
         glDrawArrays(GL_TRIANGLES, 0, mesh->num_vertices);
     }
 
-    glClear(GL_DEPTH_BUFFER_BIT);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, 1280, 720);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+    glUseProgram(shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {
         scene_element_t* element = &scene->elements[i];
@@ -276,7 +286,6 @@ void render_scene(
         gl_texture_t* texture = &scene->gl_textures[element->texture_index];
         
         glBindVertexArray(mesh->vao);
-        glUseProgram(shader->shader_program);
         glUniformMatrix4fv(
             shader->perspective_matrix_location, 1, GL_FALSE, camera->perspective_matrix.data
         );
@@ -298,10 +307,14 @@ void render_scene(
         glUniform1f(shader->ambient_strength_location, scene->ambient_strength); 
         glUniform3fv(shader->light_direction_location, 1, scene->light_direction);
 
+        glUniform1i(shader->texture_location, 0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture->id);
-        glUniform1i(shader->texture_location, 0);
 
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glUniform1i(shader->depth_map_location, 1);
+        glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+        
         glDrawArrays(GL_TRIANGLES, 0, mesh->num_vertices);
     }
 }

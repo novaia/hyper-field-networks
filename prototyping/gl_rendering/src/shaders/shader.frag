@@ -42,6 +42,7 @@ void main()
     float current_depth = light_space_pos.z;
     float closest_depth = texture(depth_map_sampler, light_space_pos.xy).r;
     float shadow = (current_depth - 0.00008f) > closest_depth ? 0.0f : 1.0f;
+    shadow = current_depth > 1.0f ? 1.0f: shadow;
     //float shadow = 1.0f;
 
     vec4 texture_color = texture(texture_sampler, frag_texture_coord);

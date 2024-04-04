@@ -102,7 +102,9 @@ int add_scene_element(
 );
 
 void render_scene(
-    scene_t* scene, camera_t* camera, depth_map_shader_t* depth_shader, mesh_shader_t* shader
+    scene_t* scene, camera_t* camera, 
+    depth_map_shader_t* depth_shader, mesh_shader_t* shader,
+    unsigned int viewport_width, unsigned int viewport_height
 );
 
 #ifdef __cplusplus

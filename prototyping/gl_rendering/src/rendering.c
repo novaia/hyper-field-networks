@@ -257,7 +257,9 @@ int add_scene_element(
 }
 
 void render_scene(
-    scene_t* scene, camera_t* camera, depth_map_shader_t* depth_shader, mesh_shader_t* shader
+    scene_t* scene, camera_t* camera, 
+    depth_map_shader_t* depth_shader, mesh_shader_t* shader,
+    unsigned int viewport_width, unsigned int viewport_height
 ){
 
     glEnable(GL_DEPTH_TEST);
@@ -285,7 +287,7 @@ void render_scene(
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, 1280, 720);
+    glViewport(0, 0, viewport_width, viewport_height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glBindTexture(GL_TEXTURE_2D, scene->depth_map);
     glUseProgram(shader->shader_program);

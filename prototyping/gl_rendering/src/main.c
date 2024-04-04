@@ -194,7 +194,7 @@ int main()
     {
         rot += 0.4f;
         camera.view_matrix = get_lookat_matrix_from_rotation(10.0f, rot, 0.0f, 4.0f);
-        render_scene(scene, &camera, &depth_shader, &shader);
+        render_scene(scene, &camera, &depth_shader, &shader, window_width, window_height);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

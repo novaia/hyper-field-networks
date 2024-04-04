@@ -277,11 +277,11 @@ void render_scene(
     glUseProgram(depth_shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {
-        scene_element_t* element = &scene->elements[i];
-        gl_mesh_t* mesh = &scene->gl_meshes[element->mesh_index];
-        glBindVertexArray(mesh->vao);
+        scene_element_t element = scene->elements[i];
+        gl_mesh_t mesh = scene->gl_meshes[element.mesh_index];
+        glBindVertexArray(mesh.vao);
         glUniformMatrix4fv(
-            depth_shader->model_matrix_location, 1, GL_FALSE, element->model_matrix.data
+            depth_shader->model_matrix_location, 1, GL_FALSE, element.model_matrix.data
         );
         glUniformMatrix4fv(
             depth_shader->light_view_matrix_location, 1, GL_FALSE, light.view_matrix.data
@@ -291,7 +291,7 @@ void render_scene(
             1, GL_FALSE, light.projection_matrix.data
         );
 
-        glDrawArrays(GL_TRIANGLES, 0, mesh->num_vertices);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.num_vertices);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -301,11 +301,11 @@ void render_scene(
     glUseProgram(shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {
-        scene_element_t* element = &scene->elements[i];
-        gl_mesh_t* mesh = &scene->gl_meshes[element->mesh_index];
-        gl_texture_t* texture = &scene->gl_textures[element->texture_index];
+        scene_element_t element = scene->elements[i];
+        gl_mesh_t mesh = scene->gl_meshes[element.mesh_index];
+        gl_texture_t texture = scene->gl_textures[element.texture_index];
         
-        glBindVertexArray(mesh->vao);
+        glBindVertexArray(mesh.vao);
         glUniformMatrix4fv(
             shader->perspective_matrix_location, 1, GL_FALSE, camera->perspective_matrix.data
         );
@@ -313,7 +313,7 @@ void render_scene(
             shader->view_matrix_location, 1, GL_FALSE, camera->view_matrix.data
         );
         glUniformMatrix4fv(
-            shader->model_matrix_location, 1, GL_FALSE, element->model_matrix.data
+            shader->model_matrix_location, 1, GL_FALSE, element.model_matrix.data
         );
         glUniformMatrix4fv(
             shader->light_projection_matrix_location, 
@@ -329,12 +329,12 @@ void render_scene(
 
         glUniform1i(shader->texture_location, 0);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture->id);
+        glBindTexture(GL_TEXTURE_2D, texture.id);
 
         glActiveTexture(GL_TEXTURE0 + 1);
         glUniform1i(shader->depth_map_location, 1);
         glBindTexture(GL_TEXTURE_2D, light.depth_map);
         
-        glDrawArrays(GL_TRIANGLES, 0, mesh->num_vertices);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.num_vertices);
     }
 }

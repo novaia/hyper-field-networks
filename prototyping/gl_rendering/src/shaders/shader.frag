@@ -37,12 +37,10 @@ void main()
     }
     
     // Shadow test.
-    vec3 proj = frag_light_space_pos.xyz / frag_light_space_pos.w;
-    vec3 tc = proj;
-    proj = (proj * 0.5f) + 0.5f;
-    float current_depth = proj.z;
-    vec2 depth_map_coord = proj.xy;
-    float closest_depth = texture(depth_map_sampler, depth_map_coord).r;
+    vec3 light_space_pos = frag_light_space_pos.xyz / frag_light_space_pos.w;
+    light_space_pos = (light_space_pos * 0.5f) + 0.5f;
+    float current_depth = light_space_pos.z;
+    float closest_depth = texture(depth_map_sampler, light_space_pos.xy).r;
     float shadow = (current_depth - 0.00008f) > closest_depth ? 0.0f : 1.0f;
     //float shadow = 1.0f;
 

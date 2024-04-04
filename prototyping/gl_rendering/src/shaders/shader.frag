@@ -41,23 +41,31 @@ void main()
     light_space_pos = (light_space_pos * 0.5f) + 0.5f;
     float current_depth = light_space_pos.z;
     float closest_depth = texture(depth_map_sampler, light_space_pos.xy).r;
-    float shadow = (current_depth - 0.00008f) > closest_depth ? 0.0f : 1.0f;
+    //float bias = 0.00008f;
+    //float bias = 0.005f;
+    vec3 dummy_dir = vec3(0.0f, 0.0f, -1.0f);
+    float bias = max(0.005 * (1.0 - dot(normal, dummy_dir)), 0.0005);  
+    
+    //float shadow = current_depth - bias > closest_depth ? 0.0f : 1.0f;
+    float shadow = 0.0;
+    vec2 texel_size = 1.0 / textureSize(depth_map_sampler, 0);
+    for(int x = -1; x <= 1; ++x)
+    {
+        for(int y = -1; y <= 1; ++y)
+        {
+            float pcf_depth = texture(depth_map_sampler, light_space_pos.xy + vec2(x, y) * texel_size).r; 
+            shadow += current_depth - bias > pcf_depth ? 0.0 : 1.0;        
+        }    
+    }
+    shadow /= 9.0;
     shadow = current_depth > 1.0f ? 1.0f: shadow;
-    //float shadow = 1.0f;
 
     vec4 texture_color = texture(texture_sampler, frag_texture_coord);
-    //vec4 texture_color = vec4(1.0f);
 
     /*vec3 color = (
         ambient 
         + shadow * ((diffuse * diffuse_blend) + (specular * specular_blend))
     ) * texture_color.rgb;*/
-
     vec3 color = (ambient + shadow) * texture_color.rgb;
-    //color = vec3(-frag_mv_pos.z/3.0f);
-    //color = vec3(current_depth);
-    //color = vec3(closest_depth);
-    //color = vec3(shadow);
-    //color = proj;
     gl_FragColor = vec4(color, 1.0f);
 }

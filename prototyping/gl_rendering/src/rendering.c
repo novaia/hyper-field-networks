@@ -157,8 +157,8 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     scene->light_direction[0] = light_x / light_direction_norm;
     scene->light_direction[1] = light_y / light_direction_norm;
     scene->light_direction[2] = light_z / light_direction_norm;
-    scene->depth_map_width = 4096;
-    scene->depth_map_height = 4096;
+    scene->depth_map_width = 8192;
+    scene->depth_map_height = 8192;
     
     glGenFramebuffers(1, &scene->depth_map_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
@@ -188,9 +188,9 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
     scene->light_projection_matrix = get_orthogonal_matrix(
-        -6.0f, 6.0f, -6.0f, 6.0f, 0.1f, 100.0f
+        -6.0f, 6.0f, -6.0f, 6.0f, 0.1f, 20.0f
     );
-    scene->light_view_matrix = get_lookat_view_matrix(30.0f, 10.0f, 0.0f, 1.0f);
+    scene->light_view_matrix = get_lookat_view_matrix(0.0f, 0.0f, 0.0f, 1.0f);
     printf("fbo %d\n", scene->depth_map_fbo);
     printf("depth map %d\n", scene->depth_map);
     return scene;
@@ -254,7 +254,6 @@ void render_scene(
     glViewport(0, 0, scene->depth_map_width, scene->depth_map_height);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
     glClear(GL_DEPTH_BUFFER_BIT);
-    //glBindTexture(GL_TEXTURE_2D, scene->depth_map);
     glUseProgram(depth_shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {

@@ -17,14 +17,9 @@ extern "C" {
 
 typedef struct
 {
-    uint32_t vao, vbo, ibo, nbo, tbo, texture_id;
-    unsigned int num_vertices, num_vertex_scalars;
+    uint32_t vao, vbo, nbo, tbo;
+    unsigned int num_vertices;
 } gl_mesh_t;
-
-typedef struct
-{
-    uint32_t id;
-} gl_texture_t;
 
 typedef struct
 {
@@ -51,7 +46,7 @@ typedef struct
     unsigned int num_gl_textures;
     unsigned int num_elements;
     gl_mesh_t gl_meshes[MAX_GL_MESHES];
-    gl_texture_t gl_textures[MAX_GL_TEXTURES];
+    uint32_t gl_textures[MAX_GL_TEXTURES];
     scene_element_t elements[MAX_SCENE_ELEMENTS];
     directional_light_t light;
 } scene_t;
@@ -93,7 +88,7 @@ depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program);
 image_t* get_placeholder_texture(float value, unsigned int width, unsigned int height);
 
 gl_mesh_t obj_to_gl_mesh(obj_t* obj);
-gl_texture_t image_to_gl_texture(image_t* texture);
+uint32_t image_to_gl_texture(image_t* texture);
 
 scene_t* init_scene(
     float light_rotation_x, float light_rotation_y, float light_rotation_z, 

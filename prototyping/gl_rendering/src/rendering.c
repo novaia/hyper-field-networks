@@ -115,17 +115,16 @@ gl_mesh_t obj_to_gl_mesh(obj_t* obj)
     
     gl_mesh_t gl_mesh = { 
         .vao = vao, .vbo = vbo, .nbo = nbo, .tbo = tbo,
-        .num_vertices = obj->num_vertices,
-        .num_vertex_scalars = num_vertex_scalars
+        .num_vertices = obj->num_vertices
     };
     return gl_mesh;
 }
 
-gl_texture_t image_to_gl_texture(image_t* texture)
+uint32_t image_to_gl_texture(image_t* texture)
 {
-    uint32_t texture_id;
-    glGenTextures(1, &texture_id);
-    glBindTexture(GL_TEXTURE_2D, texture_id);
+    uint32_t gl_texture;
+    glGenTextures(1, &gl_texture);
+    glBindTexture(GL_TEXTURE_2D, gl_texture);
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
@@ -142,7 +141,6 @@ gl_texture_t image_to_gl_texture(image_t* texture)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
-    gl_texture_t gl_texture = { .id = texture_id };
     return gl_texture;
 }
 
@@ -238,7 +236,7 @@ int add_texture_to_scene(scene_t* scene, image_t* texture, unsigned int* texture
         return -1;
     }
     *texture_index = scene->num_gl_textures;
-    gl_texture_t gl_texture = image_to_gl_texture(texture);
+    uint32_t gl_texture = image_to_gl_texture(texture);
     scene->gl_textures[scene->num_gl_textures] = gl_texture;
     scene->num_gl_textures = new_texture_count;
     return 0;
@@ -304,7 +302,7 @@ void render_scene(
     {
         scene_element_t element = scene->elements[i];
         gl_mesh_t mesh = scene->gl_meshes[element.mesh_index];
-        gl_texture_t texture = scene->gl_textures[element.texture_index];
+        uint32_t texture = scene->gl_textures[element.texture_index];
         
         glBindVertexArray(mesh.vao);
         glUniformMatrix4fv(
@@ -330,7 +328,7 @@ void render_scene(
 
         glUniform1i(shader->texture_location, 0);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture.id);
+        glBindTexture(GL_TEXTURE_2D, texture);
 
         glActiveTexture(GL_TEXTURE0 + 1);
         glUniform1i(shader->depth_map_location, 1);

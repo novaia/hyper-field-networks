@@ -127,7 +127,7 @@ int main()
     }
     
     int error = 0;
-    scene_t* scene = init_scene(1.0f, 1.0f, 1.0f, 0.1f);
+    scene_t* scene = init_scene(1.0f, 1.0f, 1.0f, 0.3f);
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
     if(error) { return -1; }
@@ -156,8 +156,7 @@ int main()
         scene->light_direction[1],
         scene->light_direction[2]
     );
-    /*
-    //mat4 elf_model_matrix = get_model_matrix(0.0f, -1.0f, -3.0f, 0.0f, 0.0f, 0.0f);
+    
     mat4 elf_model_matrix = get_model_matrix(2.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     printf("\n");
     error = add_scene_element(scene, elf_model_matrix, elf_mesh_index, texture_index);
@@ -166,17 +165,16 @@ int main()
     mat4 elf_model_matrix_2 = get_model_matrix(-2.0f, -1.0f, 0.0f, 0.0f, 80.0f, 0.0f);
     error = add_scene_element(scene, elf_model_matrix_2, elf_mesh_index, texture_index);
     if(error) { return -1; }
-    */
     mat4 sonic_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
     error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
     if(error) { return -1; }
-    /*
-    mat4 platform_model_matrix = get_model_matrix(0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+
+    mat4 platform_model_matrix= get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
     error = add_scene_element(
         scene, platform_model_matrix, platform_mesh_index, dingboard_texture_index
     );
     if(error) { return -1; }
-    */
+    
     mesh_shader_t shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );

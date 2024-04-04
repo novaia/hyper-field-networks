@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "rendering.h"
 
 uint32_t create_shader_program(
@@ -157,8 +158,8 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     scene->light_direction[0] = light_x / light_direction_norm;
     scene->light_direction[1] = light_y / light_direction_norm;
     scene->light_direction[2] = light_z / light_direction_norm;
-    scene->depth_map_width = 8192;
-    scene->depth_map_height = 8192;
+    scene->depth_map_width = 1024;
+    scene->depth_map_height = 1024;
     
     glGenFramebuffers(1, &scene->depth_map_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
@@ -188,9 +189,10 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
     scene->light_projection_matrix = get_orthogonal_matrix(
-        -6.0f, 6.0f, -6.0f, 6.0f, 0.1f, 20.0f
+        -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 100.0f
     );
-    scene->light_view_matrix = get_lookat_view_matrix(0.0f, 0.0f, 0.0f, 1.0f);
+    scene->light_view_matrix = get_lookat_view_matrix(50.0f, 20.0f, 0.0f, 1.0f);
+
     printf("fbo %d\n", scene->depth_map_fbo);
     printf("depth map %d\n", scene->depth_map);
     return scene;
@@ -259,6 +261,7 @@ void render_scene(
     {
         scene_element_t* element = &scene->elements[i];
         gl_mesh_t* mesh = &scene->gl_meshes[element->mesh_index];
+        glBindVertexArray(mesh->vao);
         glUniformMatrix4fv(
             depth_shader->model_matrix_location, 1, GL_FALSE, element->model_matrix.data
         );

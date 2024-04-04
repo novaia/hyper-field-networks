@@ -189,6 +189,7 @@ int main()
         .view_matrix = get_y_rotation_matrix(0.0)
     };
 
+    glEnable(GL_DEPTH_TEST);
     float rot = 0.0f;
     while(!glfwWindowShouldClose(window))
     {

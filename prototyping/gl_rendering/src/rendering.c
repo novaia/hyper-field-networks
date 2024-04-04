@@ -270,7 +270,8 @@ void render_scene(
     unsigned int viewport_width, unsigned int viewport_height
 ){
     directional_light_t light = scene->light;
-    glEnable(GL_DEPTH_TEST);
+    
+    // First pass, render depth map.
     glViewport(0, 0, light.depth_map_width, light.depth_map_height);
     glBindFramebuffer(GL_FRAMEBUFFER, light.depth_map_fbo);
     glClear(GL_DEPTH_BUFFER_BIT);
@@ -293,11 +294,11 @@ void render_scene(
 
         glDrawArrays(GL_TRIANGLES, 0, mesh.num_vertices);
     }
-
+    
+    // Second pass, render normally.
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, viewport_width, viewport_height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glBindTexture(GL_TEXTURE_2D, light.depth_map);
     glUseProgram(shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {

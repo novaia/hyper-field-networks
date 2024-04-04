@@ -189,9 +189,9 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
     scene->light_projection_matrix = get_orthogonal_matrix(
-        -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 100.0f
+        -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 20.0f
     );
-    scene->light_view_matrix = get_lookat_view_matrix(50.0f, 20.0f, 0.0f, 1.0f);
+    scene->light_view_matrix = get_lookat_matrix_from_rotation(50.0f, 20.0f, 0.0f, 10.0f);
 
     printf("fbo %d\n", scene->depth_map_fbo);
     printf("depth map %d\n", scene->depth_map);

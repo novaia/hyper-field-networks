@@ -26,9 +26,10 @@ extern inline mat4 get_model_matrix(
     float position_x, float position_y, float position_z, 
     float rotation_x, float rotation_y, float rotation_z
 );
-extern inline mat4 get_lookat_view_matrix(
+extern inline mat4 get_lookat_matrix_from_rotation(
     float rotation_x, float rotation_y, float rotation_z, float zoom
 );
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

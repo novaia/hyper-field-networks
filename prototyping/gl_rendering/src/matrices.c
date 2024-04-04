@@ -104,10 +104,9 @@ inline mat4 get_model_matrix(
     return model_matrix;
 }
 
-inline mat4 get_lookat_view_matrix(
+inline mat4 get_lookat_matrix_from_rotation(
     float rotation_x, float rotation_y, float rotation_z, float zoom
 ){
-    mat4 view_matrix;
 
     const float theta_x = (float)degrees_to_radians((double)rotation_x);
     const float theta_y = (float)degrees_to_radians((double)rotation_y);
@@ -115,27 +114,15 @@ inline mat4 get_lookat_view_matrix(
     const float sin_x = sinf(theta_x);
     const float cos_y = cosf(theta_y);
     const float sin_y = sinf(theta_y);
+    
+    mat4 matrix = {
+        .data = {
+            cos_y, sin_x * sin_y, -cos_x * sin_y, 0.0f,
+            0.0f, cos_x, sin_x, 0.0f,
+            sin_y, -sin_x * cos_y, cos_x * cos_y, 0.0f,
+            0.0f, 0.0f, -zoom, 1.0f
+        }
+    };
 
-    // Compute the view matrix elements
-    view_matrix.data[0] = cos_y;
-    view_matrix.data[1] = sin_x * sin_y;
-    view_matrix.data[2] = -cos_x * sin_y;
-    view_matrix.data[3] = 0.0f;
-
-    view_matrix.data[4] = 0.0f;
-    view_matrix.data[5] = cos_x;
-    view_matrix.data[6] = sin_x;
-    view_matrix.data[7] = 0.0f;
-
-    view_matrix.data[8] = sin_y;
-    view_matrix.data[9] = -sin_x * cos_y;
-    view_matrix.data[10] = cos_x * cos_y;
-    view_matrix.data[11] = 0.0f;
-
-    view_matrix.data[12] = 0.0f;
-    view_matrix.data[13] = 0.0f;
-    view_matrix.data[14] = -zoom;
-    view_matrix.data[15] = 1.0f;
-
-    return view_matrix;
+    return matrix;
 }

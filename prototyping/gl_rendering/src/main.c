@@ -149,12 +149,12 @@ int main()
 
     printf("num_gl_meshes: %d\n", scene->num_gl_meshes);
     printf("num_gl_textures: %d\n", scene->num_gl_textures);
-    printf("ambient_strength %f\n", scene->ambient_strength);
+    printf("ambient_strength %f\n", scene->light.ambient_strength);
     printf(
         "light_direction %f %f %f\n", 
-        scene->light_direction[0], 
-        scene->light_direction[1],
-        scene->light_direction[2]
+        scene->light.direction[0], 
+        scene->light.direction[1],
+        scene->light.direction[2]
     );
     
     mat4 elf_model_matrix = get_model_matrix(2.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);

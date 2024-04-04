@@ -146,40 +146,36 @@ gl_texture_t image_to_gl_texture(image_t* texture)
     return gl_texture;
 }
 
-scene_t* init_scene(
-    float light_rotation_x, float light_rotation_y, float light_rotation_z, 
-    float ambient_strength
+static void init_directional_light(
+    directional_light_t* light,
+    const unsigned int depth_map_width, const unsigned int depth_map_height,
+    const float light_rotation_x, const float light_rotation_y, const float light_rotation_z,
+    const float ambient_strength
 ){
-    scene_t* scene = (scene_t*)malloc(sizeof(scene_t));
-    scene->num_gl_meshes = 0;
-    scene->num_gl_textures = 0;
-    scene->num_elements = 0;
-    scene->ambient_strength = ambient_strength;
-    
-    scene->depth_map_width = 4096;
-    scene->depth_map_height = 4096;
-    
-    glGenFramebuffers(1, &scene->depth_map_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
+    light->depth_map_width = depth_map_width;
+    light->depth_map_height = depth_map_height;
+    light->ambient_strength = ambient_strength;
+    glGenFramebuffers(1, &light->depth_map_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, light->depth_map_fbo);
 
-    glGenTextures(1, &scene->depth_map);
-    glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+    glGenTextures(1, &light->depth_map);
+    glBindTexture(GL_TEXTURE_2D, light->depth_map);
     glTexImage2D(
         GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 
-        scene->depth_map_width, scene->depth_map_height, 
+        light->depth_map_width, light->depth_map_height, 
         0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL
     );
-    
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
     const float border_color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border_color); 
-    
-    glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, light->depth_map_fbo);
     glFramebufferTexture2D(
-        GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, scene->depth_map, 0
+        GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, light->depth_map, 0
     );
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
@@ -188,21 +184,33 @@ scene_t* init_scene(
         printf("Framebuffer was not completed\n");
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    
-    scene->light_projection_matrix = get_orthogonal_matrix(
+
+    light->projection_matrix = get_orthogonal_matrix(
         -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 20.0f
     );
-    scene->light_view_matrix = get_lookat_matrix_from_rotation(
+    light->view_matrix = get_lookat_matrix_from_rotation(
         light_rotation_x, light_rotation_y, light_rotation_z, 10.0f
     );
     // Extract light direction from forward component of look-at matrix.
     for(unsigned int i = 0; i < 3; i++)
     {
-        scene->light_direction[i] = scene->light_view_matrix.data[4+i];
+        light->direction[i] = light->view_matrix.data[4+i];
     }
+}
 
-    printf("fbo %d\n", scene->depth_map_fbo);
-    printf("depth map %d\n", scene->depth_map);
+scene_t* init_scene(
+    float light_rotation_x, float light_rotation_y, float light_rotation_z, 
+    float ambient_strength
+){
+    scene_t* scene = (scene_t*)malloc(sizeof(scene_t));
+    scene->num_gl_meshes = 0;
+    scene->num_gl_textures = 0;
+    scene->num_elements = 0;
+    init_directional_light(
+        &scene->light, 4096, 4096, 
+        light_rotation_x, light_rotation_y, light_rotation_z, 
+        ambient_strength
+    );
     return scene;
 }
 
@@ -261,10 +269,10 @@ void render_scene(
     depth_map_shader_t* depth_shader, mesh_shader_t* shader,
     unsigned int viewport_width, unsigned int viewport_height
 ){
-
+    directional_light_t light = scene->light;
     glEnable(GL_DEPTH_TEST);
-    glViewport(0, 0, scene->depth_map_width, scene->depth_map_height);
-    glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);
+    glViewport(0, 0, light.depth_map_width, light.depth_map_height);
+    glBindFramebuffer(GL_FRAMEBUFFER, light.depth_map_fbo);
     glClear(GL_DEPTH_BUFFER_BIT);
     glUseProgram(depth_shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
@@ -276,11 +284,11 @@ void render_scene(
             depth_shader->model_matrix_location, 1, GL_FALSE, element->model_matrix.data
         );
         glUniformMatrix4fv(
-            depth_shader->light_view_matrix_location, 1, GL_FALSE, scene->light_view_matrix.data
+            depth_shader->light_view_matrix_location, 1, GL_FALSE, light.view_matrix.data
         );
         glUniformMatrix4fv(
             depth_shader->light_projection_matrix_location, 
-            1, GL_FALSE, scene->light_projection_matrix.data
+            1, GL_FALSE, light.projection_matrix.data
         );
 
         glDrawArrays(GL_TRIANGLES, 0, mesh->num_vertices);
@@ -289,7 +297,7 @@ void render_scene(
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, viewport_width, viewport_height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+    glBindTexture(GL_TEXTURE_2D, light.depth_map);
     glUseProgram(shader->shader_program);
     for(unsigned int i = 0; i < scene->num_elements; i++)
     {
@@ -309,15 +317,15 @@ void render_scene(
         );
         glUniformMatrix4fv(
             shader->light_projection_matrix_location, 
-            1, GL_FALSE, scene->light_projection_matrix.data
+            1, GL_FALSE, light.projection_matrix.data
         );
         glUniformMatrix4fv(
             shader->light_view_matrix_location, 
-            1, GL_FALSE, scene->light_view_matrix.data
+            1, GL_FALSE, light.view_matrix.data
         );
 
-        glUniform1f(shader->ambient_strength_location, scene->ambient_strength); 
-        glUniform3fv(shader->light_direction_location, 1, scene->light_direction);
+        glUniform1f(shader->ambient_strength_location, light.ambient_strength); 
+        glUniform3fv(shader->light_direction_location, 1, light.direction);
 
         glUniform1i(shader->texture_location, 0);
         glActiveTexture(GL_TEXTURE0);
@@ -325,7 +333,7 @@ void render_scene(
 
         glActiveTexture(GL_TEXTURE0 + 1);
         glUniform1i(shader->depth_map_location, 1);
-        glBindTexture(GL_TEXTURE_2D, scene->depth_map);
+        glBindTexture(GL_TEXTURE_2D, light.depth_map);
         
         glDrawArrays(GL_TRIANGLES, 0, mesh->num_vertices);
     }

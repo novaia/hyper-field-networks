@@ -1,5 +1,6 @@
 #pragma once
 
+#include <png.h>
 #include <stdint.h>
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -34,20 +35,25 @@ typedef struct
 
 typedef struct
 {
+    uint32_t depth_map_fbo;
+    uint32_t depth_map;
+    unsigned int depth_map_width;
+    unsigned int depth_map_height;
+    mat4 view_matrix;
+    mat4 projection_matrix;
+    float direction[3];
+    float ambient_strength;
+} directional_light_t;
+
+typedef struct
+{
     unsigned int num_gl_meshes;
     unsigned int num_gl_textures;
     unsigned int num_elements;
     gl_mesh_t gl_meshes[MAX_GL_MESHES];
     gl_texture_t gl_textures[MAX_GL_TEXTURES];
     scene_element_t elements[MAX_SCENE_ELEMENTS];
-    float light_direction[3];
-    mat4 light_projection_matrix;
-    mat4 light_view_matrix;
-    float ambient_strength;
-    uint32_t depth_map_fbo;
-    uint32_t depth_map;
-    unsigned int depth_map_width;
-    unsigned int depth_map_height;
+    directional_light_t light;
 } scene_t;
 
 typedef struct

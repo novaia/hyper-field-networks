@@ -156,8 +156,8 @@ scene_t* init_scene(
     scene->num_elements = 0;
     scene->ambient_strength = ambient_strength;
     
-    scene->depth_map_width = 1024;
-    scene->depth_map_height = 1024;
+    scene->depth_map_width = 4096;
+    scene->depth_map_height = 4096;
     
     glGenFramebuffers(1, &scene->depth_map_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->depth_map_fbo);

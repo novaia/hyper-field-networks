@@ -107,7 +107,6 @@ inline mat4 get_model_matrix(
 inline mat4 get_lookat_matrix_from_rotation(
     float rotation_x, float rotation_y, float rotation_z, float zoom
 ){
-
     const float theta_x = (float)degrees_to_radians((double)rotation_x);
     const float theta_y = (float)degrees_to_radians((double)rotation_y);
     const float cos_x = cosf(theta_x);
@@ -123,6 +122,5 @@ inline mat4 get_lookat_matrix_from_rotation(
             0.0f, 0.0f, -zoom, 1.0f
         }
     };
-
     return matrix;
 }

@@ -127,7 +127,7 @@ int main()
     }
     
     int error = 0;
-    scene_t* scene = init_scene(1.0f, 1.0f, 1.0f, 0.3f);
+    scene_t* scene = init_scene(50.0f, 20.0f, 0.0f, 0.3f);
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
     if(error) { return -1; }

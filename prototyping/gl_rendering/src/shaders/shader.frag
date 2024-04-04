@@ -44,8 +44,8 @@ void main()
     float closest_depth = texture(depth_map_sampler, light_space_pos.xy).r;
     //float bias = 0.00008f;
     //float bias = 0.005f;
-    //float bias = max(0.005 * (1.0 - dot(normal, dummy_dir)), 0.0005);  
-    float bias = 0.0f;
+    float bias = max(0.005 * (1.0 - dot(normal, frag_light_direction)), 0.0005);  
+    //float bias = 0.0f;
 
     //float shadow = current_depth - bias > closest_depth ? 0.0f : 1.0f;
     float shadow = 0.0;
@@ -59,7 +59,7 @@ void main()
         }    
     }
     shadow /= 9.0;
-    shadow = current_depth > 1.0f ? 1.0f: shadow;
+    shadow = current_depth > 1.0f ? 1.0f : shadow;
 
     vec4 texture_color = texture(texture_sampler, frag_texture_coord);
     /*vec3 color = (

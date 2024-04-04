@@ -89,7 +89,11 @@ image_t* get_placeholder_texture(float value, unsigned int width, unsigned int h
 gl_mesh_t obj_to_gl_mesh(obj_t* obj);
 gl_texture_t image_to_gl_texture(image_t* texture);
 
-scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_strength);
+scene_t* init_scene(
+    float light_rotation_x, float light_rotation_y, float light_rotation_z, 
+    float ambient_strength
+);
+
 int add_mesh_to_scene(scene_t* scene, obj_t* mesh, unsigned int* mesh_index);
 int add_texture_to_scene(scene_t* scene, image_t* texture, unsigned int* texture_index);
 int add_scene_element(

@@ -146,18 +146,16 @@ gl_texture_t image_to_gl_texture(image_t* texture)
     return gl_texture;
 }
 
-scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_strength)
-{
+scene_t* init_scene(
+    float light_rotation_x, float light_rotation_y, float light_rotation_z, 
+    float ambient_strength
+){
     scene_t* scene = (scene_t*)malloc(sizeof(scene_t));
     scene->num_gl_meshes = 0;
     scene->num_gl_textures = 0;
     scene->num_elements = 0;
     scene->ambient_strength = ambient_strength;
     
-    const float light_direction_norm = sqrtf(light_x*light_x + light_y*light_y + light_z*light_z);
-    scene->light_direction[0] = light_x / light_direction_norm;
-    scene->light_direction[1] = light_y / light_direction_norm;
-    scene->light_direction[2] = light_z / light_direction_norm;
     scene->depth_map_width = 1024;
     scene->depth_map_height = 1024;
     
@@ -191,7 +189,14 @@ scene_t* init_scene(float light_x, float light_y, float light_z, float ambient_s
     scene->light_projection_matrix = get_orthogonal_matrix(
         -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 20.0f
     );
-    scene->light_view_matrix = get_lookat_matrix_from_rotation(50.0f, 20.0f, 0.0f, 10.0f);
+    scene->light_view_matrix = get_lookat_matrix_from_rotation(
+        light_rotation_x, light_rotation_y, light_rotation_z, 10.0f
+    );
+    // Extract light direction from forward component of look-at matrix.
+    for(unsigned int i = 0; i < 3; i++)
+    {
+        scene->light_direction[i] = scene->light_view_matrix.data[MAT4_THIRD_COLUMN_START+i];
+    }
 
     printf("fbo %d\n", scene->depth_map_fbo);
     printf("depth map %d\n", scene->depth_map);

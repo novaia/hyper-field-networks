@@ -15,7 +15,7 @@ in vec4 frag_light_space_pos;
 void main()
 {
     vec3 light_color = vec3(1.0f);
-    float diffuse_blend = 0.5f;
+    float diffuse_blend = 0.9f;
     float specular_blend = 1.0f - diffuse_blend;
 
     // Ambient lighting.

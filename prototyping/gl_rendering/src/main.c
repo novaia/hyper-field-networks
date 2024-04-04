@@ -119,7 +119,7 @@ int main()
     {
         printf("Failed to load platform obj\n");
     }
-    image_t* dingboard_texture = load_png(DATA_PATH("3d_models/dingboard_texture.png"));
+    image_t* dingboard_texture = load_png(DATA_PATH("3d_models/dev_texture.png"));
     if(!dingboard_texture) 
     { 
         printf("Failed to load texture\n");

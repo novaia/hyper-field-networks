@@ -195,7 +195,7 @@ scene_t* init_scene(
     // Extract light direction from forward component of look-at matrix.
     for(unsigned int i = 0; i < 3; i++)
     {
-        scene->light_direction[i] = scene->light_view_matrix.data[MAT4_THIRD_COLUMN_START+i];
+        scene->light_direction[i] = scene->light_view_matrix.data[4+i];
     }
 
     printf("fbo %d\n", scene->depth_map_fbo);

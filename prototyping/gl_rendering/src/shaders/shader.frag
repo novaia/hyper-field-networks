@@ -42,7 +42,7 @@ void main()
     light_space_pos = (light_space_pos * 0.5f) + 0.5f;
     float current_depth = light_space_pos.z;
     float closest_depth = texture(depth_map_sampler, light_space_pos.xy).r;
-    float bias = max(0.005 * (1.0 - dot(normal, -light_direction)), 0.0005);  
+    float bias = max(0.005 * (1.0 - dot(normal, light_direction)), 0.0005);  
     //float shadow = current_depth - bias > closest_depth ? 0.0f : 1.0f;
     
     float shadow = 0.0;

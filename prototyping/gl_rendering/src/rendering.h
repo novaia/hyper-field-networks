@@ -85,8 +85,6 @@ uint32_t create_shader_program(
 mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program);
 depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program);
 
-image_t* get_placeholder_texture(float value, unsigned int width, unsigned int height);
-
 gl_mesh_t obj_to_gl_mesh(obj_t* obj);
 uint32_t image_to_gl_texture(image_t* texture);
 

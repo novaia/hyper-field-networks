@@ -108,23 +108,24 @@ int main()
         printf("Failed to load obj\n");
         return -1; 
     }
-    image_t* placeholder_texture = get_placeholder_texture(1.0f, 1024, 1024);
-    if(!placeholder_texture) 
-    { 
-        printf("Failed to load texture\n");
-        return -1; 
-    }
-    obj_t* platform_obj = load_obj(DATA_PATH("3d_models/platform.obj"), 50, 50, 50);
-    if(!platform_obj)
+    obj_t* plane_obj = load_obj(DATA_PATH("3d_models/platform.obj"), 50, 50, 50);
+    if(!plane_obj)
     {
-        printf("Failed to load platform obj\n");
+        printf("Failed to load plane obj\n");
     }
-    image_t* dingboard_texture = load_png(DATA_PATH("3d_models/dev_texture.png"));
-    if(!dingboard_texture) 
+    image_t* white_texture = load_png(DATA_PATH("3d_models/white_texture.png"));
+    if(!white_texture) 
     { 
         printf("Failed to load texture\n");
         return -1; 
     }
+    image_t* orange_texture = load_png(DATA_PATH("3d_models/orange_texture.png"));
+    if(!orange_texture) 
+    { 
+        printf("Failed to load texture\n");
+        return -1; 
+    }
+
     
     int error = 0;
     scene_t* scene = init_scene(50.0f, 20.0f, 0.0f, 0.3f);
@@ -134,14 +135,14 @@ int main()
     unsigned int elf_mesh_index = 0;
     error = add_mesh_to_scene(scene, elf_obj, &elf_mesh_index);
     if(error) { return -1; }
-    unsigned int platform_mesh_index = 0;
-    error = add_mesh_to_scene(scene, platform_obj, &platform_mesh_index);
+    unsigned int plane_mesh_index = 0;
+    error = add_mesh_to_scene(scene, plane_obj, &plane_mesh_index);
     if(error) { return -1; }
-    unsigned int texture_index = 0;
-    error = add_texture_to_scene(scene, placeholder_texture, &texture_index);
+    unsigned int white_texture_index = 0;
+    error = add_texture_to_scene(scene, white_texture, &white_texture_index);
     if(error) { return -1; }
-    unsigned int dingboard_texture_index = 0;
-    error = add_texture_to_scene(scene, dingboard_texture, &dingboard_texture_index);
+    unsigned int orange_texture_index = 0;
+    error = add_texture_to_scene(scene, orange_texture, &orange_texture_index);
     if(error) { return -1; }
     unsigned int sonic_texture_index = 0;
     error = add_texture_to_scene(scene, sonic_texture, &sonic_texture_index);
@@ -159,19 +160,20 @@ int main()
     
     mat4 elf_model_matrix = get_model_matrix(2.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     printf("\n");
-    error = add_scene_element(scene, elf_model_matrix, elf_mesh_index, texture_index);
+    error = add_scene_element(scene, elf_model_matrix, elf_mesh_index, white_texture_index);
     if(error) { return -1; }
 
     mat4 elf_model_matrix_2 = get_model_matrix(-2.0f, -1.0f, 0.0f, 0.0f, 80.0f, 0.0f);
-    error = add_scene_element(scene, elf_model_matrix_2, elf_mesh_index, texture_index);
+    error = add_scene_element(scene, elf_model_matrix_2, elf_mesh_index, white_texture_index);
     if(error) { return -1; }
+    
     mat4 sonic_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
     error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
     if(error) { return -1; }
 
-    mat4 platform_model_matrix= get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
+    mat4 plane_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
     error = add_scene_element(
-        scene, platform_model_matrix, platform_mesh_index, dingboard_texture_index
+        scene, plane_model_matrix, plane_mesh_index, orange_texture_index
     );
     if(error) { return -1; }
     
@@ -185,15 +187,16 @@ int main()
     float aspect_ratio = window_width_f / window_height_f;
     camera_t camera = {
         .perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio),
-        //.perspective_matrix = get_orthogonal_matrix(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 1000.0f),
         .view_matrix = get_y_rotation_matrix(0.0)
     };
 
-    glEnable(GL_DEPTH_TEST);
     float rot = 0.0f;
+    glEnable(GL_DEPTH_TEST);
     while(!glfwWindowShouldClose(window))
     {
         rot += 0.4f;
+        if(rot > 360.0f) { rot -= 360.0f; }
+        else if(rot < 0.0f) { rot += 360.0f; }
         camera.view_matrix = get_lookat_matrix_from_rotation(10.0f, rot, 0.0f, 4.0f);
         render_scene(scene, &camera, &depth_shader, &shader, window_width, window_height);
         glfwSwapBuffers(window);

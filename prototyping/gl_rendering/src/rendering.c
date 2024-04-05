@@ -56,20 +56,6 @@ depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program)
     return depth_shader;
 }
 
-image_t* get_placeholder_texture(float value, unsigned int width, unsigned int height)
-{
-    unsigned int num_scalars = width * height * 4;
-    image_t* texture = (image_t*)malloc(sizeof(image_t));
-    texture->width = width;
-    texture->height = height;
-    texture->pixels = (float*)malloc(sizeof(float) * num_scalars);
-    for(unsigned int i = 0; i < num_scalars; i++)
-    {
-        texture->pixels[i] = value;
-    }
-    return texture;
-}
-
 gl_mesh_t obj_to_gl_mesh(obj_t* obj)
 {
     uint32_t vao, vbo, nbo, tbo;
@@ -144,7 +130,7 @@ uint32_t image_to_gl_texture(image_t* texture)
     return gl_texture;
 }
 
-static void init_directional_light(
+static void setup_directional_light(
     directional_light_t* light,
     const unsigned int depth_map_width, const unsigned int depth_map_height,
     const float light_rotation_x, const float light_rotation_y, const float light_rotation_z,
@@ -204,7 +190,7 @@ scene_t* init_scene(
     scene->num_gl_meshes = 0;
     scene->num_gl_textures = 0;
     scene->num_elements = 0;
-    init_directional_light(
+    setup_directional_light(
         &scene->light, 4096, 4096, 
         light_rotation_x, light_rotation_y, light_rotation_z, 
         ambient_strength

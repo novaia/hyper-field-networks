@@ -78,7 +78,6 @@
                     unstableCudaPkgs.cudaPackages.cudatoolkit
                     unstableCudaPkgs.cudaPackages.cuda_cudart
                     unstableCudaPkgs.cudaPackages.cudnn
-                    unstableCudaPkgs.linuxPackages.nvidia_x11
                 ];
                 shellHook = ''
                     export CUDA_PATH=${unstableCudaPkgs.cudatoolkit}

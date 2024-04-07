@@ -7,5 +7,5 @@ def test(f):
     f_hat = fp_conversion.token_to_float(token)
     print('f_hat', f_hat)
 
-test(20)
-test(-20)
+test(20.5)
+test(-20.32)

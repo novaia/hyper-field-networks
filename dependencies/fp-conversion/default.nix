@@ -7,7 +7,12 @@
     setuptools-scm,
     cmake,
     pybind11,
+    fmt,
     python3,
+    serde-helper,
+    cudatoolkit,
+    jax,
+    jaxlib,
     gcc12
 }:
 
@@ -17,17 +22,34 @@ buildPythonPackage rec {
     src = ./.;
 
     format = "pyproject";
+    
+    CUDA_HOME = cudatoolkit;
 
     nativeBuildInputs = [
         cmake
         pybind11
         setuptools-scm
+        gcc12
     ];
     dontUseCmakeConfigure = true;
 
     buildInputs = [
-        stdenv.cc.cc.lib
+        serde-helper
+        cudatoolkit
+        fmt
+        #stdenv.cc.cc.lib
     ];
+    
+    propagatedBuildInputs = [
+        jax
+        jaxlib
+    ];
+
+    preConfigure = ''
+        export CC=${gcc12}/bin/gcc
+        export CXX=${gcc12}/bin/g++
+        export CUDAHOSTCXX=${gcc12}/bin/g++
+    '';
 
     preFixup = ''
         patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" \

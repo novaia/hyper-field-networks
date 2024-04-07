@@ -76,9 +76,10 @@ class CMakeBuildExt(build_ext):
 
 extensions = [
     Extension(
-        "fp_conversion.cpp_ffi",
+        "fp_conversion.cuda_ffi",
         [  
             "csrc/ffi.cpp",
+            "csrc/kernel.cu"
         ],
     ),
 ]

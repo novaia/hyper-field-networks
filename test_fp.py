@@ -1,7 +1,11 @@
 import fp_conversion
 
-print(20)
-fp_conversion.float_to_token(20)
+def test(f):
+    print('f', f)
+    token = fp_conversion.float_to_token(f)
+    print('token', token)
+    f_hat = fp_conversion.token_to_float(token)
+    print('f_hat', f_hat)
 
-print(-20)
-fp_conversion.float_to_token(-20)
+test(20)
+test(-20)

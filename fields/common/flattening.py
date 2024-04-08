@@ -50,4 +50,8 @@ def unflatten_params(flat_params, param_map):
                 flat_params[start_pos : start_pos + sub_map['flat_dim']], 
                 sub_map['shape']
             ))
+            # Temporary hack to allow unflattening of fields trained with old hash grid.
+            # These fields have a manually inserted transpose key to mark them.
+            if 'transpose' in sub_map.keys():
+                unflat_params[key] = jnp.transpose(unflat_params[key])
     return unflat_params

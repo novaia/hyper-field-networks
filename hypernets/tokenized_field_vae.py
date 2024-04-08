@@ -8,6 +8,10 @@ import os, json
 from typing import Any
 from functools import partial
 from hypernets.common.nn import SinusoidalEmbedding, kl_divergence
+from float_tokenization import detokenize
+from fields.common.flattening import unflatten_params
+from fields import ngp_image
+import matplotlib.pyplot as plt
 
 def load_dataset(dataset_path):
     field_config = None
@@ -105,9 +109,13 @@ def train_step(state, tokens, kl_weight):
     return (loss, ce_loss, kld_loss), state
 
 def main():
+    output_path = 'data/tokenized_field_vae_output/0'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     dataset, field_config, param_map = load_dataset(dataset_path)
     
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
     token_bits = 11
     vocab_size = 2 * 2**token_bits - 1
     print('vocab size', vocab_size)
@@ -147,7 +155,12 @@ def main():
         transition_steps=cycle_steps,
         cycle_steps=cycle_steps
     )
+    
+    field_model = ngp_image.create_model_from_config(field_config)
+    field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
+    test_sample = jnp.expand_dims(dataset[0]['tokens'], axis=0)
+    print('test sample shape', test_sample.shape)
     for epoch in range(num_epochs):
         dataset.shuffle(seed=epoch)
         dataset_iterator = dataset.iter(batch_size)
@@ -156,6 +169,19 @@ def main():
             kl_weight = kl_weight_schedule(state.step)
             (loss, ce_loss, kld_loss), state = train_step(state, tokens, kl_weight)
             print(f'step {step}, loss {loss}, ce_loss {ce_loss}, kld_loss {kld_loss}')
+        logits, _, _ = state.apply_fn({'params': state.params}, test_sample, jax.random.PRNGKey(0))
+        probs = nn.softmax(logits[0])
+        tokens = jax.vmap(lambda p: jnp.argmax(p), in_axes=0)(probs)
+        flat_params = detokenize(tokens)
+        # Detokenized NaNs should not exist so there is probably a bug in the detokenization code.
+        flat_params = jnp.nan_to_num(flat_params)
+        params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+        field_state = field_state.replace(params=params)
+        field_render = ngp_image.render_image(
+            field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
+        )
+        field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+        plt.imsave(os.path.join(output_path, f'{epoch}.png'), field_render)
 
 if __name__ == '__main__':
     main()

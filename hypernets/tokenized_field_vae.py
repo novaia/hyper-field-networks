@@ -1,9 +1,13 @@
 import jax
 from jax import numpy as jnp
 from flax import linen as nn
+import optax
+from flax.training.train_state import TrainState
 import datasets
 import os, json
 from typing import Any
+from functools import partial
+from hypernets.common.nn import kl_divergence
 
 def load_dataset(dataset_path):
     field_config = None
@@ -72,7 +76,30 @@ class TokenizedFieldVae(nn.Module):
         x = nn.DenseGeneral(features=(self.context_length, self.embedding_dim), axis=-1, dtype=self.dtype)(x)
         x = transformer_block(x)
         logits = nn.Dense(features=self.vocab_size)(x)
-        return logits
+        return logits, means, logvars
+
+def make_kl_schedule(initial_value, final_value, transition_steps, cycle_steps):
+    slope = final_value / transition_steps
+    linear_fn = partial(
+        lambda m, b, max_y, x: jnp.clip(m * x + b, 0, max_y), 
+        slope, initial_value, final_value
+    )
+    cyclical_fn = partial(lambda period, x: linear_fn(x % period), cycle_steps)
+    return cyclical_fn
+
+@jax.jit
+def train_step(state, tokens, kl_weight):
+    key = jax.random.PRNGKey(state.step)
+    def loss_fn(params):
+        logits, means, logvars = state.apply_fn({'params': params}, tokens, key)
+        ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
+        kld_loss = jnp.mean(kl_divergence(means, logvars))
+        loss = ce_loss + (kld_loss * kl_weight)
+        return loss, (ce_loss, kld_loss)
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    (loss, (ce_loss, kld_loss)), grad = grad_fn(state.params)
+    state = state.apply_gradients(grads=grad)
+    return (loss, ce_loss, kld_loss), state
 
 def main():
     dataset_path = 'data/mnist-ngp-image-612-11bit'
@@ -82,12 +109,14 @@ def main():
     vocab_size = 2 * 2**token_bits - 1
     print('vocab size', vocab_size)
 
+    num_epochs = 30
     batch_size = 16
     context_length = 612
     embedding_dim = 64
     latent_dim = 512
     num_attention_heads = 4
     num_blocks = 8
+    learning_rate = 3e-4
     
     model = TokenizedFieldVae(
         vocab_size=vocab_size,
@@ -102,6 +131,28 @@ def main():
     vae_key = jax.random.PRNGKey(68)
     params_key = jax.random.PRNGKey(91)
     params = model.init(params_key, x, vae_key)['params']
+    opt = optax.adam(learning_rate=learning_rate)
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
+
+    num_samples = len(dataset)
+    steps_per_epoch = num_samples // batch_size
+    
+    cycle_steps = 4 * steps_per_epoch
+    kl_weight_schedule = make_kl_schedule(
+        initial_value=0.0,
+        final_value=0.1,
+        transition_steps=cycle_steps//2,
+        cycle_steps=cycle_steps
+    )
+
+    for epoch in range(num_epochs):
+        dataset.shuffle(seed=epoch)
+        dataset_iterator = dataset.iter(batch_size)
+        for step in range(steps_per_epoch):
+            tokens = next(dataset_iterator)['tokens']
+            kl_weight = kl_weight_schedule(state.step)
+            (loss, ce_loss, kld_loss), state = train_step(state, tokens, kl_weight)
+            print(f'step {step}, loss {loss}, ce_loss {ce_loss}, kld_loss {kld_loss}')
 
 if __name__ == '__main__':
     main()

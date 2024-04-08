@@ -23,14 +23,16 @@ template<typename T> pybind11::capsule encapsulate_function(T *fn)
 pybind11::dict get_function_registrations()
 {
     pybind11::dict dict;
-    dict["tokenize"] = encapsulate_function(launch_kernel);
+    dict["tokenize"] = encapsulate_function(launch_tokenization);
     return dict;
 }
 
-pybind11::bytes make_tokenization_descriptor(std::uint32_t mantissa_bits_to_truncate)
-{
+pybind11::bytes make_tokenization_descriptor(
+    std::uint32_t mantissa_bits_to_truncate, std::uint32_t n_tokens
+){
     return to_pybind11_bytes(tokenization_descriptor_t{ 
-        .mantissa_bits_to_truncate = mantissa_bits_to_truncate 
+        .mantissa_bits_to_truncate = mantissa_bits_to_truncate,
+        .n_tokens = n_tokens
     });
 }
 

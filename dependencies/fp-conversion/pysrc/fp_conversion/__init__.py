@@ -17,7 +17,7 @@ def _tokenize_abstract(samples):
 def _tokenize_cuda_lowering_rule(ctx, samples):
     samples_type, samples_shape = _get_ir_tensor_info(samples)
     output_type, output_shape = _make_ir_tensor_info(samples_shape, 'uint32')
-    opaque = cuda_ffi.make_tokenization_descriptor(10)
+    opaque = cuda_ffi.make_tokenization_descriptor(5, samples_shape[0])
     out = custom_call(
         call_target_name="tokenize",
         result_types=[output_type],

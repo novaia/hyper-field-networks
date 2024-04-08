@@ -11,6 +11,7 @@ def _get_ir_tensor_info(tensor):
 def _make_ir_tensor_info(shape, element_type: str):
     ir_element_type_map = {
         'uint32': ir.IntegerType.get_unsigned(32),
+        'fp16': ir.F16Type.get()
     }
     assert element_type in ir_element_type_map.keys(), (
         f'Invalid element type {element_type}. Must be one of: {element_type.keys()}'

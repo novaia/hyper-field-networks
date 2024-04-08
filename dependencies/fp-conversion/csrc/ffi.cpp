@@ -24,14 +24,15 @@ pybind11::dict get_function_registrations()
 {
     pybind11::dict dict;
     dict["tokenize"] = encapsulate_function(launch_tokenization);
+    dict["detokenize"] = encapsulate_function(launch_detokenization);
     return dict;
 }
 
 pybind11::bytes make_tokenization_descriptor(
-    std::uint32_t mantissa_bits_to_truncate, std::uint32_t n_tokens
+    std::uint32_t mantissa_shift, std::uint32_t n_tokens
 ){
     return to_pybind11_bytes(tokenization_descriptor_t{ 
-        .mantissa_bits_to_truncate = mantissa_bits_to_truncate,
+        .mantissa_shift = mantissa_shift,
         .n_tokens = n_tokens
     });
 }

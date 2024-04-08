@@ -7,7 +7,7 @@ from fields.ngp_image import (
 )
 from fields.common.flattening import unflatten_params
 from matplotlib import pyplot as plt
-from fp_conversion import tokenize, detokenize
+from float_tokenization import tokenize, detokenize
 
 with open('configs/colored_monsters_ngp_image.json', 'r') as f:
     config = json.load(f)

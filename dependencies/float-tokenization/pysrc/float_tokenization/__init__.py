@@ -6,8 +6,8 @@ from jax.interpreters import xla, mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
 from functools import partial
-from fp_conversion import cuda_ffi
-from fp_conversion.lowering_helper import (
+from float_tokenization import cuda_ffi
+from float_tokenization.lowering_helper import (
     _make_ir_tensor_info, _get_ir_tensor_info, _default_layouts
 )
 

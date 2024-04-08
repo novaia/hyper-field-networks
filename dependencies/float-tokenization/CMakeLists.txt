@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(fp_conversion LANGUAGES CXX CUDA)
+project(float_tokenization LANGUAGES CXX CUDA)
 set(CMAKE_CUDA_ARCHITECTURES "all")
 
 message(STATUS "Using CMake version " ${CMAKE_VERSION})
@@ -16,4 +16,4 @@ pybind11_add_module(
 )
 target_link_libraries(cuda_ffi PRIVATE fmt::fmt)
 
-install(TARGETS cuda_ffi DESTINATION fp_conversion)
+install(TARGETS cuda_ffi DESTINATION float_tokenization)

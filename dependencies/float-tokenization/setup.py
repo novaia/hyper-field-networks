@@ -76,7 +76,7 @@ class CMakeBuildExt(build_ext):
 
 extensions = [
     Extension(
-        "fp_conversion.cuda_ffi",
+        "float_tokenization.cuda_ffi",
         [  
             "csrc/ffi.cpp",
             "csrc/kernel.cu"
@@ -85,7 +85,7 @@ extensions = [
 ]
 
 setup(
-    name="fp-conversion",
+    name="float-tokenization",
     author="Hayden Donnelly",
     #license="Apache License, Version 2.0",
     package_dir={"": "pysrc"},

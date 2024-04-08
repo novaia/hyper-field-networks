@@ -1,13 +1,9 @@
 #include <pybind11/pybind11.h>
 #include <serde-helper/serde.h>
 #include <cstdint>
-//#include <climits>
-//#include <cstring>
-//#include <bitset>
-//#include <iostream>
 #include "common.h"
 
-namespace fp_conversion
+namespace float_tokenization
 {
 
 template<typename T> pybind11::bytes to_pybind11_bytes(T const &descriptor) 
@@ -43,4 +39,4 @@ PYBIND11_MODULE(cuda_ffi, m)
     m.def("make_tokenization_descriptor", &make_tokenization_descriptor);
 }
 
-}
+} // namespace float_tokenization

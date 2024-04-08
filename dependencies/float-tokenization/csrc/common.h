@@ -3,7 +3,7 @@
 #include <cuda_runtime_api.h>
 #include <cstdint>
 
-namespace fp_conversion
+namespace float_tokenization
 {
 
 struct tokenization_descriptor_t
@@ -20,4 +20,4 @@ void launch_detokenization(
     cudaStream_t stream, void** buffers, const char* opaque, std::size_t opaque_len
 );
 
-}
+} // namespace float_tokenization

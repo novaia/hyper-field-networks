@@ -17,7 +17,7 @@
 }:
 
 buildPythonPackage rec {
-    pname = "fp-conversion";
+    pname = "float-tokenization";
     inherit version;
     src = ./.;
 
@@ -53,9 +53,9 @@ buildPythonPackage rec {
 
     preFixup = ''
         patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" \
-            $out/lib/python${python3.pythonVersion}/site-packages/fp_conversion/*.so
+            $out/lib/python${python3.pythonVersion}/site-packages/float_tokenization/*.so
     '';
 
     doCheck = false;
-    pythonImportsCheck = [ "fp_conversion" ];
+    pythonImportsCheck = [ "float_tokenization" ];
 }

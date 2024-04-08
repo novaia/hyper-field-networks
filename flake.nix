@@ -71,7 +71,7 @@
                         datasets
                         wandb
                         matplotlib
-                        unstableCudaPkgs.fp-conversion
+                        unstableCudaPkgs.float-tokenization
                         unstableCudaPkgs.ngp-volume-rendering
                         unstableCudaPkgs.serde-helper
                     ]))

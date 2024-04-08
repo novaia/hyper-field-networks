@@ -3,7 +3,7 @@
 #include <serde-helper/serde.h>
 #include "common.h"
 
-namespace fp_conversion
+namespace float_tokenization
 {
 /*std::uint32_t float_to_token(float input)
 {
@@ -96,4 +96,4 @@ void launch_detokenization(
     );
 }
 
-} // namespace fp_conversion
+} // namespace float_tokenization

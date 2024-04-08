@@ -7,7 +7,7 @@ import datasets
 import os, json
 from typing import Any
 from functools import partial
-from hypernets.common.nn import kl_divergence
+from hypernets.common.nn import SinusoidalEmbedding, kl_divergence
 
 def load_dataset(dataset_path):
     field_config = None
@@ -69,6 +69,9 @@ class TokenizedFieldVae(nn.Module):
                 return x
 
         x = nn.Embed(num_embeddings=self.vocab_size, features=self.embedding_dim)(tokens)
+        positions = jnp.arange(self.context_length, dtype=jnp.uint32)
+        pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.embedding_dim)(positions)
+        x = x + pos_emb
         x = transformer_block(x)
         means = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2), dtype=self.dtype)(x)
         logvars = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2), dtype=self.dtype)(x)
@@ -112,7 +115,7 @@ def main():
     num_epochs = 30
     batch_size = 16
     context_length = 612
-    embedding_dim = 64
+    embedding_dim = 128
     latent_dim = 512
     num_attention_heads = 4
     num_blocks = 8
@@ -140,8 +143,8 @@ def main():
     cycle_steps = 4 * steps_per_epoch
     kl_weight_schedule = make_kl_schedule(
         initial_value=0.0,
-        final_value=0.1,
-        transition_steps=cycle_steps//2,
+        final_value=0.0,
+        transition_steps=cycle_steps,
         cycle_steps=cycle_steps
     )
 

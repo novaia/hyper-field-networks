@@ -95,7 +95,7 @@ def train_step(state, tokens, kl_weight):
     def loss_fn(params):
         logits, means, stds = state.apply_fn({'params': params}, tokens, key)
         ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
-        kld_loss = jnp.mean(stds**2 + means**2 - jnp.log(stds) - 0.5)
+        kld_loss = jnp.mean(jnp.sum(stds**2 + means**2 - jnp.log(stds) - 0.5, axis=-1))
         loss = ce_loss + (kld_loss * kl_weight)
         return loss, (ce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -112,7 +112,7 @@ def test_step(state, tokens, seed):
     return ce_loss, kld_loss
 
 def main():
-    output_path = 'data/tokenized_field_vae_output/13'
+    output_path = 'data/tokenized_field_vae_output/14'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     split_size = 0.2
     split_seed = 0
@@ -175,7 +175,7 @@ def main():
     test_sample = jnp.expand_dims(test_set[0]['tokens'], axis=0)
     print('test sample shape', test_sample.shape)
     for epoch in range(num_epochs):
-        train_set.shuffle(seed=epoch)
+        train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(batch_size)
         losses_this_epoch = []
         ce_losses_this_epoch = []
@@ -191,9 +191,9 @@ def main():
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         average_ce_loss = sum(ce_losses_this_epoch) / len(ce_losses_this_epoch)
         average_kld_loss = sum(kld_losses_this_epoch) / len(kld_losses_this_epoch)
-        print(f'epoch {epoch}, loss {average_loss}, ce_loss {average_ce_loss}, kld_loss {average_kld_loss}')
+        print(f'epoch {epoch}, ce_loss {average_ce_loss}, kld_loss {average_kld_loss}, total_loss {average_loss}')
         
-        test_set.shuffle(seed=epoch)
+        test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)
         ce_losses_this_test = []
         kld_losses_this_test = []

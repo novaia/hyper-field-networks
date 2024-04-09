@@ -77,10 +77,15 @@ class TokenizedFieldVae(nn.Module):
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.embedding_dim)(positions)
         x = x + pos_emb
         x = transformer_block(x)
+        x = nn.Dense(features=1, dtype=self.dtype)(x)
+        x = nn.gelu(x)
         means = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2), dtype=self.dtype)(x)
         logvars = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2), dtype=self.dtype)(x)
-        x = means + jnp.exp(0.5 * logvars) * jax.random.normal(key, means.shape)
-        x = nn.DenseGeneral(features=(self.context_length, self.embedding_dim), axis=-1, dtype=self.dtype)(x)
+        #x = means + jnp.exp(0.5 * logvars) * jax.random.normal(key, means.shape)
+        x = means
+        x = nn.DenseGeneral(features=(self.context_length, 1), axis=-1, dtype=self.dtype)(x)
+        x = nn.Dense(features=self.embedding_dim, dtype=self.dtype)(x)
+        x = nn.gelu(x)
         x = transformer_block(x)
         logits = nn.Dense(features=self.vocab_size)(x)
         return logits, means, logvars
@@ -109,7 +114,7 @@ def train_step(state, tokens, kl_weight):
     return (loss, ce_loss, kld_loss), state
 
 def main():
-    output_path = 'data/tokenized_field_vae_output/0'
+    output_path = 'data/tokenized_field_vae_output/3'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     dataset, field_config, param_map = load_dataset(dataset_path)
     
@@ -125,10 +130,11 @@ def main():
     context_length = 612
     embedding_dim = 128
     latent_dim = 512
-    num_attention_heads = 4
-    num_blocks = 8
+    num_attention_heads = 8
+    num_blocks = 24
     learning_rate = 3e-4
-    
+    weight_decay = 1e-6
+
     model = TokenizedFieldVae(
         vocab_size=vocab_size,
         context_length=context_length,
@@ -142,17 +148,17 @@ def main():
     vae_key = jax.random.PRNGKey(68)
     params_key = jax.random.PRNGKey(91)
     params = model.init(params_key, x, vae_key)['params']
-    opt = optax.adam(learning_rate=learning_rate)
+    opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
     num_samples = len(dataset)
     steps_per_epoch = num_samples // batch_size
     
-    cycle_steps = 4 * steps_per_epoch
+    cycle_steps = steps_per_epoch
     kl_weight_schedule = make_kl_schedule(
         initial_value=0.0,
         final_value=0.0,
-        transition_steps=cycle_steps,
+        transition_steps=cycle_steps//2,
         cycle_steps=cycle_steps
     )
     

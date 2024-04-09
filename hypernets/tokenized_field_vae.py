@@ -96,23 +96,28 @@ def train_step(state, tokens, kl_weight):
         logits, means, stds = state.apply_fn({'params': params}, tokens, key)
         ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
         kld_loss = jnp.mean(stds**2 + means**2 - jnp.log(stds) - 0.5)
-        #kld_loss = jnp.mean(kl_divergence(means, logvars))
-        #kld_loss = 0.0
-        #loss = ce_loss
-        loss = ce_loss + (kld_loss * 0.2)
+        loss = ce_loss + (kld_loss * kl_weight)
         return loss, (ce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (ce_loss, kld_loss)), grad = grad_fn(state.params)
     state = state.apply_gradients(grads=grad)
     return (loss, ce_loss, kld_loss), state
 
+@jax.jit
+def test_step(state, tokens, seed):
+    key = jax.random.PRNGKey(seed)
+    logits, means, stds = state.apply_fn({'params': state.params}, tokens, key)
+    ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
+    kld_loss = jnp.mean(stds**2 + means**2 - jnp.log(stds) - 0.5)
+    return ce_loss, kld_loss
+
 def main():
-    output_path = 'data/tokenized_field_vae_output/9'
+    output_path = 'data/tokenized_field_vae_output/10'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     split_size = 0.2
     split_seed = 0
     train_set, test_set, field_config, param_map = load_dataset(dataset_path, split_size, split_seed)
-    
+
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
@@ -146,13 +151,17 @@ def main():
     opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
-    num_samples = len(train_set)
-    steps_per_epoch = num_samples // batch_size
+    num_train_samples = len(train_set)
+    train_steps = num_train_samples // batch_size
+    print('test set size', num_train_samples)
+    num_test_samples = len(test_set)
+    test_steps = num_test_samples // batch_size
+    print('train set size', num_test_samples)
     
-    cycle_steps = steps_per_epoch
+    cycle_steps = train_steps 
     kl_weight_schedule = make_kl_schedule(
         initial_value=0.0,
-        final_value=0.0,
+        final_value=1.0,
         transition_steps=cycle_steps//2,
         cycle_steps=cycle_steps
     )
@@ -165,11 +174,35 @@ def main():
     for epoch in range(num_epochs):
         train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(batch_size)
-        for step in range(steps_per_epoch):
+        losses_this_epoch = []
+        ce_losses_this_epoch = []
+        kld_losses_this_epoch = []
+        for step in range(train_steps):
             tokens = next(train_iterator)['tokens']
             kl_weight = kl_weight_schedule(state.step)
             (loss, ce_loss, kld_loss), state = train_step(state, tokens, kl_weight)
-            print(f'step {step}, loss {loss}, ce_loss {ce_loss}, kld_loss {kld_loss}')
+            losses_this_epoch.append(loss)
+            ce_losses_this_epoch.append(ce_loss)
+            kld_losses_this_epoch.append(kld_loss)
+            #print(f'step {step}, loss {loss}, ce_loss {ce_loss}, kld_loss {kld_loss}')
+        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
+        average_ce_loss = sum(ce_losses_this_epoch) / len(ce_losses_this_epoch)
+        average_kld_loss = sum(kld_losses_this_epoch) / len(kld_losses_this_epoch)
+        print(f'epoch {epoch}, loss {average_loss}, ce_loss {average_ce_loss}, kld_loss {average_kld_loss}')
+        
+        test_set.shuffle(seed=epoch)
+        test_iterator = test_set.iter(batch_size)
+        ce_losses_this_test = []
+        kld_losses_this_test = []
+        for step in range(test_steps):
+            tokens = next(test_iterator)['tokens']
+            ce_loss, kld_loss = test_step(state, tokens, step)
+            ce_losses_this_test.append(ce_loss)
+            kld_losses_this_test.append(kld_loss)
+        average_test_ce_loss = sum(ce_losses_this_test) / len(ce_losses_this_test)
+        average_test_kld_loss = sum(kld_losses_this_test) / len(kld_losses_this_test)
+        print(f'epoch {epoch}, test_ce_loss {average_test_ce_loss}, test_kld_loss {average_test_kld_loss}')
+
         logits, _, _ = state.apply_fn({'params': state.params}, test_sample, jax.random.PRNGKey(0))
         probs = nn.softmax(logits[0])
         tokens = jax.vmap(lambda p: jnp.argmax(p), in_axes=0)(probs)

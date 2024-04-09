@@ -13,7 +13,7 @@ from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
 
-def load_dataset(dataset_path):
+def load_dataset(dataset_path, test_size, split_seed):
     field_config = None
     with open(os.path.join(dataset_path, 'field_config.json'), 'r') as f:
         field_config = json.load(f)
@@ -32,14 +32,9 @@ def load_dataset(dataset_path):
     assert num_parquet_files > 0
     print(f'Found {num_parquet_files} parquet file(s) in dataset directory')
 
-    dataset = datasets.load_dataset(
-        'parquet', 
-        data_files={'train': parquet_paths},
-        split='train',
-        num_proc=1
-    )
-    dataset = dataset.with_format('jax')
-    return dataset, field_config, param_map
+    dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
+    train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
+    return train.with_format('jax'), test.with_format('jax'), field_config, param_map
 
 class TokenizedFieldVae(nn.Module):
     vocab_size: int
@@ -112,9 +107,11 @@ def train_step(state, tokens, kl_weight):
     return (loss, ce_loss, kld_loss), state
 
 def main():
-    output_path = 'data/tokenized_field_vae_output/8'
+    output_path = 'data/tokenized_field_vae_output/9'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
-    dataset, field_config, param_map = load_dataset(dataset_path)
+    split_size = 0.2
+    split_seed = 0
+    train_set, test_set, field_config, param_map = load_dataset(dataset_path, split_size, split_seed)
     
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -149,7 +146,7 @@ def main():
     opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
-    num_samples = len(dataset)
+    num_samples = len(train_set)
     steps_per_epoch = num_samples // batch_size
     
     cycle_steps = steps_per_epoch
@@ -163,13 +160,13 @@ def main():
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
-    test_sample = jnp.expand_dims(dataset[0]['tokens'], axis=0)
+    test_sample = jnp.expand_dims(test_set[0]['tokens'], axis=0)
     print('test sample shape', test_sample.shape)
     for epoch in range(num_epochs):
-        dataset.shuffle(seed=epoch)
-        dataset_iterator = dataset.iter(batch_size)
+        train_set.shuffle(seed=epoch)
+        train_iterator = train_set.iter(batch_size)
         for step in range(steps_per_epoch):
-            tokens = next(dataset_iterator)['tokens']
+            tokens = next(train_iterator)['tokens']
             kl_weight = kl_weight_schedule(state.step)
             (loss, ce_loss, kld_loss), state = train_step(state, tokens, kl_weight)
             print(f'step {step}, loss {loss}, ce_loss {ce_loss}, kld_loss {kld_loss}')

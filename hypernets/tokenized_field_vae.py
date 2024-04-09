@@ -77,18 +77,11 @@ class TokenizedFieldVae(nn.Module):
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.embedding_dim)(positions)
         x = x + pos_emb
         x = transformer_block(x)
-        x = nn.Dense(features=1, dtype=self.dtype)(x)
-        x = nn.gelu(x)
-        means = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2), dtype=self.dtype)(x)
-        logvars = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2), dtype=self.dtype)(x)
-        #x = means + jnp.exp(0.5 * logvars) * jax.random.normal(key, means.shape)
-        x = means
-        x = nn.DenseGeneral(features=(self.context_length, 1), axis=-1, dtype=self.dtype)(x)
-        x = nn.Dense(features=self.embedding_dim, dtype=self.dtype)(x)
-        x = nn.gelu(x)
+        x = nn.Dense(features=self.latent_dim)(x)
+        x = nn.Dense(features=self.embedding_dim)(x)
         x = transformer_block(x)
         logits = nn.Dense(features=self.vocab_size)(x)
-        return logits, means, logvars
+        return logits
 
 def make_kl_schedule(initial_value, final_value, transition_steps, cycle_steps):
     slope = final_value / transition_steps
@@ -103,10 +96,12 @@ def make_kl_schedule(initial_value, final_value, transition_steps, cycle_steps):
 def train_step(state, tokens, kl_weight):
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
-        logits, means, logvars = state.apply_fn({'params': params}, tokens, key)
+        logits = state.apply_fn({'params': params}, tokens, key)
         ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
-        kld_loss = jnp.mean(kl_divergence(means, logvars))
-        loss = ce_loss + (kld_loss * kl_weight)
+        #kld_loss = jnp.mean(kl_divergence(means, logvars))
+        kld_loss = 0.0
+        loss = ce_loss
+        #loss = ce_loss + (kld_loss * kl_weight)
         return loss, (ce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (ce_loss, kld_loss)), grad = grad_fn(state.params)
@@ -114,7 +109,7 @@ def train_step(state, tokens, kl_weight):
     return (loss, ce_loss, kld_loss), state
 
 def main():
-    output_path = 'data/tokenized_field_vae_output/3'
+    output_path = 'data/tokenized_field_vae_output/7'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     dataset, field_config, param_map = load_dataset(dataset_path)
     
@@ -128,10 +123,10 @@ def main():
     num_epochs = 30
     batch_size = 16
     context_length = 612
-    embedding_dim = 128
-    latent_dim = 512
-    num_attention_heads = 8
-    num_blocks = 24
+    embedding_dim = 512
+    latent_dim = 2
+    num_attention_heads = 16
+    num_blocks = 8
     learning_rate = 3e-4
     weight_decay = 1e-6
 
@@ -175,7 +170,7 @@ def main():
             kl_weight = kl_weight_schedule(state.step)
             (loss, ce_loss, kld_loss), state = train_step(state, tokens, kl_weight)
             print(f'step {step}, loss {loss}, ce_loss {ce_loss}, kld_loss {kld_loss}')
-        logits, _, _ = state.apply_fn({'params': state.params}, test_sample, jax.random.PRNGKey(0))
+        logits = state.apply_fn({'params': state.params}, test_sample, jax.random.PRNGKey(0))
         probs = nn.softmax(logits[0])
         tokens = jax.vmap(lambda p: jnp.argmax(p), in_axes=0)(probs)
         flat_params = detokenize(tokens)

@@ -72,8 +72,8 @@ class TokenizedFieldVae(nn.Module):
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.embedding_dim)(positions)
         x = x + pos_emb
         x = transformer_block(x)
-        means = nn.Dense(features=self.latent_dim)(x)
-        stds = jnp.exp(nn.Dense(features=self.latent_dim)(x))
+        means = nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x)
+        stds = jnp.exp(nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x))
         x = means + stds * jax.random.normal(key, means.shape)
         x = nn.Dense(features=self.embedding_dim)(x)
         x = transformer_block(x)
@@ -112,7 +112,7 @@ def test_step(state, tokens, seed):
     return ce_loss, kld_loss
 
 def main():
-    output_path = 'data/tokenized_field_vae_output/10'
+    output_path = 'data/tokenized_field_vae_output/13'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     split_size = 0.2
     split_seed = 0
@@ -148,7 +148,10 @@ def main():
     vae_key = jax.random.PRNGKey(68)
     params_key = jax.random.PRNGKey(91)
     params = model.init(params_key, x, vae_key)['params']
-    opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
+    opt = optax.chain(
+        optax.zero_nans(),
+        optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
+    )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
     num_train_samples = len(train_set)
@@ -158,10 +161,10 @@ def main():
     test_steps = num_test_samples // batch_size
     print('train set size', num_test_samples)
     
-    cycle_steps = train_steps 
+    cycle_steps = 4 * train_steps 
     kl_weight_schedule = make_kl_schedule(
         initial_value=0.0,
-        final_value=1.0,
+        final_value=0.5,
         transition_steps=cycle_steps//2,
         cycle_steps=cycle_steps
     )

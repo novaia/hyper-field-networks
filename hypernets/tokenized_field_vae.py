@@ -42,13 +42,15 @@ class TokenizedFieldVae(nn.Module):
     embedding_dim: int
     latent_dim: int
     num_attention_heads: int
-    num_blocks: int
+    num_encoder_blocks: int
+    num_decoder_blocks: int
     dtype: Any = jnp.float32
 
     @nn.compact
-    def __call__(self, tokens, key):
-        def transformer_block(x):
-            for _ in range(self.num_blocks):
+    def __call__(self, tokens, train, key):
+        dropout_rate = 0.4
+        def transformer_block(x, num_blocks):
+            for _ in range(num_blocks):
                 residual = x
                 x = nn.LayerNorm(dtype=self.dtype)(x)
                 x = nn.MultiHeadDotProductAttention(
@@ -60,8 +62,10 @@ class TokenizedFieldVae(nn.Module):
                 x = x + residual
                 residual = x
                 x = nn.LayerNorm(dtype=self.dtype)(x)
+                x = nn.Dropout(rate=dropout_rate, broadcast_dims=(-1, -2))(x, deterministic=not train, rng=key)
                 x = nn.Dense(features=self.embedding_dim, dtype=self.dtype)(x)
                 x = nn.gelu(x)
+                x = nn.Dropout(rate=dropout_rate, broadcast_dims=(-1, -2))(x, deterministic=not train, rng=key)
                 x = nn.Dense(features=self.embedding_dim, dtype=self.dtype)(x)
                 x = nn.gelu(x)
                 x = x + residual
@@ -71,14 +75,15 @@ class TokenizedFieldVae(nn.Module):
         positions = jnp.arange(self.context_length, dtype=jnp.uint32)
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.embedding_dim)(positions)
         x = x + pos_emb
-        x = transformer_block(x)
-        means = nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x)
-        stds = jnp.exp(nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x))
-        x = means + stds * jax.random.normal(key, means.shape)
+        x = transformer_block(x, self.num_encoder_blocks)
+        #means = nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x)
+        #stds = jnp.exp(nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x))
+        x = nn.Dense(features=self.latent_dim)(x)
+        #x = means + stds * jax.random.normal(key, means.shape)
         x = nn.Dense(features=self.embedding_dim)(x)
-        x = transformer_block(x)
+        x = transformer_block(x, self.num_decoder_blocks)
         logits = nn.Dense(features=self.vocab_size)(x)
-        return logits, means, stds
+        return logits#, means, stds
 
 def make_kl_schedule(initial_value, final_value, transition_steps, cycle_steps):
     slope = final_value / transition_steps
@@ -93,10 +98,12 @@ def make_kl_schedule(initial_value, final_value, transition_steps, cycle_steps):
 def train_step(state, tokens, kl_weight):
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
-        logits, means, stds = state.apply_fn({'params': params}, tokens, key)
+        logits = state.apply_fn({'params': params}, tokens, True, key)
         ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
-        kld_loss = jnp.mean(jnp.sum(stds**2 + means**2 - jnp.log(stds) - 0.5, axis=-1))
-        loss = ce_loss + (kld_loss * kl_weight)
+        #kld_loss = jnp.mean(stds**2 + means**2 - jnp.log(stds) - 0.5)
+        kld_loss = 0.0
+        #loss = ce_loss + (kld_loss * kl_weight)
+        loss = ce_loss
         return loss, (ce_loss, kld_loss)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (ce_loss, kld_loss)), grad = grad_fn(state.params)
@@ -106,15 +113,16 @@ def train_step(state, tokens, kl_weight):
 @jax.jit
 def test_step(state, tokens, seed):
     key = jax.random.PRNGKey(seed)
-    logits, means, stds = state.apply_fn({'params': state.params}, tokens, key)
+    logits = state.apply_fn({'params': state.params}, tokens, False, key)
     ce_loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
-    kld_loss = jnp.mean(stds**2 + means**2 - jnp.log(stds) - 0.5)
+    #kld_loss = jnp.mean(stds**2 + means**2 - jnp.log(stds) - 0.5)
+    kld_loss = 0.0
     return ce_loss, kld_loss
 
 def main():
-    output_path = 'data/tokenized_field_vae_output/14'
+    output_path = 'data/tokenized_field_vae_output/22'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
-    split_size = 0.2
+    split_size = 0.1
     split_seed = 0
     train_set, test_set, field_config, param_map = load_dataset(dataset_path, split_size, split_seed)
 
@@ -125,15 +133,16 @@ def main():
     vocab_size = 2 * 2**token_bits - 1
     print('vocab size', vocab_size)
 
-    num_epochs = 30
-    batch_size = 16
+    num_epochs = 200
+    batch_size = 80
     context_length = 612
     embedding_dim = 512
-    latent_dim = 4
+    latent_dim = 8
     num_attention_heads = 16
-    num_blocks = 8
-    learning_rate = 3e-4
-    weight_decay = 1e-6
+    num_encoder_blocks = 12
+    num_decoder_blocks = 12
+    learning_rate = 1e-4
+    weight_decay = 1e-2
 
     model = TokenizedFieldVae(
         vocab_size=vocab_size,
@@ -141,13 +150,14 @@ def main():
         embedding_dim=embedding_dim,
         latent_dim=latent_dim,
         num_attention_heads=num_attention_heads,
-        num_blocks=num_blocks,
+        num_encoder_blocks=num_encoder_blocks,
+        num_decoder_blocks=num_decoder_blocks,
         dtype=jnp.bfloat16
     )
     x = jnp.ones((batch_size, context_length), dtype=jnp.uint32)
     vae_key = jax.random.PRNGKey(68)
     params_key = jax.random.PRNGKey(91)
-    params = model.init(params_key, x, vae_key)['params']
+    params = model.init(params_key, x, True, vae_key)['params']
     opt = optax.chain(
         optax.zero_nans(),
         optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
@@ -161,11 +171,11 @@ def main():
     test_steps = num_test_samples // batch_size
     print('train set size', num_test_samples)
     
-    cycle_steps = 4 * train_steps 
+    cycle_steps = train_steps 
     kl_weight_schedule = make_kl_schedule(
         initial_value=0.0,
-        final_value=0.5,
-        transition_steps=cycle_steps//2,
+        final_value=0.6,
+        transition_steps=cycle_steps,
         cycle_steps=cycle_steps
     )
     
@@ -206,7 +216,7 @@ def main():
         average_test_kld_loss = sum(kld_losses_this_test) / len(kld_losses_this_test)
         print(f'epoch {epoch}, test_ce_loss {average_test_ce_loss}, test_kld_loss {average_test_kld_loss}')
 
-        logits, _, _ = state.apply_fn({'params': state.params}, test_sample, jax.random.PRNGKey(0))
+        logits = state.apply_fn({'params': state.params}, test_sample, False, jax.random.PRNGKey(0))
         probs = nn.softmax(logits[0])
         tokens = jax.vmap(lambda p: jnp.argmax(p), in_axes=0)(probs)
         flat_params = detokenize(tokens)

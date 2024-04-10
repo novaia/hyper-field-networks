@@ -48,7 +48,7 @@ class TokenizedFieldVae(nn.Module):
 
     @nn.compact
     def __call__(self, tokens, train, key):
-        dropout_rate = 0.4
+        dropout_rate = 0.2
         def transformer_block(x, num_blocks):
             for _ in range(num_blocks):
                 residual = x
@@ -78,10 +78,10 @@ class TokenizedFieldVae(nn.Module):
         x = transformer_block(x, self.num_encoder_blocks)
         #means = nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x)
         #stds = jnp.exp(nn.Dense(features=self.latent_dim, kernel_init=nn.initializers.zeros_init())(x))
-        x = nn.Dense(features=self.latent_dim)(x)
+        #x = nn.Dense(features=self.latent_dim)(x)
         #x = means + stds * jax.random.normal(key, means.shape)
-        x = nn.Dense(features=self.embedding_dim)(x)
-        x = transformer_block(x, self.num_decoder_blocks)
+        #x = nn.Dense(features=self.embedding_dim)(x)
+        #x = transformer_block(x, self.num_decoder_blocks)
         logits = nn.Dense(features=self.vocab_size)(x)
         return logits#, means, stds
 
@@ -122,7 +122,7 @@ def test_step(state, tokens, seed):
 def main():
     output_path = 'data/tokenized_field_vae_output/22'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
-    split_size = 0.1
+    split_size = 0.01
     split_seed = 0
     train_set, test_set, field_config, param_map = load_dataset(dataset_path, split_size, split_seed)
 
@@ -134,11 +134,11 @@ def main():
     print('vocab size', vocab_size)
 
     num_epochs = 200
-    batch_size = 80
+    batch_size = 128
     context_length = 612
-    embedding_dim = 512
+    embedding_dim = 256
     latent_dim = 8
-    num_attention_heads = 16
+    num_attention_heads = 8
     num_encoder_blocks = 12
     num_decoder_blocks = 12
     learning_rate = 1e-4

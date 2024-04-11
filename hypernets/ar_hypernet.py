@@ -108,7 +108,7 @@ def sample_context(state, prompt_token, context_length, temperature=1.0):
         logits = get_logits(state, tokens, attention_mask)
         logits = logits[:, i, :] / temperature
         probs = nn.softmax(logits)
-        next_token = jax.random.categorical(jax.random.PRNGKey(i), probs, shape=(1,))
+        next_token = jax.random.categorical(jax.random.PRNGKey(state.step+i), probs, shape=(1,))
         next_token = jnp.array(next_token, dtype=jnp.uint32)[0]
         tokens = tokens.at[0, i+1].set(next_token)
     
@@ -180,7 +180,6 @@ def main():
             loss, state = train_step(state, tokens, attention_mask)
             losses_this_epoch.append(loss)
             #print(f'step {step}, loss {loss}')
-            break
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
         
@@ -191,7 +190,6 @@ def main():
             tokens = next(test_iterator)['tokens']
             loss = test_step(state, tokens, attention_mask)
             losses_this_test.append(loss)
-            break
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
         

@@ -137,6 +137,7 @@ def main():
     num_blocks = 12
     learning_rate = 1e-4
     weight_decay = 1e-3
+    sample_temperature = 0.8
 
     model = ArHypernet(
         vocab_size=vocab_size,
@@ -179,6 +180,7 @@ def main():
             loss, state = train_step(state, tokens, attention_mask)
             losses_this_epoch.append(loss)
             #print(f'step {step}, loss {loss}')
+            break
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
         
@@ -189,15 +191,18 @@ def main():
             tokens = next(test_iterator)['tokens']
             loss = test_step(state, tokens, attention_mask)
             losses_this_test.append(loss)
+            break
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
         
-        tokens = sample_context(state, prompt_token, context_length)[0]
+        tokens = sample_context(state, prompt_token, context_length, sample_temperature)[0]
+        print(tokens)
         flat_params = detokenize(tokens)
         # Detokenized NaNs should not exist so there is probably a bug in the detokenization code.
         flat_params = jnp.nan_to_num(flat_params)
 
         params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+        field_state = field_state.replace(params=params)
         field_render = ngp_image.render_image(
             field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
         )

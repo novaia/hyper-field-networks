@@ -49,14 +49,16 @@ class TransformerLM(nn.Module):
     num_attention_heads: int
     num_blocks: int
     dtype: Any
+    dropout_rate: float
 
     @nn.compact
-    def __call__(self, tokens, attention_mask2):
+    def __call__(self, tokens, training):
         attention_mask = nn.make_causal_mask(tokens, dtype=self.dtype)
         x = nn.Embed(num_embeddings=self.vocab_size, features=self.embedding_dim)(tokens)
         positions = jnp.arange(self.context_length, dtype=jnp.uint32)
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.embedding_dim)(positions)
         x = x + pos_emb
+        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
         x = nn.Dense(features=self.hidden_dim)(x)
 
         for _ in range(self.num_blocks):
@@ -68,13 +70,16 @@ class TransformerLM(nn.Module):
                 out_features=self.hidden_dim,
                 dtype=self.dtype
             )(inputs_q=x, mask=attention_mask)
+            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
             x = x + residual
             residual = x
             x = nn.LayerNorm()(x)
             x = nn.Dense(features=self.hidden_dim)(x)
-            x = nn.gelu(x)
+            x = nn.relu(x)
+            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
             x = nn.Dense(features=self.hidden_dim)(x)
-            x = nn.gelu(x)
+            x = nn.relu(x)
+            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
             x = x + residual
 
         logits = nn.Dense(features=self.vocab_size)(x)
@@ -84,7 +89,12 @@ class TransformerLM(nn.Module):
 def train_step(state, tokens, attention_mask):
     key = jax.random.PRNGKey(state.step)
     def loss_fn(params):
-        logits = state.apply_fn({'params': params}, tokens, attention_mask)
+        logits = state.apply_fn(
+            {'params': params}, 
+            tokens=tokens, 
+            training=True,
+            rngs={'dropout': jax.random.PRNGKey(state.step)}
+        ) 
         loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
         return loss
     grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
@@ -94,7 +104,7 @@ def train_step(state, tokens, attention_mask):
 
 @jax.jit
 def test_step(state, tokens, attention_mask):
-    logits = state.apply_fn({'params': state.params}, tokens, attention_mask)
+    logits = state.apply_fn({'params': state.params}, tokens=tokens, training=False)
     loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
     return loss
 
@@ -108,7 +118,7 @@ def sample_context(state, prompt_token, context_length, temperature=1.0):
 
     @jax.jit
     def get_logits(state, tokens, attention_mask):
-        return state.apply_fn({'params': state.params}, tokens, attention_mask)
+        return state.apply_fn({'params': state.params}, tokens=tokens, training=False)
 
     for i in range(tokens_to_sample):
         logits = get_logits(state, tokens, attention_mask)
@@ -128,7 +138,8 @@ num_attention_heads = 1
 num_blocks = 4
 dtype = jnp.bfloat16
 learning_rate = 3e-4
-weight_decay = 1e-2
+weight_decay = 1e-4
+dropout_rate = 0.2
 
 x = get_batch('train', batch_size, context_length, 0)
 attention_mask = nn.make_causal_mask(x)
@@ -142,9 +153,15 @@ model = TransformerLM(
     hidden_dim=hidden_dim,
     num_attention_heads=num_attention_heads,
     num_blocks=num_blocks,
-    dtype=dtype
+    dtype=dtype,
+    dropout_rate=dropout_rate
 )
-params = model.init(jax.random.PRNGKey(0), x, attention_mask)['params']
+params = model.init(
+    jax.random.PRNGKey(0), 
+    tokens=x, 
+    training=False, 
+    #rngs={'dropout': jax.random.PRNGKey(0)}
+)['params']
 opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
 state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 

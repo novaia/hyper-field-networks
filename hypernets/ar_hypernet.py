@@ -92,6 +92,28 @@ def test_step(state, tokens, attention_mask):
     loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, tokens))
     return loss
 
+def sample_context(state, prompt_token, context_length, temperature=1.0):
+    tokens_to_sample = context_length - 1
+    filler_tokens = jnp.zeros((tokens_to_sample), dtype=jnp.uint32)
+    tokens = jnp.array([prompt_token], dtype=jnp.uint32)
+    tokens = jnp.concatenate((tokens, filler_tokens), axis=-1)
+    tokens = jnp.expand_dims(tokens, axis=0)
+    attention_mask = nn.make_causal_mask(tokens, dtype=jnp.bfloat16)
+
+    @jax.jit
+    def get_logits(state, tokens, attention_mask):
+        return state.apply_fn({'params': state.params}, tokens, attention_mask)
+
+    for i in range(tokens_to_sample):
+        logits = get_logits(state, tokens, attention_mask)
+        logits = logits[:, i, :] / temperature
+        probs = nn.softmax(logits)
+        next_token = jax.random.categorical(jax.random.PRNGKey(i), probs, shape=(1,))
+        next_token = jnp.array(next_token, dtype=jnp.uint32)[0]
+        tokens = tokens.at[0, i+1].set(next_token)
+    
+    return tokens
+
 def main():
     output_path = 'data/ar_hypernet_output/0'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
@@ -136,13 +158,18 @@ def main():
     )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
     
+    field_model = ngp_image.create_model_from_config(field_config)
+    field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
+
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
-    print('test set size', num_train_samples)
+    print('test set size:', num_train_samples)
     num_test_samples = len(test_set)
     test_steps = num_test_samples // batch_size
-    print('train set size', num_test_samples)
+    print('train set size:', num_test_samples)
     
+    prompt_token = test_set[0]['tokens'][0]
+    print('sample prompt token:', prompt_token)
     for epoch in range(num_epochs):
         train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(batch_size)
@@ -153,7 +180,7 @@ def main():
             losses_this_epoch.append(loss)
             #print(f'step {step}, loss {loss}')
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
-        print(f'epoch {epoch}, loss {average_ce_loss}')
+        print(f'epoch {epoch}, loss {average_loss}')
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)
@@ -164,6 +191,18 @@ def main():
             losses_this_test.append(loss)
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
+        
+        tokens = sample_context(state, prompt_token, context_length)[0]
+        flat_params = detokenize(tokens)
+        # Detokenized NaNs should not exist so there is probably a bug in the detokenization code.
+        flat_params = jnp.nan_to_num(flat_params)
+
+        params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+        field_render = ngp_image.render_image(
+            field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
+        )
+        field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+        plt.imsave(os.path.join(output_path, f'{epoch}.png'), field_render)
 
 if __name__ == '__main__':
     main()

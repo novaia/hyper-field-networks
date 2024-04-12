@@ -10,7 +10,6 @@ from functools import partial
 with open('data/shakespeare.txt', 'r', encoding='utf8') as f:
     text = f.read()
 
-#text = text.replace('\n', '')
 print(text[:500])
 
 chars = sorted(list(set(text)))
@@ -137,8 +136,6 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
         logits = logits[0, i, :] / temperature
         probs = nn.softmax(logits)
         next_token = jax.random.choice(jax.random.PRNGKey(state.step+i), a=vocab, p=probs)
-        #next_token = jax.random.categorical(jax.random.PRNGKey(state.step+i), logits, shape=(1,))
-        #next_token = jnp.array(next_token, dtype=jnp.uint32)[0]
         tokens = tokens.at[0, i+1].set(next_token)
     return tokens
 
@@ -192,7 +189,6 @@ for epoch in range(num_epochs):
         tokens, targets = get_batch('train', batch_size, context_length, state.step)
         loss, state = train_step(state, tokens, targets)
         losses_this_epoch.append(loss)
-        #print(f'step {step}, loss {loss}')
     average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
     print(f'epoch {epoch}, loss {average_loss}')
 

@@ -8,6 +8,7 @@ from datasets import load_dataset, Dataset
 import pyarrow as pa
 import pyarrow.parquet as pq
 from fields.common.flattening import generate_param_map, flatten_params
+import matplotlib.pyplot as plt
 
 def get_dataset(dataset_path):
     if dataset_path.endswith('/'):
@@ -91,13 +92,15 @@ def main():
     samples_in_current_table = 0
     start_sample = samples_per_table * args.start_table
     current_table_index = args.start_table
-    num_retries = 4
+    num_retries = config['num_retries']
     loss_threshold = 4e-6
     pq_table_data = []
+    skip_on_threshold_fail = config['skip_on_threshold_fail']
     for i in range(start_sample, num_samples):
         image = dataset[i]['image'] / 255.0
         state = state.replace(params=initial_params, tx=initial_tx, opt_state=initial_opt_state, step=0)
         
+        passed_loss_threshold = False
         for k in range(num_retries):
             state = ngp_image.train_loop(
                 config['train_steps'], state, image, config['batch_size']
@@ -108,7 +111,10 @@ def main():
             full_image_loss = jnp.mean(image - rendered_image)**2
             print(f'Sample {i}, attempt {k}, loss: {full_image_loss}')
             if full_image_loss < loss_threshold:
+                passed_loss_threshold = True
                 break
+        if skip_on_threshold_fail and not passed_loss_threshold:
+            continue
         flat_params = flatten_params(state.params, param_map, num_params)
         rendered_image = np.array(jnp.clip(rendered_image * 255, 0, 255), dtype=np.uint8)
         pil_image_bytes = io.BytesIO()

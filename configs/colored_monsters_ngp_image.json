@@ -11,5 +11,7 @@
     "weight_decay_coefficient": 0.000001,
     "batch_size": 4096,
     "train_steps": 20000,
+    "num_retries": 4,
+    "skip_on_threshold_fail": false,
     "channels": 3
 }

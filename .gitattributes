@@ -1,2 +1,2 @@
-dependencies/* -linguist-vendored
+dependencies/** -linguist-vendored
 dependencies/external/* linguist-vendored

@@ -120,7 +120,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
 
     for i in range(len(prompt_tokens)-1, context_length-1):
         logits = get_logits(state, tokens)
-        logits = logits[:, i, :] / temperature
+        logits = logits[0, i, :] / temperature
         probs = nn.softmax(logits)
         next_token = jax.random.choice(jax.random.PRNGKey(state.step+i), a=vocab, p=probs)
         tokens = tokens.at[0, i+1].set(next_token)
@@ -128,7 +128,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/1'
+    output_path = 'data/ar_hypernet_output/2'
     dataset_path = 'data/mnist-ngp-image-612-11bit'
     split_size = 0.01
     split_seed = 0

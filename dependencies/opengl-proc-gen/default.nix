@@ -1,6 +1,6 @@
 { pkgs }:
 let 
-    glad = import ./dependencies/glad { inherit pkgs; };
+    glad = import ../external/glad { inherit pkgs; };
 in
 pkgs.stdenv.mkDerivation {
     pname = "3d";

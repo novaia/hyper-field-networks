@@ -99,7 +99,7 @@ void multi_view_render(
     const unsigned int y_rotation_steps = 8;
     const float y_rotation_per_step = y_rotation_domain / (float)y_rotation_steps;
 
-    char* base_path = "/home/hayden/repos/g3dm/data/multi_view_renders/";
+    char* base_path = DATA_PATH("multi_view_renders/");
     char save_path[100];
     unsigned int render_index = 0;
     for(unsigned int x = 0; x <= x_rotation_steps; x++)

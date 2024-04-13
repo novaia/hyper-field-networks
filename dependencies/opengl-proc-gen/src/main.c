@@ -82,6 +82,30 @@ GLFWwindow* init_gl(void)
     return window;
 }
 
+void multi_view_render(
+    const scene_t* scene, camera_t* camera, 
+    mesh_shader_t* shader, depth_map_shader_t* depth_shader,
+    GLFWwindow* window
+){
+    const float min_x_rotation = 0.0f;
+    const float max_x_rotation = 90.0f;
+    const float x_rotation_domain = max_x_rotation - min_x_rotation;
+    const unsigned int x_rotation_steps = 4;
+    const float x_rotation_per_step = x_rotation_domain / (float)x_rotation_steps;
+    
+    char* base_path = "/home/hayden/repos/g3dm/data/";
+    char save_path[100];
+    for(unsigned int x = 0; x <= x_rotation_steps; x++)
+    {
+        const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
+        camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, 0.0f, 0.0f, 4.0f);
+        render_scene(scene, camera, depth_shader, shader, window_width, window_height);
+        snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, x, ".png");
+        save_frame_to_png(save_path, window_width, window_height);
+        glfwSwapBuffers(window);
+    }
+}
+
 int main()
 {
     GLFWwindow* window = init_gl();
@@ -192,8 +216,11 @@ int main()
 
     float rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
+    multi_view_render(scene, &camera, &shader, &depth_shader, window);
+    unsigned int first_frame = 1;
     while(!glfwWindowShouldClose(window))
     {
+        break;
         rot += 0.4f;
         if(rot > 360.0f) { rot -= 360.0f; }
         else if(rot < 0.0f) { rot += 360.0f; }
@@ -201,6 +228,13 @@ int main()
         render_scene(scene, &camera, &depth_shader, &shader, window_width, window_height);
         glfwSwapBuffers(window);
         glfwPollEvents();
+        save_frame_to_png(DATA_PATH("test_frame.png"), window_width, window_height);
+        if(first_frame)
+        {
+            first_frame = 0;
+            continue;
+        }
+        break;
     }
     glfwDestroyWindow(window);
     glfwTerminate();

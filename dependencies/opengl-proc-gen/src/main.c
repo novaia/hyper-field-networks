@@ -87,22 +87,34 @@ void multi_view_render(
     mesh_shader_t* shader, depth_map_shader_t* depth_shader,
     GLFWwindow* window
 ){
-    const float min_x_rotation = 0.0f;
-    const float max_x_rotation = 90.0f;
+    const float min_x_rotation = -20.0f;
+    const float max_x_rotation = 80.0f;
     const float x_rotation_domain = max_x_rotation - min_x_rotation;
     const unsigned int x_rotation_steps = 4;
     const float x_rotation_per_step = x_rotation_domain / (float)x_rotation_steps;
     
-    char* base_path = "/home/hayden/repos/g3dm/data/";
+    const float min_y_rotation = 0.0f;
+    const float max_y_rotation = 360.0f;
+    const float y_rotation_domain = max_y_rotation - min_y_rotation;
+    const unsigned int y_rotation_steps = 8;
+    const float y_rotation_per_step = y_rotation_domain / (float)y_rotation_steps;
+
+    char* base_path = "/home/hayden/repos/g3dm/data/multi_view_renders/";
     char save_path[100];
+    unsigned int render_index = 0;
     for(unsigned int x = 0; x <= x_rotation_steps; x++)
     {
         const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
-        camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, 0.0f, 0.0f, 4.0f);
-        render_scene(scene, camera, depth_shader, shader, window_width, window_height);
-        snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, x, ".png");
-        save_frame_to_png(save_path, window_width, window_height);
-        glfwSwapBuffers(window);
+        for(unsigned int y = 0; y < y_rotation_steps; y++)
+        {
+            const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
+            camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 4.0f);
+            render_scene(scene, camera, depth_shader, shader, window_width, window_height);
+            snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
+            save_frame_to_png(save_path, window_width, window_height);
+            glfwSwapBuffers(window);
+            render_index++;
+        }
     }
 }
 

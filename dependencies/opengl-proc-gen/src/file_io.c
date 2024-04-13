@@ -161,6 +161,69 @@ void save_frame_to_png(const char* filename, unsigned int width, unsigned int he
     fclose(file);
 }
 
+void save_depth_to_png(const char* filename, unsigned int width, unsigned int height)
+{
+    FILE* file = fopen(filename, "wb");
+    if(!file) 
+    {
+        fprintf(stderr, "Error opening file '%s' for writing\n", filename);
+        return;
+    }
+
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if(!png) 
+    {
+        fprintf(stderr, "Error creating PNG write struct\n");
+        fclose(file);
+        return;
+    }
+
+    png_infop info = png_create_info_struct(png);
+    if(!info) 
+    {
+        fprintf(stderr, "Error creating PNG info struct\n");
+        png_destroy_write_struct(&png, NULL);
+        fclose(file);
+        return;
+    }
+
+    if(setjmp(png_jmpbuf(png))) 
+    {
+        fprintf(stderr, "Error setting jump buffer for PNG\n");
+        png_destroy_write_struct(&png, &info);
+        fclose(file);
+        return;
+    }
+
+    png_init_io(png, file);
+    png_set_IHDR(
+        png, info, width, height, 8, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
+        PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT
+    );
+    png_write_info(png, info);
+
+    unsigned char* depths = (unsigned char*)malloc(width * height);
+    glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, depths);
+
+    for(unsigned int i = 0; i < width*height; i++)
+    {
+        depths[i] = 255 - depths[i];
+    }
+
+    png_bytep rows[height];
+    for(int i = 0; i < height; ++i) 
+    {
+        rows[height - 1 - i] = depths + (i * width);
+    }
+
+    png_write_image(png, rows);
+    png_write_end(png, NULL);
+
+    free(depths);
+    png_destroy_write_struct(&png, &info);
+    fclose(file);
+}
+
 static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 
 static inline float string_section_to_float(long start, long end, const char* full_string)

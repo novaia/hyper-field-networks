@@ -112,6 +112,8 @@ void multi_view_render(
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
             save_frame_to_png(save_path, window_width, window_height);
+            snprintf(save_path, sizeof(char) * 100, "%s%d_depth%s", base_path, render_index, ".png");
+            save_depth_to_png(save_path, window_width, window_height);
             glfwSwapBuffers(window);
             render_index++;
         }
@@ -222,7 +224,7 @@ int main()
 
     float aspect_ratio = window_width_f / window_height_f;
     camera_t camera = {
-        .perspective_matrix = get_perspective_matrix(60.0f, 0.1f, 1000.0f, aspect_ratio),
+        .perspective_matrix = get_perspective_matrix(60.0f, 1.0f, 20.0f, aspect_ratio),
         .view_matrix = get_y_rotation_matrix(0.0)
     };
 

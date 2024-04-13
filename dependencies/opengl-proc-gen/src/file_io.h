@@ -14,6 +14,7 @@ typedef struct
 
 image_t* load_png(const char* file_name);
 void save_frame_to_png(const char* filename, unsigned int width, unsigned int height);
+void save_depth_to_png(const char* filename, unsigned int width, unsigned int height);
 
 typedef struct 
 { 

@@ -16,6 +16,12 @@ image_t* load_png(const char* file_name);
 void save_frame_to_png(const char* filename, unsigned int width, unsigned int height);
 void save_depth_to_png(const char* filename, unsigned int width, unsigned int height);
 
+void save_multi_view_transforms_json(
+    const float fov_x, const float fov_y,
+    const unsigned int num_views, const float* euler_angles,
+    const char* file_name
+);
+
 typedef struct 
 { 
     unsigned int num_vertices;

@@ -224,6 +224,48 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
     fclose(file);
 }
 
+void save_multi_view_transforms_json(
+    const float fov_x, const float fov_y,
+    const unsigned int num_views, const float* euler_angles,
+    const char* file_name
+){
+    FILE* file = fopen(file_name, "w");
+    if(file == NULL) 
+    {
+        printf("Error opening file: %s\n", file_name);
+        return;
+    }
+
+    fprintf(file, "{\n");
+    fprintf(file, "  \"fov_x\": %.2f,\n", fov_x);
+    fprintf(file, "  \"fov_y\": %.2f,\n", fov_y);
+    fprintf(file, "  \"angles\": [\n");
+
+    for(unsigned int i = 0; i < num_views; i++) 
+    {
+        fprintf(
+            file, 
+            "    [%.2f, %.2f, %.2f]", 
+            euler_angles[i * 3], 
+            euler_angles[i * 3 + 1], 
+            euler_angles[i * 3 + 2]
+        );
+        if(i < num_views - 1) 
+        {
+            fprintf(file, ",\n");
+        } 
+        else 
+        {
+            fprintf(file, "\n");
+        }
+    }
+
+    fprintf(file, "  ]\n");
+    fprintf(file, "}\n");
+
+    fclose(file);
+}
+
 static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 
 static inline float string_section_to_float(long start, long end, const char* full_string)

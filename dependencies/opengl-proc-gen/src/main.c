@@ -102,12 +102,19 @@ void multi_view_render(
     char* base_path = DATA_PATH("multi_view_renders/");
     char save_path[100];
     unsigned int render_index = 0;
+    const unsigned int num_views = (x_rotation_steps+1) * y_rotation_steps;
+    float* euler_angles = (float*)malloc(sizeof(float) * num_views * 3);
+    unsigned int euler_angles_offset = 0;
     for(unsigned int x = 0; x <= x_rotation_steps; x++)
     {
         const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
         for(unsigned int y = 0; y < y_rotation_steps; y++)
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
+            euler_angles[euler_angles_offset++] = x_rotation;
+            euler_angles[euler_angles_offset++] = y_rotation;
+            euler_angles[euler_angles_offset++] = 0.0f;
+
             camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 4.0f);
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
@@ -118,6 +125,11 @@ void multi_view_render(
             render_index++;
         }
     }
+    save_multi_view_transforms_json(
+        60.0f, 0.0f, num_views, euler_angles, 
+        DATA_PATH("multi_view_renders/transforms.json")
+    );
+    free(euler_angles);
 }
 
 int main()
@@ -231,10 +243,8 @@ int main()
     float rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
     multi_view_render(scene, &camera, &shader, &depth_shader, window);
-    unsigned int first_frame = 1;
     while(!glfwWindowShouldClose(window))
     {
-        break;
         rot += 0.4f;
         if(rot > 360.0f) { rot -= 360.0f; }
         else if(rot < 0.0f) { rot += 360.0f; }
@@ -242,13 +252,6 @@ int main()
         render_scene(scene, &camera, &depth_shader, &shader, window_width, window_height);
         glfwSwapBuffers(window);
         glfwPollEvents();
-        save_frame_to_png(DATA_PATH("test_frame.png"), window_width, window_height);
-        if(first_frame)
-        {
-            first_frame = 0;
-            continue;
-        }
-        break;
     }
     glfwDestroyWindow(window);
     glfwTerminate();

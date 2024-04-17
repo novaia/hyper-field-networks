@@ -7,6 +7,8 @@
 #include <GLFW/glfw3.h>
 #include "file_io.h"
 
+#define FOUR_SPACE_INDENT(s) "    "s
+
 image_t* load_png(const char* file_name)
 {
     FILE* fp = fopen(file_name, "rb");
@@ -226,7 +228,7 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
 
 void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
-    const unsigned int num_views, const float* euler_angles,
+    const unsigned int num_views, const mat4* transform_matrices,
     const char* file_name
 ){
     FILE* file = fopen(file_name, "w");
@@ -237,32 +239,55 @@ void save_multi_view_transforms_json(
     }
 
     fprintf(file, "{\n");
-    fprintf(file, "    \"fov_x\": %.2f,\n", fov_x);
-    fprintf(file, "    \"fov_y\": %.2f,\n", fov_y);
-    fprintf(file, "    \"angles\": [\n");
+    fprintf(file, FOUR_SPACE_INDENT("\"fov_x\": %.2f,\n"), fov_x);
+    fprintf(file, FOUR_SPACE_INDENT("\"fov_y\": %.2f,\n"), fov_y);
+    fprintf(file, FOUR_SPACE_INDENT("\"frames\": [\n"));
+    
+    const char* column_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
+        FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("[%.7f, %.7f, %.7f, %.7f],\n"))
+    ));
+    // Same as regular column format but without the trailing comma.
+    const char* final_column_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
+        FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("[%.7f, %.7f, %.7f, %.7f]\n"))
+    ));
 
     for(unsigned int i = 0; i < num_views; i++) 
     {
-        fprintf(
-            file, 
-            "        [%.2f, %.2f, %.2f]", 
-            euler_angles[i * 3], 
-            euler_angles[i * 3 + 1], 
-            euler_angles[i * 3 + 2]
-        );
-        if(i < num_views - 1) 
+        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("{\n")));
+        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"path\": \"%d.png\",\n"))), i);
+        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"transform\": [\n"))));
+        const mat4 current_transform = transform_matrices[i];
+        for(unsigned int col = 0; col < 4; col++)
         {
-            fprintf(file, ",\n");
-        } 
-        else 
+            unsigned int matrix_offset = col * 4;
+            const float x = current_transform.data[matrix_offset++];
+            const float y = current_transform.data[matrix_offset++];
+            const float z = current_transform.data[matrix_offset++];
+            const float w = current_transform.data[matrix_offset++];
+            if(col == 3)
+            {
+                // Print column without trailing comma if this is the last column.
+                fprintf(file, final_column_format, x, y, z, w);
+            }
+            else
+            {
+                fprintf(file, column_format, x, y, z, w);
+            }
+        }
+        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("]\n"))));
+        if(i == num_views - 1)
         {
-            fprintf(file, "\n");
+            // Print closing bracket without trailing comma if this is the last view.
+            fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("}\n")));
+        }
+        else
+        {
+            fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("},\n")));
         }
     }
 
-    fprintf(file, "    ]\n");
+    fprintf(file, FOUR_SPACE_INDENT("]\n"));
     fprintf(file, "}\n");
-
     fclose(file);
 }
 

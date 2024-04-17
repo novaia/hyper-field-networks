@@ -1,5 +1,7 @@
 #pragma once
 
+#include "matrices.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,7 +20,7 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
 
 void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
-    const unsigned int num_views, const float* euler_angles,
+    const unsigned int num_views, const mat4* transform_matrices,
     const char* file_name
 );
 

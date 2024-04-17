@@ -103,19 +103,16 @@ void multi_view_render(
     char save_path[100];
     unsigned int render_index = 0;
     const unsigned int num_views = (x_rotation_steps+1) * y_rotation_steps;
-    float* euler_angles = (float*)malloc(sizeof(float) * num_views * 3);
-    unsigned int euler_angles_offset = 0;
+    mat4* transform_matrices = (mat4*)malloc(sizeof(mat4) * num_views);
+    unsigned int transform_matrices_offset = 0;
     for(unsigned int x = 0; x <= x_rotation_steps; x++)
     {
         const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
         for(unsigned int y = 0; y < y_rotation_steps; y++)
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
-            euler_angles[euler_angles_offset++] = x_rotation;
-            euler_angles[euler_angles_offset++] = y_rotation;
-            euler_angles[euler_angles_offset++] = 0.0f;
-
             camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 4.0f);
+            memcpy(&transform_matrices[transform_matrices_offset++], &camera->view_matrix, sizeof(mat4));
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
             save_frame_to_png(save_path, window_width, window_height);
@@ -126,10 +123,10 @@ void multi_view_render(
         }
     }
     save_multi_view_transforms_json(
-        60.0f, 0.0f, num_views, euler_angles, 
+        60.0f, 0.0f, num_views, transform_matrices, 
         DATA_PATH("multi_view_renders/transforms.json")
     );
-    free(euler_angles);
+    free(transform_matrices);
 }
 
 int main()

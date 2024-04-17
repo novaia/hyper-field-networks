@@ -1,11 +1,6 @@
 # g3dm
 Experiments in generative 3D modelling.
 
-## Running Tests
-Use PyTest to run the tests in the tests directory:
-```
-pytest tests
-```
 ## Development Environment
 This project's development environment is managed with Nix. You can follow the steps below to get started.
 1. Install Nix with the [official installer](https://nixos.org/download/) or the [determinate installer](https://github.com/DeterminateSystems/nix-installer).

@@ -237,15 +237,15 @@ void save_multi_view_transforms_json(
     }
 
     fprintf(file, "{\n");
-    fprintf(file, "  \"fov_x\": %.2f,\n", fov_x);
-    fprintf(file, "  \"fov_y\": %.2f,\n", fov_y);
-    fprintf(file, "  \"angles\": [\n");
+    fprintf(file, "    \"fov_x\": %.2f,\n", fov_x);
+    fprintf(file, "    \"fov_y\": %.2f,\n", fov_y);
+    fprintf(file, "    \"angles\": [\n");
 
     for(unsigned int i = 0; i < num_views; i++) 
     {
         fprintf(
             file, 
-            "    [%.2f, %.2f, %.2f]", 
+            "        [%.2f, %.2f, %.2f]", 
             euler_angles[i * 3], 
             euler_angles[i * 3 + 1], 
             euler_angles[i * 3 + 2]
@@ -260,7 +260,7 @@ void save_multi_view_transforms_json(
         }
     }
 
-    fprintf(file, "  ]\n");
+    fprintf(file, "    ]\n");
     fprintf(file, "}\n");
 
     fclose(file);

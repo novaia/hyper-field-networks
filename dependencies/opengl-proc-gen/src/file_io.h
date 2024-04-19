@@ -21,7 +21,7 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
 void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
     const unsigned int num_views, const mat4* transform_matrices,
-    const char* file_name
+    const char* file_name, const int with_depth
 );
 
 typedef struct 

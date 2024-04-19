@@ -124,7 +124,7 @@ void multi_view_render(
     }
     save_multi_view_transforms_json(
         60.0f, 0.0f, num_views, transform_matrices, 
-        DATA_PATH("multi_view_renders/transforms.json")
+        DATA_PATH("multi_view_renders/transforms.json"), 1
     );
     free(transform_matrices);
 }

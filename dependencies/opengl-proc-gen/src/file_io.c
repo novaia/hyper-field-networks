@@ -229,7 +229,7 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
 void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
     const unsigned int num_views, const mat4* transform_matrices,
-    const char* file_name
+    const char* file_name, const int with_depth
 ){
     FILE* file = fopen(file_name, "w");
     if(file == NULL) 
@@ -250,11 +250,17 @@ void save_multi_view_transforms_json(
     const char* final_column_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
         FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("[%.7f, %.7f, %.7f, %.7f]\n"))
     ));
-
+    const char* color_path_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
+        FOUR_SPACE_INDENT("\"color_path\": \"%d.png\",\n")
+    ));
+    const char* depth_path_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
+        FOUR_SPACE_INDENT("\"depth_path\": \"%d_depth.png\",\n")
+    ));
     for(unsigned int i = 0; i < num_views; i++) 
     {
         fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("{\n")));
-        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"path\": \"%d.png\",\n"))), i);
+        fprintf(file, color_path_format, i);
+        if(with_depth) { fprintf(file, depth_path_format, i); }
         fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"transform\": [\n"))));
         const mat4 current_transform = transform_matrices[i];
         for(unsigned int col = 0; col < 4; col++)

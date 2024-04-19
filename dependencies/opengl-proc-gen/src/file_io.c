@@ -141,18 +141,18 @@ void save_frame_to_png(const char* filename, unsigned int width, unsigned int he
 
     png_init_io(png, file);
     png_set_IHDR(
-        png, info, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+        png, info, width, height, 8, PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
         PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT
     );
     png_write_info(png, info);
 
-    unsigned char* pixels = (unsigned char*)malloc(width * height * 3);
-    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+    unsigned char* pixels = (unsigned char*)malloc(width * height * 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
     png_bytep rows[height];
     for(int i = 0; i < height; ++i) 
     {
-        rows[height - 1 - i] = pixels + (i * width * 3);
+        rows[height - 1 - i] = pixels + (i * width * 4);
     }
 
     png_write_image(png, rows);

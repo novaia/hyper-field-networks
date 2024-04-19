@@ -11,8 +11,8 @@
 
 #define DATA_PATH(path) "/home/hayden/repos/g3dm/data/"path
 
-unsigned int window_width = 1280;
-unsigned int window_height = 720;
+unsigned int window_width = 512;
+unsigned int window_height = 512;
 const char* window_title = "3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
@@ -87,10 +87,10 @@ void multi_view_render(
     mesh_shader_t* shader, depth_map_shader_t* depth_shader,
     GLFWwindow* window
 ){
-    const float min_x_rotation = -20.0f;
+    const float min_x_rotation = -80.0f;
     const float max_x_rotation = 80.0f;
     const float x_rotation_domain = max_x_rotation - min_x_rotation;
-    const unsigned int x_rotation_steps = 4;
+    const unsigned int x_rotation_steps = 10;
     const float x_rotation_per_step = x_rotation_domain / (float)x_rotation_steps;
     
     const float min_y_rotation = 0.0f;
@@ -111,7 +111,7 @@ void multi_view_render(
         for(unsigned int y = 0; y < y_rotation_steps; y++)
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
-            camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 4.0f);
+            camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 5.0f);
             memcpy(&transform_matrices[transform_matrices_offset++], &camera->view_matrix, sizeof(mat4));
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
@@ -218,11 +218,11 @@ int main()
     error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
     if(error) { return -1; }
 
-    mat4 plane_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
+    /*mat4 plane_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
     error = add_scene_element(
         scene, plane_model_matrix, plane_mesh_index, orange_texture_index
     );
-    if(error) { return -1; }
+    if(error) { return -1; }*/
     
     mesh_shader_t shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)

@@ -26,6 +26,44 @@ inline mat4 mat4mul(mat4 a, mat4 b)
     return result;
 }
 
+inline void vec3mat4mul(
+    mat4 matrix, float in_x, float in_y, float in_z, 
+    float* out_x, float* out_y, float* out_z
+){
+    const float in_w = 1.0f;
+    float out_x_temp = 0.0f;
+    float out_y_temp = 0.0f;
+    float out_z_temp = 0.0f;
+    float out_w_temp = 0.0f;
+    for(unsigned int row = 0; row < 4; row++)
+    {
+        const unsigned int row_offset = row * 4;
+        const float col_x = matrix.data[row_offset];
+        const float col_y = matrix.data[row_offset + 1];
+        const float col_z = matrix.data[row_offset + 2];
+        const float col_w = matrix.data[row_offset + 3];
+        switch(row)
+        {
+            
+            case 0:
+                out_x_temp = (in_x * col_x) + (in_y * col_y) + (in_z * col_z) + (in_w * col_w);
+                break;
+            case 1:
+                out_y_temp = (in_x * col_x) + (in_y * col_y) + (in_z * col_z) + (in_w * col_w);
+                break;
+            case 2:
+                out_z_temp = (in_x * col_x) + (in_y * col_y) + (in_z * col_z) + (in_w * col_w);
+                break;
+            case 3:
+                out_w_temp = (in_x * col_x) + (in_y * col_y) + (in_z * col_z) + (in_w * col_w);
+                break;
+        }
+    }
+    *out_x = out_x_temp / out_w_temp;
+    *out_y = out_y_temp / out_w_temp;
+    *out_z = out_z_temp / out_w_temp;
+}
+
 inline mat4 get_perspective_matrix(
     float fov, float near_plane, float far_plane, float aspect_ratio
 ){
@@ -101,6 +139,20 @@ inline mat4 get_model_matrix(
     model_matrix.data[MAT4_X_TRANSLATION_INDEX] = position_x;
     model_matrix.data[MAT4_Y_TRANSLATION_INDEX] = position_y;
     model_matrix.data[MAT4_Z_TRANSLATION_INDEX] = position_z;
+    return model_matrix;
+}
+
+inline mat4 get_model_matrix_from_rotation(
+    const float rotation_x, const float rotation_y, const float rotation_z, const float zoom
+){
+    const mat4 x_rotation_matrix = get_x_rotation_matrix(rotation_x);
+    const mat4 y_rotation_matrix = get_y_rotation_matrix(rotation_y);
+    mat4 model_matrix = mat4mul(x_rotation_matrix, y_rotation_matrix);
+    float translation_x = 0.0f, translation_y = 0.0f, translation_z = 0.0f;
+    vec3mat4mul(model_matrix, 0.0f, 0.0f, zoom, &translation_x, &translation_y, &translation_z);
+    model_matrix.data[MAT4_X_TRANSLATION_INDEX] = translation_x;
+    model_matrix.data[MAT4_Y_TRANSLATION_INDEX] = translation_y;
+    model_matrix.data[MAT4_Z_TRANSLATION_INDEX] = translation_z;
     return model_matrix;
 }
 

@@ -17,6 +17,7 @@ const char* window_title = "3D";
 float window_width_f = 0.0f;
 float window_height_f = 0.0f;
 float window_height_to_width_ratio = 0.0f;
+const float fov = 80.0f;
 
 static void error_callback(int error, const char* description)
 {
@@ -112,7 +113,8 @@ void multi_view_render(
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
             camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 5.0f);
-            memcpy(&transform_matrices[transform_matrices_offset++], &camera->view_matrix, sizeof(mat4));
+            const mat4 transform_matrix = get_model_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 5.0f);
+            transform_matrices[transform_matrices_offset++] = transform_matrix;
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
             save_frame_to_png(save_path, window_width, window_height);
@@ -123,7 +125,7 @@ void multi_view_render(
         }
     }
     save_multi_view_transforms_json(
-        60.0f, 0.0f, num_views, transform_matrices, 
+        (float)degrees_to_radians((double)(fov/2.0f)), 0.0f, num_views, transform_matrices, 
         DATA_PATH("multi_view_renders/transforms.json"), 1
     );
     free(transform_matrices);
@@ -233,7 +235,7 @@ int main()
 
     float aspect_ratio = window_width_f / window_height_f;
     camera_t camera = {
-        .perspective_matrix = get_perspective_matrix(60.0f, 1.0f, 20.0f, aspect_ratio),
+        .perspective_matrix = get_perspective_matrix(fov, 1.0f, 20.0f, aspect_ratio),
         .view_matrix = get_y_rotation_matrix(0.0)
     };
 

@@ -239,8 +239,8 @@ void save_multi_view_transforms_json(
     }
 
     fprintf(file, "{\n");
-    fprintf(file, FOUR_SPACE_INDENT("\"fov_x\": %.2f,\n"), fov_x);
-    fprintf(file, FOUR_SPACE_INDENT("\"fov_y\": %.2f,\n"), fov_y);
+    fprintf(file, FOUR_SPACE_INDENT("\"fov_x\": %.7f,\n"), fov_x);
+    fprintf(file, FOUR_SPACE_INDENT("\"fov_y\": %.7f,\n"), fov_x);
     fprintf(file, FOUR_SPACE_INDENT("\"frames\": [\n"));
     
     const char* column_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(

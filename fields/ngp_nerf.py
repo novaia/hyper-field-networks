@@ -476,7 +476,8 @@ def main():
         update_interval=config['grid_update_interval'], 
         warmup_steps=config['grid_warmup_steps']
     )
-    dataset = load_nerf_dataset('data/lego', 1)
+    dataset = load_nerf_dataset('data/multi_view_renders', 2, True)
+    print(dataset.images.shape)
     train_loop_with_args = partial(
         train_loop,
         batch_size=config['batch_size'],

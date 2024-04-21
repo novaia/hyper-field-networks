@@ -25,12 +25,12 @@ class NerfDataset:
     transform_matrices: Optional[jnp.ndarray] = None
     images: Optional[jnp.ndarray] = None
 
-def load_nerf_dataset(dataset_path:str, downscale_factor:int):
+def load_nerf_dataset(dataset_path:str, downscale_factor:int, transpose_transform:bool=False):
     with open(os.path.join(dataset_path, 'transforms.json'), 'r') as f:
         transforms = json.load(f)
 
     frame_data = transforms['frames']
-    first_file_path = frame_data[0]['file_path']
+    first_file_path = frame_data[0]['color_path']
     # Process file paths if they're in the original nerf format.
     if not first_file_path.endswith('.png') and first_file_path.startswith('.'):
         process_file_path = lambda path: path[2:] + '.png'
@@ -38,28 +38,45 @@ def load_nerf_dataset(dataset_path:str, downscale_factor:int):
         process_file_path = lambda path: path
 
     images = []
+    depths = []
     transform_matrices = []
     for frame in transforms['frames']:
-        transform_matrix = jnp.array(frame['transform_matrix'])
-        transform_matrices.append(transform_matrix)
-        file_path = process_file_path(frame['file_path'])
-        image = Image.open(os.path.join(dataset_path, file_path))
-        image = image.resize(
-            (image.width // downscale_factor, image.height // downscale_factor),
-            resample=Image.NEAREST
-        )
-        images.append(jnp.array(image))
+        transform_matrices.append(jnp.array(frame['transform']))
+        color_path = process_file_path(frame['color_path'])
+        with Image.open(os.path.join(dataset_path, color_path)) as color:
+            color = color.resize(
+                (color.width // downscale_factor, color.height // downscale_factor),
+                resample=Image.NEAREST
+            )
+            images.append(jnp.array(color))
 
-    transform_matrices = jnp.array(transform_matrices)[:, :3, :]
+        depth_path = process_file_path(frame['depth_path'])
+        with Image.open(os.path.join(dataset_path, depth_path)) as depth:
+            depth = depth.resize(
+                (depth.width // downscale_factor, depth.height // downscale_factor),
+                resample=Image.NEAREST
+            )
+            depths.append(jnp.array(depth))
+
+    transform_matrices = jnp.array(transform_matrices)
+    if transpose_transform:
+        # Transpose transform matrices to switch from column major to row major.
+        transform_matrices = jnp.swapaxes(transform_matrices, -1, -2)
+    print(transform_matrices[0])
+    transform_matrices = transform_matrices[:, :3, :]
+    print(transform_matrices[0])
+    print(transform_matrices[0, :, -1])
     mean_translation = jnp.mean(jnp.linalg.norm(transform_matrices[:, :, -1], axis=-1))
+    print('mean translation', mean_translation)
     translation_scale = (1 / mean_translation) * 2
     process_transform_matrices_vmap = jax.vmap(process_3x4_transformation_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
+    print(transform_matrices[0])
     images = jnp.array(images, dtype=jnp.float32) / 255.0
 
     dataset = NerfDataset(
-        horizontal_fov=transforms['camera_angle_x'],
-        vertical_fov=transforms['camera_angle_x'],
+        horizontal_fov=transforms['fov_x'],
+        vertical_fov=transforms['fov_x'],
         fl_x=1,
         fl_y=1,
         cx=images.shape[1]/2,

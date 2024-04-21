@@ -37,14 +37,12 @@ inline void vec3mat4mul(
     float out_w_temp = 0.0f;
     for(unsigned int row = 0; row < 4; row++)
     {
-        const unsigned int row_offset = row * 4;
-        const float col_x = matrix.data[row_offset];
-        const float col_y = matrix.data[row_offset + 1];
-        const float col_z = matrix.data[row_offset + 2];
-        const float col_w = matrix.data[row_offset + 3];
+        const float col_x = matrix.data[row];
+        const float col_y = matrix.data[row + 4];
+        const float col_z = matrix.data[row + 4 * 2];
+        const float col_w = matrix.data[row + 4 * 3];
         switch(row)
         {
-            
             case 0:
                 out_x_temp = (in_x * col_x) + (in_y * col_y) + (in_z * col_z) + (in_w * col_w);
                 break;

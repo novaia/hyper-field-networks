@@ -91,13 +91,13 @@ void multi_view_render(
     const float min_x_rotation = -80.0f;
     const float max_x_rotation = 80.0f;
     const float x_rotation_domain = max_x_rotation - min_x_rotation;
-    const unsigned int x_rotation_steps = 10;
+    const unsigned int x_rotation_steps = 5;
     const float x_rotation_per_step = x_rotation_domain / (float)x_rotation_steps;
     
     const float min_y_rotation = 0.0f;
     const float max_y_rotation = 360.0f;
     const float y_rotation_domain = max_y_rotation - min_y_rotation;
-    const unsigned int y_rotation_steps = 8;
+    const unsigned int y_rotation_steps = 12;
     const float y_rotation_per_step = y_rotation_domain / (float)y_rotation_steps;
 
     char* base_path = DATA_PATH("multi_view_renders/");
@@ -113,7 +113,7 @@ void multi_view_render(
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
             camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 5.0f);
-            const mat4 transform_matrix = get_model_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 5.0f);
+            const mat4 transform_matrix = get_model_matrix_from_rotation(-x_rotation, -y_rotation, 0.0f, -5.0f);
             transform_matrices[transform_matrices_offset++] = transform_matrix;
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");

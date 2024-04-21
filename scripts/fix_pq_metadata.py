@@ -33,7 +33,7 @@ def main():
     print(pq_file_list)
     for file_name in pq_file_list:
         fix_metadata_and_save(file_name, args.input_path, args.output_path)
-        exit()
+        print(f'Processed {file_name}')
 
 if __name__ == '__main__':
     main()

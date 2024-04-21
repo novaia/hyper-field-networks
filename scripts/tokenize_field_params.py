@@ -39,22 +39,24 @@ def main():
     pq_paths = [p for p in os.listdir(args.input_path) if p.endswith('.parquet')]
     assert len(pq_paths) > 0, 'No parquet files were found in input directory.'    
     
-    table = pq.read_table(os.path.join(args.input_path, pq_paths[0]))
-    jitted_tokenize = jax.jit(tokenize)
-    pq_table_data = []
-    for i in range(len(table)):
-        params = jnp.array(pa.array(table['params'][i]).to_numpy(), dtype=jnp.float16)
-        tokens = jitted_tokenize(params)
-        image = table['image'][i]
-        pq_row_data = {
-            'tokens': tokens.tolist(),
-            'image': {
-                'bytes': image['bytes'],
-                'path': image['path']
+    for current_path in pq_paths:
+        table = pq.read_table(os.path.join(args.input_path, current_path)) 
+        jitted_tokenize = jax.jit(tokenize)
+        pq_table_data = []
+        for i in range(len(table)):
+            params = jnp.array(pa.array(table['params'][i]).to_numpy(), dtype=jnp.float16)
+            tokens = jitted_tokenize(params)
+            image = table['image'][i]
+            pq_row_data = {
+                'tokens': tokens.tolist(),
+                'image': {
+                    'bytes': image['bytes'],
+                    'path': image['path']
+                }
             }
-        }
-        pq_table_data.append(pq_row_data)
-    save_table(pq_table_data, os.path.join(args.output_path, pq_paths[0]))
+            pq_table_data.append(pq_row_data)
+        save_table(pq_table_data, os.path.join(args.output_path, current_path))
+        print(f'Processed {current_path}')
 
 if __name__ == '__main__':
     main()

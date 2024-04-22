@@ -12,6 +12,7 @@ from float_tokenization import detokenize
 from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
+import wandb
 
 def load_dataset(dataset_path, test_size, split_seed):
     field_config = None
@@ -34,7 +35,10 @@ def load_dataset(dataset_path, test_size, split_seed):
 
     dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
     train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
-    return train.with_format('jax'), test.with_format('jax'), field_config, param_map
+    train = train.with_format('jax')
+    test = test.with_format('jax')
+    context_length = train[0]['tokens'].shape[0]
+    return train, test, field_config, param_map, context_length
 
 class ArHypernet(nn.Module):
     vocab_size: int
@@ -61,15 +65,25 @@ class ArHypernet(nn.Module):
         for _ in range(self.num_blocks):
             residual = x
             x = nn.LayerNorm()(x)
-            x = nn.MultiHeadDotProductAttention(
+            # Disable dropout for easier rematerialization.
+            x = nn.remat(nn.MultiHeadDotProductAttention)(
                 num_heads=self.num_attention_heads,
                 qkv_features=self.hidden_dim,
                 out_features=self.hidden_dim,
                 dtype=self.dtype,
                 use_bias=False,
                 normalize_qk=True,
-                dropout_rate=self.dropout_rate
-            )(inputs_q=x, mask=attention_mask, deterministic=not training)
+            )(inputs_q=x, mask=attention_mask)
+            #x = nn.remat(nn.MultiHeadDotProductAttention)(
+            #    num_heads=self.num_attention_heads,
+            #    qkv_features=self.hidden_dim,
+            #    out_features=self.hidden_dim,
+            #    dtype=self.dtype,
+            #    use_bias=False,
+            #    normalize_qk=True,
+            #    dropout_rate=self.dropout_rate
+            #)(inputs_q=x, mask=attention_mask, deterministic=not training)
+
             x = x + residual
             residual = x
             x = nn.LayerNorm()(x)
@@ -128,11 +142,12 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/2'
-    dataset_path = 'data/mnist-ngp-image-612-11bit'
+    output_path = 'data/ar_hypernet_output/3'
+    dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
     split_size = 0.01
     split_seed = 0
-    train_set, test_set, field_config, param_map = load_dataset(dataset_path, split_size, split_seed)
+    train_set, test_set, field_config, param_map, context_length = \
+        load_dataset(dataset_path, split_size, split_seed)
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -142,20 +157,35 @@ def main():
     print('vocab size', vocab_size)
 
     num_epochs = 200
-    batch_size = 16
-    context_length = 612
-    embedding_dim = 256
-    hidden_dim = 512
-    num_attention_heads = 16
-    num_blocks = 12
+    batch_size = 1
+    embedding_dim = 16
+    hidden_dim = 16
+    num_attention_heads = 1
+    num_blocks = 2
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0
     dropout_rate = 0.2
-    ff_dim_multiplier = 2
+    ff_dim_multiplier = 1
     start_token = vocab_size
     batched_start_tokens = jnp.full((batch_size, 1), fill_value=start_token, dtype=jnp.uint32)
 
+    wandb_config = {
+        'batch_size': batch_size,
+        'context_length': context_length,
+        'embedding_dim': embedding_dim,
+        'hidden_dim': hidden_dim,
+        'num_attention_heads': num_attention_heads,
+        'num_blocks': num_blocks,
+        'learning_rate': learning_rate,
+        'weight_decay': weight_decay,
+        'sample_temperature': sample_temperature,
+        'dropout_rate': dropout_rate,
+        'ff_dim_multiplier': ff_dim_multiplier,
+    }
+    wandb.init(project='ar-hypernet', config=wandb_config)
+    wandb_loss_accumulation_steps = 10
+    
     model = ArHypernet(
         vocab_size=vocab_size,
         context_length=context_length,
@@ -186,17 +216,24 @@ def main():
     test_steps = num_test_samples // batch_size
     print('train set size:', num_test_samples)
     
+    steps_since_loss_report = 0
     for epoch in range(num_epochs):
         train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(batch_size)
-        losses_this_epoch = []
+        accumulated_losses = []
         for step in range(train_steps):
             tokens = next(train_iterator)['tokens']
             loss, state = train_step(state, tokens=tokens, start_tokens=batched_start_tokens)
-            losses_this_epoch.append(loss)
+            accumulated_losses.append(loss)
+            steps_since_loss_report += 1
+            if steps_since_loss_report >= wandb_loss_accumulation_steps:
+                average_loss = sum(accumulated_losses) / len(accumulated_losses)
+                wandb.log({'loss': average_loss}, step=state.step)
+                accumulated_losses = []
+                steps_since_loss_report = 0
             #print(f'step {step}, loss {loss}')
-        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
-        print(f'epoch {epoch}, loss {average_loss}')
+        #average_loss = sum(accumulated_losses) / len(accumulated_losses)
+        #print(f'epoch {epoch}, loss {average_loss}')
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)
@@ -206,7 +243,8 @@ def main():
             loss = test_step(state, tokens=tokens, start_tokens=batched_start_tokens)
             losses_this_test.append(loss)
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
-        print(f'epoch {epoch}, test_loss {average_test_loss}')
+        wandb.log({'test_loss': average_test_loss}, step=state.step)
+        #print(f'epoch {epoch}, test_loss {average_test_loss}')
         
         tokens = sample_context(
             state, 

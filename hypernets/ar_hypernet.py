@@ -148,6 +148,11 @@ def main():
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \
         load_dataset(dataset_path, split_size, split_seed)
+    print('Context length', context_length)
+    first_sample = train_set[0]['tokens']
+    for i in range(context_length):
+        print(first_sample[i])
+    exit()
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -158,10 +163,10 @@ def main():
 
     num_epochs = 200
     batch_size = 1
-    embedding_dim = 16
-    hidden_dim = 16
+    embedding_dim = 128
+    hidden_dim = 128
     num_attention_heads = 1
-    num_blocks = 2
+    num_blocks = 4
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0
@@ -231,7 +236,7 @@ def main():
                 wandb.log({'loss': average_loss}, step=state.step)
                 accumulated_losses = []
                 steps_since_loss_report = 0
-            #print(f'step {step}, loss {loss}')
+            print(f'step {step}, loss {loss}')
         #average_loss = sum(accumulated_losses) / len(accumulated_losses)
         #print(f'epoch {epoch}, loss {average_loss}')
         

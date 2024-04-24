@@ -47,7 +47,9 @@ def main():
         for i in range(len(table)):
             params = jnp.array(pa.array(table['params'][i]).to_numpy(), dtype=jnp.float16)
             tokens = jitted_tokenize(params)
-            token_list = np.array(tokens).tolist()
+            tokens = jnp.array(tokens, dtype=jnp.uint32)
+            #token_list = np.array(jax.device_put(tokens, jax.devices('gpu')[0]), dtype=np.uint32)
+            token_list = tokens.tolist()
             for k in range(tokens.shape[0]):
                 print(token_list[k], tokens[k], params[k])
             exit()

@@ -35,9 +35,10 @@ def load_dataset(dataset_path, test_size, split_seed):
 
     dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
     train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
-    train = train.with_format('jax')
-    test = test.with_format('jax')
-    context_length = train[0]['tokens'].shape[0]
+    #train = train.with_format('jax')
+    #test = test.with_format('jax')
+    #context_length = train[0]['tokens'].shape[0]
+    context_length = len(train[0]['tokens'])
     return train, test, field_config, param_map, context_length
 
 class ArHypernet(nn.Module):
@@ -143,13 +144,15 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
 
 def main():
     output_path = 'data/ar_hypernet_output/3'
-    dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
+    #dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
+    dataset_path = 'data/field_debugging'
     split_size = 0.01
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \
         load_dataset(dataset_path, split_size, split_seed)
     print('Context length', context_length)
-    first_sample = train_set[0]['tokens']
+    #first_sample = jnp.array(test_set[0]['tokens'], dtype=jnp.uint32)
+    first_sample = test_set[0]['tokens']
     for i in range(context_length):
         print(first_sample[i])
     exit()

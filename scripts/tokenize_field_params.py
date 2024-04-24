@@ -46,6 +46,8 @@ def main():
         for i in range(len(table)):
             params = jnp.array(pa.array(table['params'][i]).to_numpy(), dtype=jnp.float16)
             tokens = jitted_tokenize(params)
+            #for k in range(tokens.shape[0]):
+            #    print(tokens[k])
             image = table['image'][i]
             pq_row_data = {
                 'tokens': tokens.tolist(),

@@ -34,11 +34,13 @@ def load_dataset(dataset_path, test_size, split_seed):
     print(f'Found {num_parquet_files} parquet file(s) in dataset directory')
 
     dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
+    dataset = dataset.with_format('jax')
     train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
-    #train = train.with_format('jax')
-    #test = test.with_format('jax')
-    #context_length = train[0]['tokens'].shape[0]
-    context_length = len(train[0]['tokens'])
+    device = str(jax.devices('gpu')[0])
+    #train = train.with_format('jax', device=device)
+    #test = test.with_format('jax', device=device)
+    context_length = train[0]['tokens'].shape[0]
+    #context_length = len(train[0]['tokens'])
     return train, test, field_config, param_map, context_length
 
 class ArHypernet(nn.Module):
@@ -151,8 +153,8 @@ def main():
     train_set, test_set, field_config, param_map, context_length = \
         load_dataset(dataset_path, split_size, split_seed)
     print('Context length', context_length)
-    #first_sample = jnp.array(test_set[0]['tokens'], dtype=jnp.uint32)
-    first_sample = test_set[0]['tokens']
+    first_sample = jnp.array(test_set[0]['tokens'], dtype=jnp.uint32)
+    #first_sample = train_set[0]['tokens']
     for i in range(context_length):
         print(first_sample[i])
     exit()

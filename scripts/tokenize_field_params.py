@@ -5,6 +5,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 def save_table(table_data, output_path):
     schema = pa.schema(
@@ -46,8 +47,10 @@ def main():
         for i in range(len(table)):
             params = jnp.array(pa.array(table['params'][i]).to_numpy(), dtype=jnp.float16)
             tokens = jitted_tokenize(params)
-            #for k in range(tokens.shape[0]):
-            #    print(tokens[k])
+            token_list = np.array(tokens).tolist()
+            for k in range(tokens.shape[0]):
+                print(token_list[k], tokens[k], params[k])
+            exit()
             image = table['image'][i]
             pq_row_data = {
                 'tokens': tokens.tolist(),

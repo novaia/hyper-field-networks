@@ -49,10 +49,10 @@ def main():
             tokens = jitted_tokenize(params)
             tokens = jnp.array(tokens, dtype=jnp.uint32)
             #token_list = np.array(jax.device_put(tokens, jax.devices('gpu')[0]), dtype=np.uint32)
-            token_list = tokens.tolist()
-            for k in range(tokens.shape[0]):
-                print(token_list[k], tokens[k], params[k])
-            exit()
+            #token_list = tokens.tolist()
+            #for k in range(tokens.shape[0]):
+            #    print(token_list[k], tokens[k], params[k])
+            #exit()
             image = table['image'][i]
             pq_row_data = {
                 'tokens': tokens.tolist(),

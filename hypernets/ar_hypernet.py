@@ -151,10 +151,8 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/4'
-    #dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
-    #dataset_path = 'data/field_debugging'
-    dataset_path = 'data/mnist-ngp-image-612-11bit'
+    output_path = 'data/ar_hypernet_output/5'
+    dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
     split_size = 0.1
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \
@@ -168,14 +166,14 @@ def main():
 
     token_bits = 11
     vocab_size = 2 * 2**token_bits - 1
-    print('vocab size', vocab_size)
+    print('Vocab size', vocab_size)
 
     num_epochs = 200
-    batch_size = 64
+    batch_size = 1
     embedding_dim = 128
     hidden_dim = 128
     num_attention_heads = 1
-    num_blocks = 4
+    num_blocks = 12
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0
@@ -197,9 +195,7 @@ def main():
         'dropout_rate': dropout_rate,
         'ff_dim_multiplier': ff_dim_multiplier,
     }
-    wandb.init(project='ar-hypernet', config=wandb_config)
-    wandb_loss_accumulation_steps = 300
-    
+        
     model = ArHypernet(
         vocab_size=vocab_size,
         context_length=context_length,
@@ -225,10 +221,16 @@ def main():
 
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
-    print('test set size:', num_train_samples)
+    print('Test set size:', num_train_samples)
     num_test_samples = len(test_set)
     test_steps = num_test_samples // batch_size
-    print('train set size:', num_test_samples)
+    print('Train set size:', num_test_samples)
+    
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+    print('Param count', param_count)
+    wandb_config['param_count'] = param_count
+    wandb.init(project='ar-hypernet', config=wandb_config)
+    wandb_loss_accumulation_steps = 300
     
     steps_since_loss_report = 0
     for epoch in range(num_epochs):
@@ -246,8 +248,6 @@ def main():
                 accumulated_losses = []
                 steps_since_loss_report = 0
             print(f'step {step}, loss {loss}')
-        #average_loss = sum(accumulated_losses) / len(accumulated_losses)
-        #print(f'epoch {epoch}, loss {average_loss}')
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)

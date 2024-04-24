@@ -133,23 +133,34 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     def get_logits(state, tokens):
         return state.apply_fn({'params': state.params}, tokens=tokens, training=False)
 
-    for i in range(len(prompt_tokens)-1, context_length-1):
+    for i in range(len(prompt_tokens)-1, context_length):
         logits = get_logits(state, tokens)
         logits = logits[0, i, :] / temperature
         probs = nn.softmax(logits)
         next_token = jax.random.choice(jax.random.PRNGKey(state.step+i), a=vocab, p=probs)
-        tokens = tokens.at[0, i+1].set(next_token)
+        if i == context_length - 1:
+            # Remove the start token and add last token to the end.
+            tokens = tokens[:, 1:]
+            tokens = jnp.concatenate(
+                [tokens, jnp.ones((1, 1), dtype=jnp.uint32) * next_token], 
+                axis=-1
+            )
+        else:
+            tokens = tokens.at[0, i+1].set(next_token)
     
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/3'
+    output_path = 'data/ar_hypernet_output/4'
     #dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
-    dataset_path = 'data/field_debugging'
-    split_size = 0.01
+    #dataset_path = 'data/field_debugging'
+    dataset_path = 'data/mnist-ngp-image-612-11bit'
+    split_size = 0.1
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \
         load_dataset(dataset_path, split_size, split_seed)
+    print('Image width', field_config['image_width'])
+    print('Image height', field_config['image_height'])
     print('Context length', context_length)
 
     if not os.path.exists(output_path):
@@ -160,7 +171,7 @@ def main():
     print('vocab size', vocab_size)
 
     num_epochs = 200
-    batch_size = 1
+    batch_size = 64
     embedding_dim = 128
     hidden_dim = 128
     num_attention_heads = 1
@@ -187,7 +198,7 @@ def main():
         'ff_dim_multiplier': ff_dim_multiplier,
     }
     wandb.init(project='ar-hypernet', config=wandb_config)
-    wandb_loss_accumulation_steps = 10
+    wandb_loss_accumulation_steps = 300
     
     model = ArHypernet(
         vocab_size=vocab_size,

@@ -71,7 +71,7 @@ mlir.register_lowering(
 _detokenize_p.def_abstract_eval(_detokenize_abstract)
 
 def tokenize(samples):
-    return _tokenize_p.bind(samples)
+    return jnp.array(_tokenize_p.bind(samples), dtype=jnp.uint32)
 
 def detokenize(tokens):
     return _detokenize_p.bind(tokens)

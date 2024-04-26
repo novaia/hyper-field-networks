@@ -152,7 +152,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
 
 def main():
     output_path = 'data/ar_hypernet_output/5'
-    dataset_path = 'data/colored-monsters-ngp-image-alt-11bit'
+    dataset_path = 'data/colored-monsters-ngp-image-18k-11bit'
     split_size = 0.1
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \
@@ -247,7 +247,7 @@ def main():
                 wandb.log({'loss': average_loss}, step=state.step)
                 accumulated_losses = []
                 steps_since_loss_report = 0
-            print(f'step {step}, loss {loss}')
+            #print(f'step {step}, loss {loss}')
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)

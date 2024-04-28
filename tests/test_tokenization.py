@@ -1,17 +1,14 @@
 import pytest
 import jax
 import jax.numpy as jnp
-from float_tokenization import tokenize, detokenize
+from float_tokenization import tokenize, detokenize, bit_count_to_vocab_size
 
-@pytest.fixture
-def vocab_size():
-    token_bits = 11
-    return int(2 * 2**token_bits - 1)
-
-def test_long_sequence(vocab_size):
+@pytest.mark.parametrize('sequence_length', [128, 8192])
+@pytest.mark.parametrize('bit_count', [11])
+def test_token_pipeline(sequence_length, bit_count):
+    vocab_size = bit_count_to_vocab_size(bit_count)
     # The tokenization is lossy so the tolerance is quite large.
     atol = 0.5
-    sequence_length = 8192
     input_samples = jax.random.normal(jax.random.PRNGKey(0), (sequence_length,))
     tokens = tokenize(input_samples)
     assert jnp.all(tokens < vocab_size), 'One or more tokens were greater than the vocab size.'

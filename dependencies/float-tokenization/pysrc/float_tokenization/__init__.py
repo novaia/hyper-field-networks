@@ -75,3 +75,6 @@ def tokenize(samples):
 
 def detokenize(tokens):
     return _detokenize_p.bind(tokens)
+
+def bit_count_to_vocab_size(bit_count):
+    return int(2 * 2**bit_count - 1)

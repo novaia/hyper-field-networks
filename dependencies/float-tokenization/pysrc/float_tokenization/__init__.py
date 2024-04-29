@@ -11,16 +11,16 @@ from float_tokenization.lowering_helper import (
     _make_ir_tensor_info, _get_ir_tensor_info, _default_layouts
 )
 
-def _tokenize_abstract(samples):
-    return core.ShapedArray(shape=samples.shape, dtype=jnp.uint32)
+def _tokenize_abstract(samples, mantissa_shift):
+    return core.ShapedArray(shape=samples.shape, dtype=jnp.uint16)
 
-def _detokenize_abstract(tokens):
+def _detokenize_abstract(tokens, mantissa_shift):
     return core.ShapedArray(shape=tokens.shape, dtype=jnp.float16)
 
-def _tokenize_cuda_lowering_rule(ctx, samples):
+def _tokenize_cuda_lowering_rule(ctx, samples, mantissa_shift):
     samples_type, samples_shape = _get_ir_tensor_info(samples)
-    output_type, output_shape = _make_ir_tensor_info(samples_shape, 'uint32')
-    opaque = cuda_ffi.make_tokenization_descriptor(5, samples_shape[0])
+    output_type, output_shape = _make_ir_tensor_info(samples_shape, 'uint16')
+    opaque = cuda_ffi.make_tokenization_descriptor(mantissa_shift, samples_shape[0])
     out = custom_call(
         call_target_name="tokenize",
         result_types=[output_type],
@@ -31,10 +31,10 @@ def _tokenize_cuda_lowering_rule(ctx, samples):
     ).results
     return out
 
-def _detokenize_cuda_lowering_rule(ctx, tokens):
+def _detokenize_cuda_lowering_rule(ctx, tokens, mantissa_shift):
     tokens_type, tokens_shape = _get_ir_tensor_info(tokens)
     output_type, output_shape = _make_ir_tensor_info(tokens_shape, 'fp16')
-    opaque = cuda_ffi.make_tokenization_descriptor(5, tokens_shape[0])
+    opaque = cuda_ffi.make_tokenization_descriptor(mantissa_shift, tokens_shape[0])
     out = custom_call(
         call_target_name="detokenize",
         result_types=[output_type],
@@ -70,11 +70,14 @@ mlir.register_lowering(
 )
 _detokenize_p.def_abstract_eval(_detokenize_abstract)
 
-def tokenize(samples):
-    return _tokenize_p.bind(samples)
+def tokenize(samples, mantissa_shift):
+    return _tokenize_p.bind(samples, mantissa_shift=mantissa_shift)
 
-def detokenize(tokens):
-    return _detokenize_p.bind(tokens)
+def detokenize(tokens, mantissa_shift):
+    return _detokenize_p.bind(tokens, mantissa_shift=mantissa_shift)
 
 def bit_count_to_vocab_size(bit_count):
-    return int(2 * 2**bit_count - 1)
+    return int(2 * 2**(bit_count-1) - 1)
+
+def bit_count_to_mantissa_shift(bit_count):
+    return 16 - bit_count

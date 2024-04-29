@@ -43,7 +43,7 @@ float token_to_float(std::uint32_t input)
 }*/
 
 __global__ void tokenization_kernel(
-    __half* input, uint32_t* output, 
+    __half* input, uint16_t* output, 
     const uint32_t mantissa_bits_to_truncate, const uint32_t n_tokens
 ){
     uint32_t tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -56,15 +56,14 @@ __global__ void tokenization_kernel(
 }
 
 __global__ void detokenization_kernel(
-    uint32_t* input, __half* output,
+    uint16_t* input, __half* output,
     const uint32_t mantissa_bits_to_restore, const uint32_t n_tokens
 ){
     uint32_t tid = threadIdx.x + blockIdx.x * blockDim.x;
     if(tid > 0) { return; }
     for(uint32_t i = 0; i < n_tokens; i++)
     {
-        uint16_t bits = static_cast<uint16_t>(input[i]);
-        output[i] = __ushort_as_half(bits << mantissa_bits_to_restore);
+        output[i] = __ushort_as_half(input[i] << mantissa_bits_to_restore);   
     }
 }
 
@@ -74,7 +73,7 @@ void launch_tokenization(
     tokenization_descriptor_t const &desc = 
         *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
     __half* input = static_cast<__half*>(buffers[0]);
-    uint32_t* output = static_cast<uint32_t*>(buffers[1]);
+    uint16_t* output = static_cast<uint16_t*>(buffers[1]);
     
     tokenization_kernel<<<1, 32, 0, stream>>>(
         input, output, 
@@ -87,7 +86,7 @@ void launch_detokenization(
 ){
     tokenization_descriptor_t const &desc = 
         *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
-    uint32_t* input = static_cast<uint32_t*>(buffers[0]);
+    uint16_t* input = static_cast<uint16_t*>(buffers[0]);
     __half* output = static_cast<__half*>(buffers[1]);
     
     detokenization_kernel<<<1, 32, 0, stream>>>(

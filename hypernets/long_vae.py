@@ -161,7 +161,7 @@ def main():
     internal_dim = 1024
     latent_dim = 768
     attention_dim = 64
-    num_attention_heads = 16
+    num_attention_heads = 8
     num_encoder_blocks = 12
     num_decoder_blocks = 12
     feed_forward_depth = 4
@@ -213,7 +213,6 @@ def main():
             batch = next(train_iterator)['params']
             loss, state = train_step(state, batch)
             losses_this_epoch.append(loss)
-            print(loss)
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
         
@@ -221,8 +220,8 @@ def main():
         test_iterator = test_set.iter(batch_size)
         losses_this_test = []
         for step in range(test_steps):
-            tokens = next(test_iterator)['tokens']
-            loss = test_step(state, tokens, step)
+            batch = next(test_iterator)['params']
+            loss = test_step(state, batch)
             losses_this_test.append(loss)
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')

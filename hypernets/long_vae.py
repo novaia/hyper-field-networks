@@ -14,6 +14,7 @@ from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
 import math
+import wandb
 
 def load_dataset(dataset_path, test_size, split_seed):
     field_config = None
@@ -203,7 +204,8 @@ def main():
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
-    test_sample = jnp.expand_dims(train_set[0]['params'], axis=0)
+    wandb.init(project='long-vae', config={'hi': 'hello'})
+    test_sample = jnp.expand_dims(test_set[0]['params'], axis=0)
     print('test sample shape', test_sample.shape)
     for epoch in range(num_epochs):
         train_set = train_set.shuffle(seed=epoch)
@@ -215,6 +217,7 @@ def main():
             losses_this_epoch.append(loss)
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
+        wandb.log({'loss': average_loss}, step=state.step)
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)
@@ -225,6 +228,7 @@ def main():
             losses_this_test.append(loss)
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
+        wandb.log({'test_loss': average_test_loss}, step=state.step)
 
         flat_params = state.apply_fn({'params': state.params}, x=test_sample, train=False)[0]
         params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)

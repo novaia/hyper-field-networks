@@ -54,6 +54,8 @@ class LongVae(nn.Module):
     num_encoder_blocks: int
     num_decoder_blocks: int
     feed_forward_depth: int
+    normalize_qk: bool
+    use_qkv_bias: bool
     dropout_rate: float
     dtype: Any = jnp.float32
 
@@ -78,6 +80,8 @@ class LongVae(nn.Module):
                 num_heads=self.num_attention_heads,
                 qkv_features=self.attention_dim*self.num_attention_heads,
                 out_features=self.internal_dim,
+                normalize_qk=self.normalize_qk,
+                use_bias=self.use_qkv_bias,
                 dtype=self.dtype
             )(inputs_q=x)
             x = x + residual
@@ -103,6 +107,8 @@ class LongVae(nn.Module):
                 num_heads=self.num_attention_heads,
                 qkv_features=self.attention_dim*self.num_attention_heads,
                 out_features=self.internal_dim,
+                normalize_qk=self.normalize_qk,
+                use_bias=self.use_qkv_bias,
                 dtype=self.dtype
             )(inputs_q=x)
             x = x + residual
@@ -167,9 +173,12 @@ def main():
     num_decoder_blocks = 12
     feed_forward_depth = 4
     learning_rate = 1e-4
-    dropout_rate = 0.1
+    dropout_rate = 0.3
+    weight_decay = 1e-2
+    normalize_qk = True
+    use_qkv_bias = False
     batch_size = 16
-    num_epochs = 20
+    num_epochs = 100
 
     model = LongVae(
         original_context_length=original_context_length,
@@ -183,13 +192,15 @@ def main():
         num_decoder_blocks=num_decoder_blocks,
         feed_forward_depth=4,
         dropout_rate=dropout_rate,
+        normalize_qk=normalize_qk,
+        use_qkv_bias=use_qkv_bias,
         dtype=jnp.bfloat16
     )
     
     x = jnp.ones((batch_size, original_context_length), dtype=jnp.float32)
     params_key = jax.random.PRNGKey(91)
     params = model.init(params_key, x=x, train=False)['params']
-    opt = optax.adam(learning_rate=learning_rate)
+    opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
     num_train_samples = len(train_set)

@@ -148,7 +148,9 @@ def test_step(state, x):
     return mse_loss
 
 def main():
-    output_path = 'data/long_vae_output/0'
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '.99'
+
+    output_path = 'data/long_vae_output/1'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
     split_size = 0.1
     split_seed = 0
@@ -158,7 +160,7 @@ def main():
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
-    input_dim = 1000
+    input_dim = 500
     context_length = math.ceil(original_context_length / input_dim) 
     
     print('original_context_length', original_context_length)
@@ -169,8 +171,8 @@ def main():
     latent_dim = 768
     attention_dim = 64
     num_attention_heads = 8
-    num_encoder_blocks = 12
-    num_decoder_blocks = 12
+    num_encoder_blocks = 16
+    num_decoder_blocks = 16
     feed_forward_depth = 4
     learning_rate = 1e-4
     dropout_rate = 0.3
@@ -190,7 +192,7 @@ def main():
         num_attention_heads=num_attention_heads,
         num_encoder_blocks=num_encoder_blocks,
         num_decoder_blocks=num_decoder_blocks,
-        feed_forward_depth=4,
+        feed_forward_depth=feed_forward_depth,
         dropout_rate=dropout_rate,
         normalize_qk=normalize_qk,
         use_qkv_bias=use_qkv_bias,

@@ -3,6 +3,7 @@ import jax
 from jax import numpy as jnp
 from flax import linen as nn
 import optax
+from orbax import checkpoint as ocp
 from flax.training.train_state import TrainState
 import datasets
 import os, json
@@ -164,8 +165,11 @@ def reconstruct(state, x):
 
 def main():
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '.99'
-
-    output_path = 'data/conv_vae_output/0'
+    
+    checkpoint_path = None
+    experiment_number = 1
+    output_path = f'data/conv_vae_output/{experiment_number}/images'
+    checkpoint_output_path = f'data/conv_vae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
     split_size = 0.1
     split_seed = 0
@@ -175,8 +179,9 @@ def main():
     
     if not os.path.exists(output_path):
         os.makedirs(output_path)
+    if not os.path.exists(checkpoint_output_path):
+        os.makedirs(checkpoint_output_path)
 
-    
     num_epochs = 100
     batch_size = 16
     latent_dim = 1024
@@ -223,6 +228,11 @@ def main():
     print('num_test_samples', num_test_samples)
     print('test_steps', test_steps)
     
+    checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
+    if checkpoint_path is not None:
+        print(f'loading checkpoint {checkpoint_path}')
+        state = checkpointer.restore(checkpoint_path, item=state)
+
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
@@ -237,6 +247,7 @@ def main():
             batch = next(train_iterator)['params']
             loss, state = train_step(state, batch)
             losses_this_epoch.append(loss)
+            break
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
         wandb.log({'loss': average_loss}, step=state.step)
@@ -248,10 +259,15 @@ def main():
             batch = next(test_iterator)['params']
             loss = test_step(state, batch)
             losses_this_test.append(loss)
+            break
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
         wandb.log({'test_loss': average_test_loss}, step=state.step)
-
+        current_checkpoint_path = os.path.join(
+            os.path.abspath(checkpoint_output_path), f'step{state.step}'
+        )
+        checkpointer.save(current_checkpoint_path, state, force=True)
+        print(f'saved checkpoint {current_checkpoint_path}')
         flat_params = jnp.squeeze(reconstruct(state, test_sample)[0], axis=-1)
         params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
         field_state = field_state.replace(params=params)

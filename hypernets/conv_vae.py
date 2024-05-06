@@ -56,12 +56,12 @@ class ConvVae(nn.Module):
     @nn.compact
     def __call__(self, x):
         for _ in range(self.num_valid_blocks):
-            x = nn.Conv(
+            x = nn.remat(nn.Conv)(
                 features=self.valid_block_dim, kernel_size=(self.kernel_dim,), 
                 strides=(1,), padding='SAME', dtype=self.dtype
             )(x)
             x = nn.gelu(x)
-            x = nn.Conv(
+            x = nn.remat(nn.Conv)(
                 features=self.valid_block_dim, kernel_size=(self.kernel_dim,), 
                 strides=(1,), padding='VALID', dtype=self.dtype
             )(x)
@@ -70,59 +70,62 @@ class ConvVae(nn.Module):
         # Encoder
         for hidden_dim in self.hidden_dims:
             for _ in range(self.block_depth):
-                x = nn.Conv(
+                x = nn.remat(nn.Conv)(
                     features=hidden_dim, kernel_size=(self.kernel_dim,), 
                     strides=(1,), padding='SAME', dtype=self.dtype
                 )(x)
                 x = nn.gelu(x)
-                x = nn.Conv(
+                x = nn.remat(nn.Conv)(
                     features=hidden_dim, kernel_size=(self.kernel_dim,), 
                     strides=(1,), padding='SAME', dtype=self.dtype
                 )(x)
                 x = nn.gelu(x)
                 # Instance normalization.
-                x = nn.LayerNorm(reduction_axes=[1,], feature_axes=-1)(x)
+                x = nn.remat(nn.LayerNorm)(reduction_axes=[1,], feature_axes=-1)(x)
             #x = nn.avg_pool(x, window_shape=(2,), strides=(2,))
-            x = nn.Conv(
+            x = nn.remat(nn.Conv)(
                 features=hidden_dim, kernel_size=(self.kernel_dim,),
                 strides=(2,), padding='VALID', dtype=self.dtype
             )(x)
             #print(x.shape)
-        x = nn.Conv(features=1, kernel_size=(1,), strides=(1,), padding='SAME', dtype=self.dtype)(x)
+        x = nn.remat(nn.Conv)(
+            features=1, kernel_size=(1,), strides=(1,), 
+            padding='SAME', dtype=self.dtype
+        )(x)
         #print(x.shape)
-        z = nn.DenseGeneral(features=self.latent_dim, axis=(-1, -2))(x)
+        z = nn.remat(nn.DenseGeneral)(features=self.latent_dim, axis=(-1, -2))(x)
 
         # Decoder
-        x = nn.DenseGeneral(features=(x.shape[1], self.hidden_dims[-1]), axis=-1)(z)
+        x = nn.remat(nn.DenseGeneral)(features=(x.shape[1], self.hidden_dims[-1]), axis=-1)(z)
         for hidden_dim in reversed(self.hidden_dims):
             #x = jax.image.resize(x, shape=(x.shape[0], x.shape[1]*2, x.shape[2]), method='nearest')
-            x = nn.ConvTranspose(
+            x = nn.remat(nn.ConvTranspose)(
                 features=hidden_dim, kernel_size=(self.kernel_dim,),
                 strides=(2,), padding='VALID', dtype=self.dtype
             )(x)
             #print(x.shape)
             for _ in range(self.block_depth):
-                x = nn.Conv(
+                x = nn.remat(nn.Conv)(
                     features=hidden_dim, kernel_size=(self.kernel_dim,), 
                     strides=(1,), padding='SAME', dtype=self.dtype
                 )(x)
                 x = nn.gelu(x)
-                x = nn.Conv(
+                x = nn.remat(nn.Conv)(
                     features=hidden_dim, kernel_size=(self.kernel_dim,), 
                     strides=(1,), padding='SAME', dtype=self.dtype
                 )(x)
                 x = nn.gelu(x)
                 # Instance normalization.
-                x = nn.LayerNorm(reduction_axes=[1,], feature_axes=-1)(x)
+                x = nn.remat(nn.LayerNorm)(reduction_axes=[1,], feature_axes=-1)(x)
         
         for _ in range(self.num_valid_blocks+1):
-            x = nn.ConvTranspose(
+            x = nn.remat(nn.ConvTranspose)(
                 features=self.valid_block_dim, kernel_size=(self.kernel_dim,), 
                 strides=(1,), padding='VALID', dtype=self.dtype
             )(x)
             #print('post', x.shape)
             x = nn.gelu(x)
-            x = nn.Conv(
+            x = nn.remat(nn.Conv)(
                 features=self.valid_block_dim, kernel_size=(self.kernel_dim,), 
                 strides=(1,), padding='SAME', dtype=self.dtype
             )(x)
@@ -183,14 +186,14 @@ def main():
         os.makedirs(checkpoint_output_path)
 
     num_epochs = 100
-    batch_size = 16
+    batch_size = 6
     latent_dim = 1024
-    hidden_dims = [16, 32, 64, 128]
-    block_depth = 2
+    hidden_dims = [32, 64, 128, 128]
+    block_depth = 8
     kernel_dim = 4
     learning_rate = 3e-4
-    weight_decay = 1e-5
-    valid_block_dim = 16
+    weight_decay = 1e-4
+    valid_block_dim = 32
     # Once we get to a context length of 17728 we can safely halve/double it.
     num_valid_blocks = 1
 
@@ -215,7 +218,7 @@ def main():
     )
     x = jnp.ones((batch_size, context_length, 1), dtype=jnp.float32)
     params_key = jax.random.PRNGKey(91)
-    params = model.init(params_key, x=x)['params']
+    params = jax.jit(model.init)(params_key, x=x)['params']
     opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
@@ -247,7 +250,6 @@ def main():
             batch = next(train_iterator)['params']
             loss, state = train_step(state, batch)
             losses_this_epoch.append(loss)
-            break
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
         wandb.log({'loss': average_loss}, step=state.step)
@@ -259,7 +261,6 @@ def main():
             batch = next(test_iterator)['params']
             loss = test_step(state, batch)
             losses_this_test.append(loss)
-            break
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
         wandb.log({'test_loss': average_test_loss}, step=state.step)

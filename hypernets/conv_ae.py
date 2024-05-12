@@ -169,7 +169,7 @@ def reconstruct(state, x):
 def main():
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '.99'
     
-    checkpoint_path = None
+    checkpoint_path = 'data/conv_vae_output/1/checkpoints/step4267029'
     experiment_number = 1
     output_path = f'data/conv_vae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/conv_vae_output/{experiment_number}/checkpoints'
@@ -234,7 +234,7 @@ def main():
     checkpointer = ocp.Checkpointer(ocp.PyTreeCheckpointHandler(use_ocdbt=True))
     if checkpoint_path is not None:
         print(f'loading checkpoint {checkpoint_path}')
-        state = checkpointer.restore(checkpoint_path, item=state)
+        state = checkpointer.restore(os.path.abspath(checkpoint_path), item=state)
 
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
@@ -276,7 +276,7 @@ def main():
             field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
         )
         field_render = jax.device_put(field_render, jax.devices('cpu')[0])
-        plt.imsave(os.path.join(output_path, f'{epoch}.png'), field_render)
+        plt.imsave(os.path.join(output_path, f'{state.step}.png'), field_render)
 
 if __name__ == '__main__':
     main()

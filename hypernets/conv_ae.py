@@ -1,4 +1,4 @@
-# 1D convolutional VAE.
+# 1D convolutional autoencoder.
 import jax
 from jax import numpy as jnp
 from flax import linen as nn
@@ -44,7 +44,7 @@ def load_dataset(dataset_path, test_size, split_seed):
     context_length = train[0]['params'].shape[0]
     return train, test, field_config, param_map, context_length
 
-class ConvVae(nn.Module):
+class ConvAutoencoder(nn.Module):
     latent_dim: int
     hidden_dims: list
     block_depth: int
@@ -207,7 +207,7 @@ def main():
         'weight_decay': weight_decay
     }
 
-    model = ConvVae(
+    model = ConvAutoencoder(
         latent_dim=latent_dim,
         hidden_dims=hidden_dims,
         block_depth=block_depth,

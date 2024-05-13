@@ -91,13 +91,13 @@ void multi_view_render(
     const float min_x_rotation = -80.0f;
     const float max_x_rotation = 80.0f;
     const float x_rotation_domain = max_x_rotation - min_x_rotation;
-    const unsigned int x_rotation_steps = 5;
+    const unsigned int x_rotation_steps = 20;
     const float x_rotation_per_step = x_rotation_domain / (float)x_rotation_steps;
     
     const float min_y_rotation = 0.0f;
     const float max_y_rotation = 360.0f;
     const float y_rotation_domain = max_y_rotation - min_y_rotation;
-    const unsigned int y_rotation_steps = 12;
+    const unsigned int y_rotation_steps = 10;
     const float y_rotation_per_step = y_rotation_domain / (float)y_rotation_steps;
 
     char* base_path = DATA_PATH("multi_view_renders/");
@@ -106,14 +106,17 @@ void multi_view_render(
     const unsigned int num_views = (x_rotation_steps+1) * y_rotation_steps;
     mat4* transform_matrices = (mat4*)malloc(sizeof(mat4) * num_views);
     unsigned int transform_matrices_offset = 0;
+    const float camera_zoom = 4.0f;
     for(unsigned int x = 0; x <= x_rotation_steps; x++)
     {
         const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
         for(unsigned int y = 0; y < y_rotation_steps; y++)
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
-            camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, 5.0f);
-            const mat4 transform_matrix = get_model_matrix_from_rotation(-x_rotation, -y_rotation, 0.0f, -5.0f);
+            camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, camera_zoom);
+            const mat4 transform_matrix = get_model_matrix_from_rotation(
+                x_rotation, y_rotation, 0.0f, camera_zoom
+            );
             transform_matrices[transform_matrices_offset++] = transform_matrix;
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
@@ -131,8 +134,104 @@ void multi_view_render(
     free(transform_matrices);
 }
 
+double __degrees_to_radians(double degrees)
+{
+    const double pi = 3.14159265358979323846;
+    return degrees * (pi / 180.0);
+}
+
+mat4 get_x_rotation_matrix_test(float angle)
+{
+    const float theta = (float)__degrees_to_radians((double)angle);
+    const float cos_theta = (float)cos(theta);
+    const float sin_theta = (float)sin(theta);
+    mat4 x_rotation_matrix = {
+        .data = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, cos_theta, sin_theta, 0.0f, 
+            0.0f, -sin_theta, cos_theta, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        }
+    };
+    return x_rotation_matrix;
+}
+
+inline mat4 get_y_rotation_matrix_test(float angle)
+{
+    const float theta = (float)__degrees_to_radians((double)angle);
+    const float cos_theta = (float)cos(theta);
+    const float sin_theta = (float)sin(theta);
+    mat4 y_rotation_matrix = {
+        .data = {
+            cos_theta, 0.0f, -sin_theta, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f, 
+            sin_theta, 0.0f, cos_theta, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        }
+    };
+    return y_rotation_matrix;
+}
+
+inline mat4 mat4mul_test(mat4 a, mat4 b)
+{
+    mat4 result = { .data = {0.0f} };
+    for(unsigned int col = 0; col < 4; col++)
+    {
+        const unsigned int col_offset = col * 4;
+        for(unsigned int row = 0; row < 4; row++)
+        {
+            for(unsigned int i = 0; i < 4; i++)
+            {
+                result.data[col_offset + row] += a.data[i * 4 + row] * b.data[col_offset + i];
+            }
+        }
+    }
+    return result;
+}
+
+void print_mat4(mat4 a)
+{
+    unsigned int mat_offset = 0;
+    for(int i = 0; i < 4; ++i)
+    {
+        for(int k = 0; k < 4; ++k)
+        {
+            printf("%f ", a.data[mat_offset++]);
+        }
+        printf("\n");
+    }
+}
+
+void test_matrix(void)
+{
+    const float dummy_x_rot = 70.0f;
+    const float dummy_y_rot = 8.0f;
+    const float dummy_z_rot = 0.0f;
+    mat4 x_rot_mat = get_x_rotation_matrix_test(dummy_x_rot);
+    printf("x rotation matrix:\n");
+    print_mat4(x_rot_mat);
+    mat4 y_rot_mat = get_y_rotation_matrix_test(dummy_y_rot);
+    printf("y rotation matrix:\n");
+    print_mat4(y_rot_mat);
+    
+    mat4 combined_rot_mat = mat4mul_test(x_rot_mat, y_rot_mat);
+    printf("combined rotation matrix:\n");
+    print_mat4(combined_rot_mat);
+
+    mat4 model_mat = get_model_matrix_from_rotation(dummy_x_rot, dummy_y_rot, 0.0f, 0.0f);
+    printf("model matrix:\n");
+    print_mat4(model_mat);
+
+    mat4 view_mat = get_lookat_matrix_from_rotation(dummy_x_rot, dummy_y_rot, 0.0f, 0.0f);
+    printf("view matrix:\n");
+    print_mat4(view_mat);
+}
+
 int main()
 {
+    //test_matrix();
+    //return 1;
+
     GLFWwindow* window = init_gl();
     if(!window)
     {
@@ -207,6 +306,7 @@ int main()
         scene->light.direction[2]
     );
     
+    /*
     mat4 elf_model_matrix = get_model_matrix(2.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     printf("\n");
     error = add_scene_element(scene, elf_model_matrix, elf_mesh_index, white_texture_index);
@@ -215,7 +315,8 @@ int main()
     mat4 elf_model_matrix_2 = get_model_matrix(-2.0f, -1.0f, 0.0f, 0.0f, 80.0f, 0.0f);
     error = add_scene_element(scene, elf_model_matrix_2, elf_mesh_index, white_texture_index);
     if(error) { return -1; }
-    
+    */
+
     mat4 sonic_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
     error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
     if(error) { return -1; }

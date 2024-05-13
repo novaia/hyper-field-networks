@@ -232,6 +232,7 @@ def train_loop(
                 state=state,
                 occupancy_grid=occupancy_grid
             )
+        print(loss)
     if return_final_loss:
         return state, occupancy_grid, loss
     else:
@@ -246,6 +247,7 @@ def sample_pixels(key, num_samples:int, image_width:int, image_height:int, num_i
 
 @jax.jit
 def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
+    # Maybe the direction's z element should be -1.0 in order to match OpenGL?
     direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
     direction = transform_matrix[:3, :3] @ direction
     direction = direction / jnp.linalg.norm(direction)
@@ -277,6 +279,7 @@ def train_step(
 
     t_starts, t_ends = make_near_far_from_bound(scene_bound, ray_origins, ray_directions)
     noises = jax.random.uniform(noise_key, (batch_size,), t_starts.dtype, minval=0., maxval=1.)
+    #noises = jnp.zeros((batch_size,), dtype=t_starts.dtype)
 
     _, ray_is_valid, rays_n_samples, rays_sample_start_idx, \
     _, positions, directions, dss, z_vals = march_rays(
@@ -294,11 +297,12 @@ def train_step(
         occupancy_bitfield=occupancy_bitfield
     )
     num_valid_rays = jnp.sum(ray_is_valid)
+    #print('num_valid_rays', num_valid_rays)
 
     def loss_fn(params):
         drgbs = state.apply_fn({'params': params}, (positions, directions))
         background_colors = jax.random.uniform(random_bg_key, (batch_size, 3))
-        _, final_rgbds, _ = integrate_rays(
+        _, pred_rgbds, pred_alphas = integrate_rays(
             near_distance=0.3,
             rays_sample_start_idx=rays_sample_start_idx,
             rays_n_samples=rays_n_samples,
@@ -307,11 +311,14 @@ def train_step(
             z_vals=z_vals,
             drgbs=drgbs,
         )
-        pred_rgbs, _ = jnp.array_split(final_rgbds, [3], axis=-1)
+        #pred_alphas = jnp.expand_dims(pred_alphas, axis=-1)
+        pred_rgbs, _ = jnp.array_split(pred_rgbds, [3], axis=-1)
+        #pred_rbgs = pred_rgbs + background_colors * (1.0 - pred_alphas) 
         target_pixels = images[image_indices, height_indices, width_indices]
         target_rgbs = target_pixels[:, :3]
         target_alphas = target_pixels[:, 3:]
         target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
+        #target_rbgs = target_rgbs + background_colors * (1.0 - target_alphas)
         loss = jnp.sum(jnp.where(
             ray_is_valid, 
             jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),
@@ -428,7 +435,7 @@ def render_scene(
             depth_patch = np.reshape(rendered_depths, depth_patch_shape, order='F')
             depth_map[patch_start_x:patch_end_x, patch_start_y:patch_end_y] = depth_patch
 
-    image = np.nan_to_num(image)
+    #image = np.nan_to_num(image)
     image = np.clip(image, 0, 1)
     image = np.transpose(image, (1, 0, 2))
     plt.imsave(os.path.join('data/', file_name + '.png'), image)
@@ -489,7 +496,35 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
-    
+
+    '''
+    pixel_sample_key = jax.random.PRNGKey(3)
+    image_indices, width_indices, height_indices = sample_pixels(
+        key=pixel_sample_key, num_samples=32, image_width=dataset.w,
+        image_height=dataset.h, num_images=dataset.images.shape[0]
+    )
+    get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
+    ray_origins, ray_directions = get_rays(
+        width_indices, height_indices, dataset.transform_matrices[image_indices], 
+        dataset.cx, dataset.cy, dataset.fl_x, dataset.fl_y 
+    )
+    print('ray origins')
+    print(ray_origins)
+    print('ray directions')
+    print(ray_directions)
+    print('sample image')
+    sample_image = dataset.images[0]
+    print('sample image mean', jnp.mean(sample_image))
+    exit()
+    for w in range(dataset.w):
+        print(sample_image[w])
+    exit()
+    '''
+    prev_image = jax.device_put(dataset.images[0], jax.devices('cpu')[0])
+    prev_image = np.clip(prev_image, 0, 1)
+    prev_image = np.transpose(prev_image, (1, 0, 2))
+    plt.imsave(os.path.join('data/preview_iamge.png'), prev_image)
+
     state, occupancy_grid = train_loop_with_args()
 
     render_fn = partial(
@@ -497,8 +532,8 @@ def main():
         # Patch size has to be small otherwise not all rays will produce samples and the
         # resulting image will have artifacts. This can be fixed by switching to the 
         # inference version of the ray marching and ray integration functions.
-        patch_size_x=32,
-        patch_size_y=32,
+        patch_size_x=16,
+        patch_size_y=16,
         dataset=dataset,
         scene_bound=config['scene_bound'],
         diagonal_n_steps=config['diagonal_n_steps'],
@@ -510,9 +545,20 @@ def main():
         state=state
     )
     render_fn(
-        transform_matrix=dataset.transform_matrices[3],
-        file_name='ngp_nerf_cuda_rendered_image'
+        transform_matrix=dataset.transform_matrices[100],
+        file_name='ngp_nerf_cuda_rendered_image_1'
     )
+    render_fn(
+        transform_matrix=dataset.transform_matrices[60],
+        file_name='ngp_nerf_cuda_rendered_image_2'
+    )
+    render_fn(
+        transform_matrix=dataset.transform_matrices[168],
+        file_name='ngp_nerf_cuda_rendered_image_3'
+    )
+
+
+    exit()
     turntable_render(
         num_frames=60*3,
         camera_distance=1,

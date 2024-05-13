@@ -87,6 +87,6 @@ def load_nerf_dataset(dataset_path:str, downscale_factor:int, transpose_transfor
         transform_matrices=transform_matrices,
         images=images
     )
-    dataset.fl_x = float(dataset.cx / jnp.tan(dataset.horizontal_fov / 2))
-    dataset.fl_y = float(dataset.cy / jnp.tan(dataset.vertical_fov / 2))
+    dataset.fl_x = float(dataset.cx / jnp.tan(dataset.horizontal_fov))
+    dataset.fl_y = float(dataset.cy / jnp.tan(dataset.vertical_fov))
     return dataset

@@ -89,7 +89,8 @@ class BetterConvAutoencoder(nn.Module):
             features=self.latent_pre_pool_features, kernel_size=(self.kernel_dim,), 
             strides=(1,), dtype=self.dtype
         )(x)
-        z = jnp.mean(x, axis=-1, keepdims=True)
+        z = x
+        #z = jnp.mean(x, axis=-1, keepdims=True)
         #print('latent shape', z.shape)
         x = nn.Conv(
             features=self.latent_pre_pool_features, kernel_size=(self.kernel_dim,), 
@@ -163,7 +164,7 @@ def reconstruct(state, x, left_padding, right_padding):
 
 def main():
     checkpoint_path = None
-    experiment_number = 0
+    experiment_number = 1
     output_path = f'data/better_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/better_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -190,10 +191,10 @@ def main():
     print('right_padding', right_padding)
 
     num_epochs = 100
-    batch_size = 25
+    batch_size = 27
     num_gn_groups = 32
     hidden_features = [16, 32, 64, 128]
-    latent_pre_pool_features = 32
+    latent_pre_pool_features = 16
     block_depth = 8
     kernel_dim = 9
     learning_rate = 3e-4

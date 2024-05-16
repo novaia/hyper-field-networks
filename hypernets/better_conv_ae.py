@@ -79,10 +79,11 @@ class BetterConvAutoencoder(nn.Module):
                 )(x)
                 x = nn.gelu(x)
                 x = nn.GroupNorm(num_groups=get_num_groups(num_features), dtype=self.dtype)(x)
-            x = nn.Conv(
-                features=num_features, kernel_size=(2,), 
-                strides=(2,), padding='VALID', dtype=self.dtype
-            )(x)
+            #x = nn.Conv(
+            #    features=num_features, kernel_size=(2,), 
+            #    strides=(2,), padding='VALID', dtype=self.dtype
+            #)(x)
+            x = nn.max_pool(x, window_shape=(2,), strides=(2,), padding='VALID')
             #print(x.shape)
 
         x = nn.Conv(
@@ -99,10 +100,11 @@ class BetterConvAutoencoder(nn.Module):
 
         # Decoder
         for num_features in reversed(self.hidden_features):
-            x = nn.ConvTranspose(
-                features=num_features, kernel_size=(2,),
-                strides=(2,), padding='VALID', dtype=self.dtype
-            )(x)
+            #x = nn.ConvTranspose(
+            #    features=num_features, kernel_size=(2,),
+            #    strides=(2,), padding='VALID', dtype=self.dtype
+            #)(x)
+            x = jax.image.resize(x, shape=(x.shape[0], x.shape[1]*2, x.shape[2]), method='linear')
             for _ in range(self.block_depth):
                 x = nn.Conv(
                     features=num_features, kernel_size=(self.kernel_dim,), 
@@ -164,7 +166,7 @@ def reconstruct(state, x, left_padding, right_padding):
 
 def main():
     checkpoint_path = None
-    experiment_number = 2
+    experiment_number = 3
     output_path = f'data/better_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/better_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -191,12 +193,12 @@ def main():
     print('right_padding', right_padding)
 
     num_epochs = 100
-    batch_size = 16
+    batch_size = 32
     num_gn_groups = 32
-    hidden_features = [32, 64, 64, 64]
+    hidden_features = [32, 64, 128, 256]
     latent_pre_pool_features = 4
-    block_depth = 10
-    kernel_dim = 17
+    block_depth = 3
+    kernel_dim = 5
     learning_rate = 3e-4
     weight_decay = 1e-4
 

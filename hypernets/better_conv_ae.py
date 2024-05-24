@@ -166,7 +166,7 @@ def reconstruct(state, x, left_padding, right_padding):
 
 def main():
     checkpoint_path = None
-    experiment_number = 3
+    experiment_number = 4
     output_path = f'data/better_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/better_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -193,11 +193,11 @@ def main():
     print('right_padding', right_padding)
 
     num_epochs = 100
-    batch_size = 32
-    num_gn_groups = 32
-    hidden_features = [32, 64, 128, 256]
+    batch_size = 16
+    num_gn_groups = 16
+    hidden_features = [64, 64, 64, 64]
     latent_pre_pool_features = 4
-    block_depth = 3
+    block_depth = 8
     kernel_dim = 5
     learning_rate = 3e-4
     weight_decay = 1e-4

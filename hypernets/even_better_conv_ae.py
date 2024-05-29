@@ -132,9 +132,7 @@ def train_step(state, x, left_padding, right_padding):
             train=True, 
             rngs={'dropout': dropout_key}
         )
-        x_out = remove_padding(x_out_padded, left_padding, right_padding)
-        x_out = jnp.squeeze(x_out, axis=-1)
-        return jnp.mean((x_out - x)**2)
+        return jnp.mean((x_out_padded - x_padded)**2)
     
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)

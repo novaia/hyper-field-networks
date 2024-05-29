@@ -49,7 +49,7 @@ def load_dataset(dataset_path, test_size, split_seed):
 
 class EvenBetterConvAutoencoder(nn.Module):
     num_gn_groups: int
-    per_channel_latent_dim: int
+    latent_dim: int
     dropout_rate: float
     hidden_features: list
     block_depth: int
@@ -79,19 +79,16 @@ class EvenBetterConvAutoencoder(nn.Module):
                 x = nn.gelu(x)
                 x = nn.GroupNorm(num_groups=get_num_groups(num_features), dtype=self.dtype)(x)
             x = nn.max_pool(x, window_shape=(2,), strides=(2,), padding='VALID')
-        pre_latent_dim = x.shape[1]
-        x = jnp.swapaxes(x, 1, 2)
-        x = nn.Dense(features=self.per_channel_latent_dim, dtype=self.dtype)(x)
+        pre_latent_features = x.shape[-1]
+        pre_latent_seqlen = x.shape[-2]
+        x = nn.DenseGeneral(features=self.latent_dim, axis=(-2, -1), dtype=self.dtype)(x)
         x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
-        x = nn.gelu(x)
-        x = nn.Dense(features=self.per_channel_latent_dim, dtype=self.dtype)(x)
+        x = nn.Dense(features=self.latent_dim, dtype=self.dtype)(x)
         
         # Decoder.
-        x = nn.Dense(features=self.per_channel_latent_dim, dtype=self.dtype)(x)
+        x = nn.Dense(features=self.latent_dim, dtype=self.dtype)(x)
         x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
-        x = nn.gelu(x)
-        x = nn.Dense(features=pre_latent_dim, dtype=self.dtype)(x)
-        x = jnp.swapaxes(x, 1, 2)
+        x = nn.DenseGeneral(features=(pre_latent_seqlen, pre_latent_features), axis=-1, dtype=self.dtype)(x)
         for num_features in reversed(self.hidden_features):
             x = jax.image.resize(x, shape=(x.shape[0], x.shape[1]*2, x.shape[2]), method='linear')
             for _ in range(self.block_depth):
@@ -129,16 +126,18 @@ def preprocess(x, left_padding, right_padding):
 @partial(jax.jit, static_argnames=('left_padding', 'right_padding'))
 def train_step(state, x, left_padding, right_padding):
     dropout_key = jax.random.PRNGKey(state.step)
-    x = preprocess(x, left_padding, right_padding)
+    x_padded = preprocess(x, left_padding, right_padding)
     
     def loss_fn(params):
-        x_hat = state.apply_fn(
+        x_out_padded = state.apply_fn(
             {'params': params}, 
-            x=x, 
+            x=x_padded, 
             train=True, 
             rngs={'dropout': dropout_key}
         )
-        return jnp.mean((x_hat - x)**2)
+        x_out = remove_padding(x_out_padded, left_padding, right_padding)
+        x_out = jnp.squeeze(x_out, axis=-1)
+        return jnp.mean((x_out - x)**2)
     
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
@@ -159,7 +158,7 @@ def reconstruct(state, x, left_padding, right_padding):
 
 def main():
     checkpoint_path = None
-    experiment_number = 0
+    experiment_number = 1
     output_path = f'data/even_better_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/even_better_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -187,11 +186,11 @@ def main():
 
     num_epochs = 100
     batch_size = 16
-    num_gn_groups = 16
-    hidden_features = [16, 32, 64, 128]
-    per_channel_latent_dim = 128
-    dropout_rate = 0.3
-    block_depth = 10
+    num_gn_groups = 32
+    hidden_features = [32, 32, 64, 64]
+    latent_dim = 128
+    dropout_rate = 0.7
+    block_depth = 6
     kernel_dim = 5
     learning_rate = 3e-4
     weight_decay = 1e-4
@@ -203,7 +202,7 @@ def main():
         'right_padding': right_padding,
         'batch_size': batch_size,
         'num_gn_groups': num_gn_groups,
-        'per_channel_latent_dim': per_channel_latent_dim,
+        'latent_dim': latent_dim,
         'dropout_rate': dropout_rate,
         'hidden_features': hidden_features,
         'block_depth': block_depth,
@@ -214,7 +213,7 @@ def main():
 
     model = EvenBetterConvAutoencoder(
         num_gn_groups=num_gn_groups,
-        per_channel_latent_dim=per_channel_latent_dim,
+        latent_dim=latent_dim,
         dropout_rate=dropout_rate,
         hidden_features=hidden_features,
         block_depth=block_depth,

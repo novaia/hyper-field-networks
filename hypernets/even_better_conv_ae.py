@@ -49,8 +49,7 @@ def load_dataset(dataset_path, test_size, split_seed):
 
 class EvenBetterConvAutoencoder(nn.Module):
     num_gn_groups: int
-    latent_dim: int
-    dropout_rate: float
+    latent_features: int
     hidden_features: list
     block_depth: int
     kernel_dim: int
@@ -65,7 +64,7 @@ class EvenBetterConvAutoencoder(nn.Module):
                 return num_features
 
         # Encoder.
-        for num_features in self.hidden_features:
+        for i, num_features in enumerate(self.hidden_features):
             for _ in range(self.block_depth):
                 x = nn.Conv(
                     features=num_features, kernel_size=(self.kernel_dim,), 
@@ -78,19 +77,17 @@ class EvenBetterConvAutoencoder(nn.Module):
                 )(x)
                 x = nn.gelu(x)
                 x = nn.GroupNorm(num_groups=get_num_groups(num_features), dtype=self.dtype)(x)
-            x = nn.max_pool(x, window_shape=(2,), strides=(2,), padding='VALID')
-        pre_latent_features = x.shape[-1]
-        pre_latent_seqlen = x.shape[-2]
-        x = nn.DenseGeneral(features=self.latent_dim, axis=(-2, -1), dtype=self.dtype)(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
-        x = nn.Dense(features=self.latent_dim, dtype=self.dtype)(x)
-        
+            if i != len(self.hidden_features) - 1:
+                x = nn.max_pool(x, window_shape=(2,), strides=(2,), padding='VALID')
+        x = nn.Conv(
+            features=self.latent_features, kernel_size=(self.kernel_dim,), 
+            strides=(1,), padding='SAME', dtype=self.dtype
+        )(x)
+
         # Decoder.
-        x = nn.Dense(features=self.latent_dim, dtype=self.dtype)(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
-        x = nn.DenseGeneral(features=(pre_latent_seqlen, pre_latent_features), axis=-1, dtype=self.dtype)(x)
-        for num_features in reversed(self.hidden_features):
-            x = jax.image.resize(x, shape=(x.shape[0], x.shape[1]*2, x.shape[2]), method='linear')
+        for i, num_features in enumerate(list(reversed(self.hidden_features))):
+            if i != 0:
+                x = jax.image.resize(x, shape=(x.shape[0], x.shape[1]*2, x.shape[2]), method='linear')
             for _ in range(self.block_depth):
                 x = nn.Conv(
                     features=num_features, kernel_size=(self.kernel_dim,), 
@@ -158,7 +155,7 @@ def reconstruct(state, x, left_padding, right_padding):
 
 def main():
     checkpoint_path = None
-    experiment_number = 2
+    experiment_number = 3
     output_path = f'data/even_better_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/even_better_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -185,12 +182,11 @@ def main():
     print('right_padding', right_padding)
 
     num_epochs = 100
-    batch_size = 16
+    batch_size = 32
     num_gn_groups = 32
-    hidden_features = [32, 32, 32, 32]
-    latent_dim = 2048
-    dropout_rate = 0.7
-    block_depth = 6
+    hidden_features = [16, 32, 64, 128, 128]
+    latent_features = 8
+    block_depth = 4
     kernel_dim = 5
     learning_rate = 3e-4
     weight_decay = 1e-4
@@ -202,8 +198,7 @@ def main():
         'right_padding': right_padding,
         'batch_size': batch_size,
         'num_gn_groups': num_gn_groups,
-        'latent_dim': latent_dim,
-        'dropout_rate': dropout_rate,
+        'latent_features': latent_features,
         'hidden_features': hidden_features,
         'block_depth': block_depth,
         'kernel_dim': kernel_dim,
@@ -213,8 +208,7 @@ def main():
 
     model = EvenBetterConvAutoencoder(
         num_gn_groups=num_gn_groups,
-        latent_dim=latent_dim,
-        dropout_rate=dropout_rate,
+        latent_features=latent_features,
         hidden_features=hidden_features,
         block_depth=block_depth,
         kernel_dim=kernel_dim,

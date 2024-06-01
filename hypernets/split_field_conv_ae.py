@@ -163,7 +163,7 @@ def reconstruct(state, batch, train_on_hash_grid, hash_grid_end):
 
 def main():
     checkpoint_path = None
-    experiment_number = 0
+    experiment_number = 1
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -192,7 +192,7 @@ def main():
     latent_features = 8
     block_depth = 4
     kernel_dim = 5
-    learning_rate = 3e-4
+    learning_rate = 1e-4
     weight_decay = 1e-4
 
     if train_on_hash_grid:

@@ -192,7 +192,7 @@ def main():
     latent_features = 8
     block_depth = 4
     kernel_dim = 5
-    learning_rate = 1e-4
+    learning_rate = 5e-5
     weight_decay = 1e-4
 
     if train_on_hash_grid:

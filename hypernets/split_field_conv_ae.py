@@ -163,7 +163,7 @@ def reconstruct(state, batch, train_on_hash_grid, hash_grid_end):
 
 def main():
     checkpoint_path = None
-    experiment_number = 1
+    experiment_number = 2
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -234,7 +234,7 @@ def main():
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     wandb_config['param_count'] = param_count
-    print(f'param_count: {param_count:,}')
+    print(f'param_count {param_count:,}')
     
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
@@ -254,8 +254,10 @@ def main():
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
     wandb.init(project='conv-vae', config=wandb_config)
-    test_sample = jnp.expand_dims(test_set[0]['params'], axis=0)
-    print('test sample shape', test_sample.shape)
+    num_preview_samples = 5
+    print('num_preview_samples', num_preview_samples)
+    preview_samples = test_set[:num_preview_samples]['params']
+    print('preview_samples shape', preview_samples.shape)
     for epoch in range(num_epochs):
         train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(batch_size)
@@ -283,14 +285,19 @@ def main():
         )
         checkpointer.save(current_checkpoint_path, state, force=True)
         print(f'saved checkpoint {current_checkpoint_path}')
-        flat_params = reconstruct(state, test_sample, train_on_hash_grid, hash_grid_end)[0]
-        params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
-        field_state = field_state.replace(params=params)
-        field_render = ngp_image.render_image(
-            field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
+        reconstructed_preview_samples = reconstruct(
+            state, preview_samples, train_on_hash_grid, hash_grid_end
         )
-        field_render = jax.device_put(field_render, jax.devices('cpu')[0])
-        plt.imsave(os.path.join(output_path, f'{state.step}.png'), field_render)
+        for i in range(num_preview_samples):
+            flat_params = reconstructed_preview_samples[i]
+            params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+            field_state = field_state.replace(params=params)
+            field_render = ngp_image.render_image(
+                field_state, field_config['image_height'], 
+                field_config['image_width'], field_config['channels']
+            )
+            field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+            plt.imsave(os.path.join(output_path, f'{state.step}_{i}.png'), field_render)
 
 if __name__ == '__main__':
     main()

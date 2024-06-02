@@ -117,13 +117,14 @@ def add_padding(x, left_padding, right_padding, requires_padding):
         left_zeros = jnp.zeros((x.shape[0], left_padding), dtype=x.dtype)
         right_zeros = jnp.zeros((x.shape[0], right_padding), dtype=x.dtype)
         x = jnp.concatenate([left_zeros, x, right_zeros], axis=-1)
+        return x
 
 def remove_padding(x, left_padding, right_padding, requires_padding):
     if not requires_padding:
         return x
     else:
         x = x[..., left_padding:]
-        x = x[..., :right_padding]
+        x = x[..., :-right_padding]
         return x
 
 def preprocess(
@@ -194,12 +195,12 @@ def reconstruct(
         x_in = batch[..., hash_grid_end:] # MLP section.
         other_section = batch[..., :hash_grid_end] # Hash grid section.
 
-    x_in = add_padding(x, left_padding, right_padding, requires_padding)
+    x_in = add_padding(x_in, left_padding, right_padding, requires_padding)
     x_in = jnp.expand_dims(x_in, axis=-1)
     x_out = state.apply_fn({'params': state.params}, x=x_in, train=False)
     x_out = jnp.squeeze(x_out, axis=-1)
-    x_out = remove_padding(x, left_padding, right_padding, requires_padding)
-
+    x_out = remove_padding(x_out, left_padding, right_padding, requires_padding)
+    
     # Hash grid section goes first, MLP section goes last.
     if train_on_hash_grid:
         reconstruction = jnp.concatenate([x_out, other_section], axis=-1)
@@ -212,7 +213,7 @@ def calculate_required_padding(sequence_length, num_downsamples):
     num_downsamples = int(num_downsamples)
     required_division = 2**num_downsamples
     rounded_quotient = math.ceil(sequence_length / required_division)
-    paddded_sequence_length = int(rounded_quotient * required_division)
+    padded_sequence_length = int(rounded_quotient * required_division)
     
     if padded_sequence_length == sequence_length:
         left_padding = 0
@@ -221,8 +222,9 @@ def calculate_required_padding(sequence_length, num_downsamples):
         return left_padding, right_padding, requires_padding
     else:
         requires_padding = True
-        left_padding = padded_sequence_length // 2
-        if padded_sequence_length % 2 == 0:
+        total_padding = padded_sequence_length - sequence_length
+        left_padding = total_padding // 2
+        if total_padding % 2 == 0:
             right_padding = left_padding
         else:
             right_padding = left_padding + 1
@@ -230,7 +232,7 @@ def calculate_required_padding(sequence_length, num_downsamples):
 
 def main():
     checkpoint_path = None
-    experiment_number = 2
+    experiment_number = 3
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -251,7 +253,7 @@ def main():
     if not os.path.exists(checkpoint_output_path):
         os.makedirs(checkpoint_output_path)
     
-    train_on_hash_grid = True 
+    train_on_hash_grid = False 
     num_epochs = 100
     batch_size = 32
     num_gn_groups = 32
@@ -259,7 +261,7 @@ def main():
     latent_features = 8
     block_depth = 4
     kernel_dim = 5
-    learning_rate = 5e-5
+    learning_rate = 1e-4
     weight_decay = 1e-4
 
     if train_on_hash_grid:
@@ -306,7 +308,10 @@ def main():
     x = preprocess(
         x=jnp.ones((batch_size, context_length), dtype=jnp.float32),
         train_on_hash_grid=train_on_hash_grid,
-        hash_grid_end=hash_grid_end
+        hash_grid_end=hash_grid_end,
+        left_padding=left_padding,
+        right_padding=right_padding,
+        requires_padding=requires_padding
     )
     params_key = jax.random.PRNGKey(91)
     params = model.init(params_key, x=x, train=False)['params']

@@ -110,18 +110,47 @@ class EvenBetterConvAutoencoder(nn.Module):
         )(x)
         return x
 
-def preprocess(x, train_on_hash_grid, hash_grid_end):
+def add_padding(x, left_padding, right_padding, requires_padding):
+    if not requires_padding:
+        return x
+    else:
+        left_zeros = jnp.zeros((x.shape[0], left_padding), dtype=x.dtype)
+        right_zeros = jnp.zeros((x.shape[0], right_padding), dtype=x.dtype)
+        x = jnp.concatenate([left_zeros, x, right_zeros], axis=-1)
+
+def remove_padding(x, left_padding, right_padding, requires_padding):
+    if not requires_padding:
+        return x
+    else:
+        x = x[..., left_padding:]
+        x = x[..., :right_padding]
+        return x
+
+def preprocess(
+    x, train_on_hash_grid, hash_grid_end, 
+    left_padding, right_padding, requires_padding
+):
     if train_on_hash_grid:
         # Isolate hash grid section.
         x = x[..., :hash_grid_end]
     else:
         # Isolate MLP section.
         x = x[..., hash_grid_end:]
+    x = add_padding(x, left_padding, right_padding, requires_padding)
     return jnp.expand_dims(x, axis=-1)
 
-@partial(jax.jit, static_argnames=('train_on_hash_grid', 'hash_grid_end'))
-def train_step(state, batch, train_on_hash_grid, hash_grid_end):
-    x_in = preprocess(batch, train_on_hash_grid, hash_grid_end)
+@partial(jax.jit, static_argnames=(
+    'train_on_hash_grid', 'hash_grid_end', 
+    'left_padding', 'right_padding', 'requires_padding'
+))
+def train_step(
+    state, batch, train_on_hash_grid, hash_grid_end,
+    left_padding, right_padding, requires_padding
+):
+    x_in = preprocess(
+        batch, train_on_hash_grid, hash_grid_end, 
+        left_padding, right_padding, requires_padding
+    )
     
     def loss_fn(params):
         x_out = state.apply_fn({'params': params}, x=x_in, train=True)
@@ -132,14 +161,29 @@ def train_step(state, batch, train_on_hash_grid, hash_grid_end):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
-@partial(jax.jit, static_argnames=('train_on_hash_grid', 'hash_grid_end'))
-def test_step(state, batch, train_on_hash_grid, hash_grid_end):
-    x_in = preprocess(batch, train_on_hash_grid, hash_grid_end)
+@partial(jax.jit, static_argnames=(
+    'train_on_hash_grid', 'hash_grid_end', 
+    'left_padding', 'right_padding', 'requires_padding'
+))
+def test_step(
+    state, batch, train_on_hash_grid, hash_grid_end, 
+    left_padding, right_padding, requires_padding
+):
+    x_in = preprocess(
+        batch, train_on_hash_grid, hash_grid_end,
+        left_padding, right_padding, requires_padding
+    )
     x_out = state.apply_fn({'params': state.params}, x=x_in, train=False)
     return jnp.mean((x_out - x_in)**2)
 
-@partial(jax.jit, static_argnames=('train_on_hash_grid', 'hash_grid_end'))
-def reconstruct(state, batch, train_on_hash_grid, hash_grid_end):
+@partial(jax.jit, static_argnames=(
+    'train_on_hash_grid', 'hash_grid_end', 
+    'left_padding', 'right_padding', 'requires_padding'
+))
+def reconstruct(
+    state, batch, train_on_hash_grid, hash_grid_end,
+    left_padding, right_padding, requires_padding
+):
     # For reconstruction we only reconstruct the section that the autoencoder is being
     # trained on. After reconstruction we concatenate it with the other section so the 
     # field can be rendered.
@@ -149,17 +193,40 @@ def reconstruct(state, batch, train_on_hash_grid, hash_grid_end):
     else:
         x_in = batch[..., hash_grid_end:] # MLP section.
         other_section = batch[..., :hash_grid_end] # Hash grid section.
-    
+
+    x_in = add_padding(x, left_padding, right_padding, requires_padding)
     x_in = jnp.expand_dims(x_in, axis=-1)
     x_out = state.apply_fn({'params': state.params}, x=x_in, train=False)
     x_out = jnp.squeeze(x_out, axis=-1)
-    
+    x_out = remove_padding(x, left_padding, right_padding, requires_padding)
+
     # Hash grid section goes first, MLP section goes last.
     if train_on_hash_grid:
         reconstruction = jnp.concatenate([x_out, other_section], axis=-1)
     else:
         reconstruction = jnp.concatenate([other_section, x_out], axis=-1)
     return reconstruction
+
+def calculate_required_padding(sequence_length, num_downsamples):
+    sequence_length = int(sequence_length)
+    num_downsamples = int(num_downsamples)
+    required_division = 2**num_downsamples
+    rounded_quotient = math.ceil(sequence_length / required_division)
+    paddded_sequence_length = int(rounded_quotient * required_division)
+    
+    if padded_sequence_length == sequence_length:
+        left_padding = 0
+        right_padding = 0
+        requires_padding = False
+        return left_padding, right_padding, requires_padding
+    else:
+        requires_padding = True
+        left_padding = padded_sequence_length // 2
+        if padded_sequence_length % 2 == 0:
+            right_padding = left_padding
+        else:
+            right_padding = left_padding + 1
+        return left_padding, right_padding, requires_padding
 
 def main():
     checkpoint_path = None
@@ -196,13 +263,27 @@ def main():
     weight_decay = 1e-4
 
     if train_on_hash_grid:
+        section_length = hash_grid_end 
         print('training on hash grid section...')
     else:
+        section_length = context_length - hash_grid_end
         print('training on MLP section...')
+    print('section_length', section_length)
+    
+    left_padding, right_padding, requires_padding = calculate_required_padding(
+        sequence_length=section_length, num_downsamples=len(hidden_features)-1
+    )
+    print('requires_padding', requires_padding)
+    print('left_padding', left_padding)
+    print('right_padding', right_padding)
 
     wandb_config = {
         'train_on_hash_grid': train_on_hash_grid,
         'context_length': context_length,
+        'section_length': section_length,
+        'requires_padding': requires_padding,
+        'left_padding': left_padding,
+        'right_padding': right_padding,
         'batch_size': batch_size,
         'num_gn_groups': num_gn_groups,
         'latent_features': latent_features,
@@ -264,7 +345,11 @@ def main():
         losses_this_epoch = []
         for step in range(train_steps):
             batch = next(train_iterator)['params']
-            loss, state = train_step(state, batch, train_on_hash_grid, hash_grid_end)
+            loss, state = train_step(
+                state=state, batch=batch, train_on_hash_grid=train_on_hash_grid, 
+                hash_grid_end=hash_grid_end, left_padding=left_padding,
+                right_padding=right_padding, requires_padding=requires_padding
+            )
             losses_this_epoch.append(loss)
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
@@ -275,7 +360,11 @@ def main():
         losses_this_test = []
         for step in range(test_steps):
             batch = next(test_iterator)['params']
-            loss = test_step(state, batch, train_on_hash_grid, hash_grid_end)
+            loss = test_step(
+                state=state, batch=batch, train_on_hash_grid=train_on_hash_grid, 
+                hash_grid_end=hash_grid_end, left_padding=left_padding, 
+                right_padding=right_padding, requires_padding=requires_padding
+            )
             losses_this_test.append(loss)
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         print(f'epoch {epoch}, test_loss {average_test_loss}')
@@ -286,7 +375,9 @@ def main():
         checkpointer.save(current_checkpoint_path, state, force=True)
         print(f'saved checkpoint {current_checkpoint_path}')
         reconstructed_preview_samples = reconstruct(
-            state, preview_samples, train_on_hash_grid, hash_grid_end
+            state=state, batch=preview_samples, train_on_hash_grid=train_on_hash_grid, 
+            hash_grid_end=hash_grid_end, left_padding=left_padding, 
+            right_padding=right_padding, requires_padding=requires_padding
         )
         for i in range(num_preview_samples):
             flat_params = reconstructed_preview_samples[i]

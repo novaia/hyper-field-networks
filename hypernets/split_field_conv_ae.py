@@ -16,7 +16,6 @@ import json
 from typing import Any
 from functools import partial
 from hypernets.common.nn import SinusoidalEmbedding, kl_divergence
-from float_tokenization import detokenize
 from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
@@ -231,15 +230,19 @@ def calculate_required_padding(sequence_length, num_downsamples):
         return left_padding, right_padding, requires_padding
 
 def main():
+    config_path = 'configs/split_field_conv_ae_hash.json'
+    with open(config_path, 'r') as f:
+        main_config = json.load(f)
     checkpoint_path = None
-    experiment_number = 3
+    experiment_number = 4
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
-    split_size = 0.1
-    split_seed = 0
-    train_set, test_set, field_config, param_map, context_length = \
-        load_dataset(dataset_path, split_size, split_seed)
+    train_set, test_set, field_config, param_map, context_length = load_dataset(
+        dataset_path=dataset_path, 
+        test_size=main_config['test_split_size'], 
+        split_seed=main_config['split_seed']
+    )
     print('context_length', context_length)
     hash_grid_end = (
         field_config['num_hash_table_levels'] 
@@ -253,16 +256,16 @@ def main():
     if not os.path.exists(checkpoint_output_path):
         os.makedirs(checkpoint_output_path)
     
-    train_on_hash_grid = False 
-    num_epochs = 100
-    batch_size = 32
-    num_gn_groups = 32
-    hidden_features = [16, 32, 64, 64]
-    latent_features = 8
-    block_depth = 4
-    kernel_dim = 5
-    learning_rate = 1e-4
-    weight_decay = 1e-4
+    train_on_hash_grid = main_config['train_on_hash_grid']
+    num_epochs = main_config['num_epochs']
+    batch_size = main_config['batch_size']
+    num_gn_groups = main_config['num_gn_groups']
+    hidden_features = main_config['hidden_features'] 
+    latent_features = main_config['latent_features']
+    block_depth = main_config['block_depth'] 
+    kernel_dim = main_config['kernel_dim']
+    learning_rate = main_config['learning_rate'] 
+    weight_decay = main_config['weight_decay']
 
     if train_on_hash_grid:
         section_length = hash_grid_end 
@@ -278,23 +281,6 @@ def main():
     print('requires_padding', requires_padding)
     print('left_padding', left_padding)
     print('right_padding', right_padding)
-
-    wandb_config = {
-        'train_on_hash_grid': train_on_hash_grid,
-        'context_length': context_length,
-        'section_length': section_length,
-        'requires_padding': requires_padding,
-        'left_padding': left_padding,
-        'right_padding': right_padding,
-        'batch_size': batch_size,
-        'num_gn_groups': num_gn_groups,
-        'latent_features': latent_features,
-        'hidden_features': hidden_features,
-        'block_depth': block_depth,
-        'kernel_dim': kernel_dim,
-        'learning_rate': learning_rate,
-        'weight_decay': weight_decay
-    }
 
     model = EvenBetterConvAutoencoder(
         num_gn_groups=num_gn_groups,
@@ -313,13 +299,13 @@ def main():
         right_padding=right_padding,
         requires_padding=requires_padding
     )
-    params_key = jax.random.PRNGKey(91)
+    params_key = jax.random.PRNGKey(main_config['model_seed'])
     params = model.init(params_key, x=x, train=False)['params']
     opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
-    wandb_config['param_count'] = param_count
+    main_config['param_count'] = param_count
     print(f'param_count {param_count:,}')
     
     num_train_samples = len(train_set)
@@ -339,7 +325,7 @@ def main():
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
-    wandb.init(project='conv-vae', config=wandb_config)
+    wandb.init(project='conv-vae', config=main_config)
     num_preview_samples = 5
     print('num_preview_samples', num_preview_samples)
     preview_samples = test_set[:num_preview_samples]['params']

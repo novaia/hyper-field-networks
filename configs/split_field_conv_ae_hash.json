@@ -1,0 +1,15 @@
+{
+    "train_on_hash_grid": true,
+    "num_epochs": 100,
+    "batch_size": 32,
+    "num_gn_groups": 32,
+    "hidden_features": [16, 32, 64, 64],
+    "latent_features": 4,
+    "block_depth": 4,
+    "kernel_dim": 5,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "test_split_size": 0.1,
+    "split_seed": 0,
+    "model_seed": 91
+}

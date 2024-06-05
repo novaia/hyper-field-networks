@@ -15,7 +15,6 @@ import datasets
 import json
 from typing import Any
 from functools import partial
-from hypernets.common.nn import SinusoidalEmbedding, kl_divergence
 from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
@@ -49,24 +48,17 @@ def load_dataset(dataset_path, test_size, split_seed):
     context_length = train[0]['params'].shape[0]
     return train, test, field_config, param_map, context_length
 
-class EvenBetterConvAutoencoder(nn.Module):
-    num_gn_groups: int
+class Encoder(nn.Module):
+    num_norm_groups: int
     latent_features: int
-    hidden_features: list
+    intermediate_features: list
     block_depth: int
     kernel_dim: int
     dtype: Any
-
+    
     @nn.compact
-    def __call__(self, x, train):
-        def get_num_groups(num_features):
-            if num_features >= self.num_gn_groups:
-                return self.num_gn_groups
-            else:
-                return num_features
-
-        # Encoder.
-        for i, num_features in enumerate(self.hidden_features):
+    def __call__(self, x):
+        for i, num_features in enumerate(self.intermediate_features):
             for _ in range(self.block_depth):
                 x = nn.Conv(
                     features=num_features, kernel_size=(self.kernel_dim,), 
@@ -78,16 +70,25 @@ class EvenBetterConvAutoencoder(nn.Module):
                     strides=(1,), padding='SAME', dtype=self.dtype
                 )(x)
                 x = nn.gelu(x)
-                x = nn.GroupNorm(num_groups=get_num_groups(num_features), dtype=self.dtype)(x)
-            if i != len(self.hidden_features) - 1:
+                x = nn.GroupNorm(num_groups=min(num_features, self.num_norm_groups), dtype=self.dtype)(x)
+            if i != len(self.intermediate_features) - 1:
                 x = nn.max_pool(x, window_shape=(2,), strides=(2,), padding='VALID')
         x = nn.Conv(
             features=self.latent_features, kernel_size=(self.kernel_dim,), 
             strides=(1,), padding='SAME', dtype=self.dtype
         )(x)
+        return x
 
-        # Decoder.
-        for i, num_features in enumerate(list(reversed(self.hidden_features))):
+class Decoder(nn.Module):
+    num_norm_groups: int
+    intermediate_features: list
+    block_depth: int
+    kernel_dim: int
+    dtype: Any
+    
+    @nn.compact
+    def __call__(self, x):
+        for i, num_features in enumerate(self.intermediate_features):
             if i != 0:
                 x = jax.image.resize(x, shape=(x.shape[0], x.shape[1]*2, x.shape[2]), method='linear')
             for _ in range(self.block_depth):
@@ -101,13 +102,21 @@ class EvenBetterConvAutoencoder(nn.Module):
                     strides=(1,), padding='SAME', dtype=self.dtype
                 )(x)
                 x = nn.gelu(x)
-                x = nn.GroupNorm(num_groups=get_num_groups(num_features), dtype=self.dtype)(x)
-
+                x = nn.GroupNorm(num_groups=min(num_features, self.num_norm_groups), dtype=self.dtype)(x)
         x = nn.Conv(
             features=1, kernel_size=(self.kernel_dim,), 
             strides=(1,), padding='SAME', dtype=self.dtype       
         )(x)
         return x
+
+class Autoencoder(nn.Module):
+    encoder: nn.Module 
+    decoder: nn.Module
+
+    @nn.compact
+    def __call__(self, x, train):
+        return self.decoder(self.encoder(x))
+
 
 def add_padding(x, left_padding, right_padding, requires_padding):
     if not requires_padding:
@@ -230,11 +239,11 @@ def calculate_required_padding(sequence_length, num_downsamples):
         return left_padding, right_padding, requires_padding
 
 def main():
-    config_path = 'configs/split_field_conv_ae_hash.json'
+    config_path = 'configs/split_field_conv_ae_mlp.json'
     with open(config_path, 'r') as f:
         main_config = json.load(f)
     checkpoint_path = None
-    experiment_number = 4
+    experiment_number = 5
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
@@ -259,8 +268,9 @@ def main():
     train_on_hash_grid = main_config['train_on_hash_grid']
     num_epochs = main_config['num_epochs']
     batch_size = main_config['batch_size']
-    num_gn_groups = main_config['num_gn_groups']
-    hidden_features = main_config['hidden_features'] 
+    num_norm_groups = main_config['num_norm_groups']
+    encoder_intermediate_features = main_config['intermediate_features'] 
+    decoder_intermediate_features = list(reversed(encoder_intermediate_features))
     latent_features = main_config['latent_features']
     block_depth = main_config['block_depth'] 
     kernel_dim = main_config['kernel_dim']
@@ -276,20 +286,28 @@ def main():
     print('section_length', section_length)
     
     left_padding, right_padding, requires_padding = calculate_required_padding(
-        sequence_length=section_length, num_downsamples=len(hidden_features)-1
+        sequence_length=section_length, num_downsamples=len(encoder_intermediate_features)-1
     )
     print('requires_padding', requires_padding)
     print('left_padding', left_padding)
     print('right_padding', right_padding)
 
-    model = EvenBetterConvAutoencoder(
-        num_gn_groups=num_gn_groups,
+    encoder_model = Encoder(
+        num_norm_groups=num_norm_groups,
+        intermediate_features=encoder_intermediate_features,
         latent_features=latent_features,
-        hidden_features=hidden_features,
         block_depth=block_depth,
         kernel_dim=kernel_dim,
         dtype=jnp.bfloat16
     )
+    decoder_model = Decoder(
+        num_norm_groups=num_norm_groups,
+        intermediate_features=decoder_intermediate_features,
+        block_depth=block_depth,
+        kernel_dim=kernel_dim,
+        dtype=jnp.bfloat16
+    )
+    autoencoder_model = Autoencoder(encoder=encoder_model, decoder=decoder_model)
 
     x = preprocess(
         x=jnp.ones((batch_size, context_length), dtype=jnp.float32),
@@ -300,9 +318,9 @@ def main():
         requires_padding=requires_padding
     )
     params_key = jax.random.PRNGKey(main_config['model_seed'])
-    params = model.init(params_key, x=x, train=False)['params']
+    params = autoencoder_model.init(params_key, x=x, train=False)['params']
     opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
-    state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
+    state = TrainState.create(apply_fn=autoencoder_model.apply, params=params, tx=opt)
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     main_config['param_count'] = param_count

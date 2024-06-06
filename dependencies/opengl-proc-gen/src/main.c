@@ -82,12 +82,13 @@ GLFWwindow* init_gl(void)
     printf("Loaded OpenGL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
     return window;
 }
-/*
+
 void multi_view_render(
     const scene_t* scene, camera_t* camera, 
     mesh_shader_t* shader, depth_map_shader_t* depth_shader,
     GLFWwindow* window
 ){
+    const float half_fov_radians = degrees_to_radians(fov/2.0f);
     const float min_x_rotation = -80.0f;
     const float max_x_rotation = 80.0f;
     const float x_rotation_domain = max_x_rotation - min_x_rotation;
@@ -106,18 +107,22 @@ void multi_view_render(
     const unsigned int num_views = (x_rotation_steps+1) * y_rotation_steps;
     mat4* transform_matrices = (mat4*)malloc(sizeof(mat4) * num_views);
     unsigned int transform_matrices_offset = 0;
-    const float camera_zoom = 4.0f;
+    const float camera_zoom = -4.0f;
     for(unsigned int x = 0; x <= x_rotation_steps; x++)
     {
         const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
         for(unsigned int y = 0; y < y_rotation_steps; y++)
         {
             const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
-            camera->view_matrix = get_lookat_matrix_from_rotation(x_rotation, y_rotation, 0.0f, camera_zoom);
-            const mat4 transform_matrix = get_model_matrix_from_rotation(
-                x_rotation, y_rotation, 0.0f, camera_zoom
+            const vec3 camera_rotation = {x_rotation, y_rotation, 0.0f};
+            mat4_make_camera_model_and_view_matrix(
+                camera_rotation, camera_zoom, camera->model_matrix, camera->view_matrix
             );
-            transform_matrices[transform_matrices_offset++] = transform_matrix;
+            memcpy(
+                &transform_matrices[transform_matrices_offset++], 
+                camera->model_matrix, 
+                sizeof(mat4)
+            );
             render_scene(scene, camera, depth_shader, shader, window_width, window_height);
             snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
             save_frame_to_png(save_path, window_width, window_height);
@@ -128,12 +133,11 @@ void multi_view_render(
         }
     }
     save_multi_view_transforms_json(
-        (float)degrees_to_radians((double)(fov/2.0f)), 0.0f, num_views, transform_matrices, 
+        half_fov_radians, 0.0f, num_views, transform_matrices, 
         DATA_PATH("multi_view_renders/transforms.json"), 1
     );
     free(transform_matrices);
 }
-*/
 
 int main()
 {
@@ -213,7 +217,7 @@ int main()
         camera_rotation, camera_zoom, camera->model_matrix, camera->view_matrix
     );
     glEnable(GL_DEPTH_TEST);
-    //multi_view_render(scene, camera, &shader, &depth_shader, window);
+    multi_view_render(scene, camera, &shader, &depth_shader, window);
     while(!glfwWindowShouldClose(window))
     {
         rot = camera_rotation[1] + 0.4f;

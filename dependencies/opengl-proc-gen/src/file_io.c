@@ -225,8 +225,7 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
     png_destroy_write_struct(&png, &info);
     fclose(file);
 }
-// TODO: fix this function and uncomment it.
-/*
+
 void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
     const unsigned int num_views, const mat4* transform_matrices,
@@ -263,14 +262,13 @@ void save_multi_view_transforms_json(
         fprintf(file, color_path_format, i);
         if(with_depth) { fprintf(file, depth_path_format, i); }
         fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"transform\": [\n"))));
-        const mat4 current_transform = transform_matrices[i];
+        const mat4* current_transform = &transform_matrices[i];
         for(unsigned int col = 0; col < 4; col++)
         {
-            unsigned int matrix_offset = col * 4;
-            const float x = current_transform.data[matrix_offset++];
-            const float y = current_transform.data[matrix_offset++];
-            const float z = current_transform.data[matrix_offset++];
-            const float w = current_transform.data[matrix_offset++];
+            const float x = (*current_transform)[col][0];
+            const float y = (*current_transform)[col][1];
+            const float z = (*current_transform)[col][2];
+            const float w = (*current_transform)[col][3];
             if(col == 3)
             {
                 // Print column without trailing comma if this is the last column.
@@ -297,7 +295,6 @@ void save_multi_view_transforms_json(
     fprintf(file, "}\n");
     fclose(file);
 }
-*/
 
 static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 

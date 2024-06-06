@@ -38,8 +38,7 @@ def save_table(table_data, num_params, table_number, output_path, zfill_amount):
             b'huggingface': json.dumps({
                 'info': {
                     'features': {
-                        # todo: debug this
-                        #'params': {'_type': 'Sequence', 'dtype': 'float32'},
+                        'params': {'_type': 'Sequence', 'feature': {'_type': 'Value', 'dtype': 'float32'}},
                         'image': {'_type': 'Image'}
                     }
                 }

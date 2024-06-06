@@ -1,6 +1,7 @@
 {
     "train_on_hash_grid": true,
     "num_epochs": 100,
+    "batch_size": 32,
     "num_norm_groups": 32,
     "intermediate_features": [16, 32, 64, 64],
     "latent_features": 4,

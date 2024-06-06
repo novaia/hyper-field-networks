@@ -264,6 +264,7 @@ void mat4_make_orthogonal_projection(
 
 void mat4_make_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix)
 {
+    mat4_make_identity(model_matrix);
     mat4 x_rotation_matrix;
     mat4 y_rotation_matrix;
     mat4 z_rotation_matrix;
@@ -278,26 +279,30 @@ void mat4_make_ordinary_model_matrix(const vec3 position, const vec3 rotation, m
 
 void mat4_make_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix)
 {
+    mat4_make_identity(model_matrix);
     mat4 x_rotation_matrix;
     mat4 y_rotation_matrix;
     vec3 position = VEC3_FORWARD_INIT;
     mat4_make_x_rotation(rotation[0], x_rotation_matrix);
     mat4_make_y_rotation(rotation[1], y_rotation_matrix);
     mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
+    vec3_mat4_mul(position, model_matrix, position);
     vec3_scale(position, zoom, position);
     mat4_set_translation(model_matrix, position);
 }
 
 void mat4_make_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix)
 {
+    mat4_make_identity(view_matrix);
+    vec3 inverse_position;
+    vec3_scale(position, -1.0f, inverse_position);
+    mat4_set_translation(view_matrix, inverse_position);
     mat4 x_rotation_matrix;
     mat4 y_rotation_matrix;
     mat4_make_x_rotation(-rotation[0], x_rotation_matrix);
     mat4_make_y_rotation(-rotation[1], y_rotation_matrix);
-    mat4_mul(y_rotation_matrix, x_rotation_matrix, view_matrix);
-    vec3 inverse_position;
-    vec3_scale(position, -1.0f, inverse_position);
-    mat4_set_translation(view_matrix, inverse_position);
+    mat4_mul(y_rotation_matrix, view_matrix, view_matrix);
+    mat4_mul(x_rotation_matrix, view_matrix, view_matrix);
 }
 
 void mat4_make_camera_model_and_view_matrix(

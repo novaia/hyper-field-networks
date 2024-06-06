@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include "rendering.h"
 
 uint32_t create_shader_program(
@@ -94,6 +95,7 @@ gl_mesh_t obj_to_gl_mesh(obj_t* obj)
         GL_STATIC_DRAW
     );
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * 2, (void*)0);
+    glEnableVertexAttribArray(2);
     glEnableVertexAttribArray(2);
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -238,14 +240,58 @@ int add_scene_element(
         printf("Could not add element to scene because MAX_SCENE_ELEMENTS was exceeded\n");
         return -1;
     }
-    scene_element_t element = { 
-        .model_matrix = model_matrix, 
-        .mesh_index = mesh_index, 
-        .texture_index = texture_index 
-    };
+    scene_element_t element;
+    memcpy(element.model_matrix, model_matrix, sizeof(mat4));
+    element.mesh_index = mesh_index;
+    element.texture_index = texture_index;
     scene->elements[scene->num_elements] = element;
     scene->num_elements = new_element_count;
     return 0;
+}
+
+void get_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix)
+{
+    mat4 x_rotation_matrix;
+    mat4 y_rotation_matrix;
+    mat4 z_rotation_matrix;
+    mat4_make_x_rotation(rotation[0], x_rotation_matrix);
+    mat4_make_y_rotation(rotation[1], y_rotation_matrix);
+    mat4_make_z_rotation(rotation[2], z_rotation_matrix);
+    // R = R_z * R_y * R_x.
+    mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
+    mat4_mul(z_rotation_matrix, model_matrix, model_matrix);
+    mat4_set_translation(model_matrix, position);
+}
+
+void get_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix)
+{
+    mat4 x_rotation_matrix;
+    mat4 y_rotation_matrix;
+    vec3 position = VEC3_FORWARD_INIT;
+    mat4_make_x_rotation(rotation[0], x_rotation_matrix);
+    mat4_make_y_rotation(rotation[1], y_rotation_matrix);
+    mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
+    vec3_scale(position, zoom, position);
+    mat4_set_translation(model_matrix, position);
+}
+
+void get_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix)
+{
+    mat4 x_rotation_matrix;
+    mat4 y_rotation_matrix;
+    mat4_make_x_rotation(-rotation[0], x_rotation_matrix);
+    mat4_make_y_rotation(-rotation[1], y_rotation_matrix);
+    mat4_mul(y_rotation_matrix, x_rotation_matrix, view_matrix);
+    vec3_scale(position, -1.0f, position);
+    mat4_set_translation(view_matrix, position);
+}
+
+void get_camera_model_and_view_matrix(
+    const vec3 rotation, const float zoom, mat4 model_matrix, mat4 view_matrix
+){
+    get_model_matrix(rotation, zoom, model_matrix);
+    const vec3 position = {model_matrix[3][0], model_matrix[3][1], model_matrix[3][2]};
+    get_view_matrix(position, rotation, view_matrix);
 }
 
 void render_scene(
@@ -266,14 +312,14 @@ void render_scene(
         gl_mesh_t mesh = scene->gl_meshes[element.mesh_index];
         glBindVertexArray(mesh.vao);
         glUniformMatrix4fv(
-            depth_shader->model_matrix_location, 1, GL_FALSE, element.model_matrix.data
+            depth_shader->model_matrix_location, 1, GL_FALSE, element.model_matrix
         );
         glUniformMatrix4fv(
-            depth_shader->light_view_matrix_location, 1, GL_FALSE, light.view_matrix.data
+            depth_shader->light_view_matrix_location, 1, GL_FALSE, light.view_matrix
         );
         glUniformMatrix4fv(
             depth_shader->light_projection_matrix_location, 
-            1, GL_FALSE, light.projection_matrix.data
+            1, GL_FALSE, light.projection_matrix
         );
 
         glDrawArrays(GL_TRIANGLES, 0, mesh.num_vertices);
@@ -294,22 +340,15 @@ void render_scene(
         uint32_t texture = scene->gl_textures[element.texture_index];
         
         glBindVertexArray(mesh.vao);
-        glUniformMatrix4fv(
-            shader->perspective_matrix_location, 1, GL_FALSE, camera->perspective_matrix.data
-        );
-        glUniformMatrix4fv(
-            shader->view_matrix_location, 1, GL_FALSE, camera->view_matrix.data
-        );
-        glUniformMatrix4fv(
-            shader->model_matrix_location, 1, GL_FALSE, element.model_matrix.data
+            shader->model_matrix_location, 1, GL_FALSE, element.model_matrix
         );
         glUniformMatrix4fv(
             shader->light_projection_matrix_location, 
-            1, GL_FALSE, light.projection_matrix.data
+            1, GL_FALSE, light.projection_matrix
         );
         glUniformMatrix4fv(
             shader->light_view_matrix_location, 
-            1, GL_FALSE, light.view_matrix.data
+            1, GL_FALSE, light.view_matrix
         );
 
         glUniform1f(shader->ambient_strength_location, light.ambient_strength); 

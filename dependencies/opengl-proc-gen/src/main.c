@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "shaders.h"
 #include "file_io.h"
-#include "matrices.h"
+#include "vector_matrix_math.h"
 #include "rendering.h"
 
 #define DATA_PATH(path) "/home/hayden/repos/g3dm/data/"path
@@ -82,7 +82,7 @@ GLFWwindow* init_gl(void)
     printf("Loaded OpenGL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
     return window;
 }
-
+/*
 void multi_view_render(
     const scene_t* scene, camera_t* camera, 
     mesh_shader_t* shader, depth_map_shader_t* depth_shader,
@@ -133,105 +133,10 @@ void multi_view_render(
     );
     free(transform_matrices);
 }
-
-double __degrees_to_radians(double degrees)
-{
-    const double pi = 3.14159265358979323846;
-    return degrees * (pi / 180.0);
-}
-
-mat4 get_x_rotation_matrix_test(float angle)
-{
-    const float theta = (float)__degrees_to_radians((double)angle);
-    const float cos_theta = (float)cos(theta);
-    const float sin_theta = (float)sin(theta);
-    mat4 x_rotation_matrix = {
-        .data = {
-            1.0f, 0.0f, 0.0f, 0.0f,
-            0.0f, cos_theta, sin_theta, 0.0f, 
-            0.0f, -sin_theta, cos_theta, 0.0f,
-            0.0f, 0.0f, 0.0f, 1.0f,
-        }
-    };
-    return x_rotation_matrix;
-}
-
-inline mat4 get_y_rotation_matrix_test(float angle)
-{
-    const float theta = (float)__degrees_to_radians((double)angle);
-    const float cos_theta = (float)cos(theta);
-    const float sin_theta = (float)sin(theta);
-    mat4 y_rotation_matrix = {
-        .data = {
-            cos_theta, 0.0f, -sin_theta, 0.0f,
-            0.0f, 1.0f, 0.0f, 0.0f, 
-            sin_theta, 0.0f, cos_theta, 0.0f,
-            0.0f, 0.0f, 0.0f, 1.0f,
-        }
-    };
-    return y_rotation_matrix;
-}
-
-inline mat4 mat4mul_test(mat4 a, mat4 b)
-{
-    mat4 result = { .data = {0.0f} };
-    for(unsigned int col = 0; col < 4; col++)
-    {
-        const unsigned int col_offset = col * 4;
-        for(unsigned int row = 0; row < 4; row++)
-        {
-            for(unsigned int i = 0; i < 4; i++)
-            {
-                result.data[col_offset + row] += a.data[i * 4 + row] * b.data[col_offset + i];
-            }
-        }
-    }
-    return result;
-}
-
-void print_mat4(mat4 a)
-{
-    unsigned int mat_offset = 0;
-    for(int i = 0; i < 4; ++i)
-    {
-        for(int k = 0; k < 4; ++k)
-        {
-            printf("%f ", a.data[mat_offset++]);
-        }
-        printf("\n");
-    }
-}
-
-void test_matrix(void)
-{
-    const float dummy_x_rot = 70.0f;
-    const float dummy_y_rot = 8.0f;
-    const float dummy_z_rot = 0.0f;
-    mat4 x_rot_mat = get_x_rotation_matrix_test(dummy_x_rot);
-    printf("x rotation matrix:\n");
-    print_mat4(x_rot_mat);
-    mat4 y_rot_mat = get_y_rotation_matrix_test(dummy_y_rot);
-    printf("y rotation matrix:\n");
-    print_mat4(y_rot_mat);
-    
-    mat4 combined_rot_mat = mat4mul_test(x_rot_mat, y_rot_mat);
-    printf("combined rotation matrix:\n");
-    print_mat4(combined_rot_mat);
-
-    mat4 model_mat = get_model_matrix_from_rotation(dummy_x_rot, dummy_y_rot, 0.0f, 0.0f);
-    printf("model matrix:\n");
-    print_mat4(model_mat);
-
-    mat4 view_mat = get_lookat_matrix_from_rotation(dummy_x_rot, dummy_y_rot, 0.0f, 0.0f);
-    printf("view matrix:\n");
-    print_mat4(view_mat);
-}
+*/
 
 int main()
 {
-    //test_matrix();
-    //return 1;
-
     GLFWwindow* window = init_gl();
     if(!window)
     {
@@ -273,7 +178,6 @@ int main()
         printf("Failed to load texture\n");
         return -1; 
     }
-
     
     int error = 0;
     scene_t* scene = init_scene(50.0f, 20.0f, 0.0f, 0.3f);
@@ -306,27 +210,13 @@ int main()
         scene->light.direction[2]
     );
     
-    /*
-    mat4 elf_model_matrix = get_model_matrix(2.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    printf("\n");
-    error = add_scene_element(scene, elf_model_matrix, elf_mesh_index, white_texture_index);
-    if(error) { return -1; }
-
-    mat4 elf_model_matrix_2 = get_model_matrix(-2.0f, -1.0f, 0.0f, 0.0f, 80.0f, 0.0f);
-    error = add_scene_element(scene, elf_model_matrix_2, elf_mesh_index, white_texture_index);
-    if(error) { return -1; }
-    */
-
-    mat4 sonic_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
+    mat4 sonic_model_matrix;
+    vec3 sonic_position = {0.0f, -1.5f, 0.0f};
+    vec3 sonic_rotation = VEC3_ZERO_INIT;
+    get_ordinary_model_matrix(sonic_position, sonic_rotation, sonic_model_matrix);
     error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
     if(error) { return -1; }
 
-    /*mat4 plane_model_matrix = get_model_matrix(0.0f, -1.5f, 0.0f, 0.0f, 0.0f, 0.0f);
-    error = add_scene_element(
-        scene, plane_model_matrix, plane_mesh_index, orange_texture_index
-    );
-    if(error) { return -1; }*/
-    
     mesh_shader_t shader = shader_program_to_mesh_shader(
         create_shader_program(shader_vert, shader_frag)
     );
@@ -335,21 +225,21 @@ int main()
     );
 
     float aspect_ratio = window_width_f / window_height_f;
-    camera_t camera = {
-        .perspective_matrix = get_perspective_matrix(fov, 1.0f, 20.0f, aspect_ratio),
-        .view_matrix = get_y_rotation_matrix(0.0)
-    };
+    camera_t* camera = (camera_t*)malloc(sizeof(camera_t));
 
     float rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
-    multi_view_render(scene, &camera, &shader, &depth_shader, window);
+    //multi_view_render(scene, camera, &shader, &depth_shader, window);
     while(!glfwWindowShouldClose(window))
     {
         rot += 0.4f;
         if(rot > 360.0f) { rot -= 360.0f; }
         else if(rot < 0.0f) { rot += 360.0f; }
-        camera.view_matrix = get_lookat_matrix_from_rotation(10.0f, rot, 0.0f, 4.0f);
-        render_scene(scene, &camera, &depth_shader, &shader, window_width, window_height);
+        const vec3 camera_rotation = {10.0f, rot, 0.0f};
+        get_camera_model_and_view_matrix(
+            camera_rotation, -4.0f, camera->model_matrix, camera->view_matrix
+        );
+        render_scene(scene, camera, &depth_shader, &shader, window_width, window_height);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

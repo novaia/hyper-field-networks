@@ -225,7 +225,8 @@ void save_depth_to_png(const char* filename, unsigned int width, unsigned int he
     png_destroy_write_struct(&png, &info);
     fclose(file);
 }
-
+// TODO: fix this function and uncomment it.
+/*
 void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
     const unsigned int num_views, const mat4* transform_matrices,
@@ -296,6 +297,7 @@ void save_multi_view_transforms_json(
     fprintf(file, "}\n");
     fclose(file);
 }
+*/
 
 static inline unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 

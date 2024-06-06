@@ -5,7 +5,7 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include "file_io.h"
-#include "matrices.h"
+#include "vector_matrix_math.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -76,6 +76,7 @@ typedef struct
 typedef struct
 {
     mat4 perspective_matrix;
+    mat4 model_matrix;
     mat4 view_matrix;
 } camera_t;
 
@@ -98,6 +99,13 @@ int add_texture_to_scene(scene_t* scene, image_t* texture, unsigned int* texture
 int add_scene_element(
     scene_t* scene, mat4 model_matrix, 
     const unsigned int mesh_index, const unsigned int texture_index
+);
+
+void get_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix);
+void get_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix);
+void get_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix);
+void get_camera_model_and_view_matrix(
+    const vec3 rotation, const float zoom, mat4 model_matrix, mat4 view_matrix
 );
 
 void render_scene(

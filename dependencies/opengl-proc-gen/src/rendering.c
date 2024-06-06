@@ -288,6 +288,14 @@ void render_scene(
         uint32_t texture = scene->gl_textures[element.texture_index];
         
         glBindVertexArray(mesh.vao);
+        glUniformMatrix4fv(
+            shader->perspective_matrix_location, 1, GL_FALSE, 
+            (const float*)camera->perspective_matrix
+        );
+        glUniformMatrix4fv(
+            shader->view_matrix_location, 1, GL_FALSE, 
+            (const float*)camera->view_matrix
+        );
         glUniformMatrix4fv(    
             shader->model_matrix_location, 1, GL_FALSE, 
             (const float*)element.model_matrix

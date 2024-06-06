@@ -167,47 +167,12 @@ int main()
         printf("Failed to load texture\n");
         return -1; 
     }
-    obj_t* elf_obj = load_obj(DATA_PATH("3d_models/elf/elf.obj"), 100000, 100000, 100000);
-    if(!elf_obj) 
-    {
-        printf("Failed to load obj\n");
-        return -1; 
-    }
-    obj_t* plane_obj = load_obj(DATA_PATH("3d_models/platform.obj"), 50, 50, 50);
-    if(!plane_obj)
-    {
-        printf("Failed to load plane obj\n");
-    }
-    image_t* white_texture = load_png(DATA_PATH("3d_models/white_texture.png"));
-    if(!white_texture) 
-    { 
-        printf("Failed to load texture\n");
-        return -1; 
-    }
-    image_t* orange_texture = load_png(DATA_PATH("3d_models/orange_texture.png"));
-    if(!orange_texture) 
-    { 
-        printf("Failed to load texture\n");
-        return -1; 
-    }
     
     const vec3 light_rotation = {50.0f, 20.0f, 0.0f};
     init_scene(light_rotation, 0.3f, scene);
     int error = 0;
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
-    if(error) { return -1; }
-    unsigned int elf_mesh_index = 0;
-    error = add_mesh_to_scene(scene, elf_obj, &elf_mesh_index);
-    if(error) { return -1; }
-    unsigned int plane_mesh_index = 0;
-    error = add_mesh_to_scene(scene, plane_obj, &plane_mesh_index);
-    if(error) { return -1; }
-    unsigned int white_texture_index = 0;
-    error = add_texture_to_scene(scene, white_texture, &white_texture_index);
-    if(error) { return -1; }
-    unsigned int orange_texture_index = 0;
-    error = add_texture_to_scene(scene, orange_texture, &orange_texture_index);
     if(error) { return -1; }
     unsigned int sonic_texture_index = 0;
     error = add_texture_to_scene(scene, sonic_texture, &sonic_texture_index);
@@ -241,16 +206,22 @@ int main()
     
 
     float rot = 0.0f;
+    mat4_make_perspective_projection(fov, 1.0f, 20.0f, aspect_ratio, camera->perspective_matrix);
+    vec3 camera_rotation = {0.0f, 0.0f, 0.0f};
+    const float camera_zoom = -4.0f;
+    mat4_make_camera_model_and_view_matrix(
+        camera_rotation, camera_zoom, camera->model_matrix, camera->view_matrix
+    );
     glEnable(GL_DEPTH_TEST);
     //multi_view_render(scene, camera, &shader, &depth_shader, window);
     while(!glfwWindowShouldClose(window))
     {
-        rot += 0.4f;
+        rot = camera_rotation[1] + 0.4f;
         if(rot > 360.0f) { rot -= 360.0f; }
         else if(rot < 0.0f) { rot += 360.0f; }
-        const vec3 camera_rotation = {10.0f, rot, 0.0f};
+        camera_rotation[1] = rot;
         mat4_make_camera_model_and_view_matrix(
-            camera_rotation, -4.0f, camera->model_matrix, camera->view_matrix
+            camera_rotation, camera_zoom, camera->model_matrix, camera->view_matrix
         );
         render_scene(scene, camera, &depth_shader, &shader, window_width, window_height);
         glfwSwapBuffers(window);

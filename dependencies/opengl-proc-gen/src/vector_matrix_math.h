@@ -23,8 +23,8 @@ typedef float quat[4];
     }
 
 #define VEC3_ZERO_INIT {0.0f, 0.0f, 0.0f}
-#define VEC4_ZERO_INIT {0.0f, 0.0f, 0.0f, 0.0f}
 #define VEC3_FORWARD_INIT {0.0f, 0.0f, -1.0f};
+#define VEC4_ZERO_INIT {0.0f, 0.0f, 0.0f, 0.0f}
 
 float degrees_to_radians(float degrees);
 

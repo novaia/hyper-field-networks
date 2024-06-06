@@ -142,7 +142,19 @@ int main()
     {
         return -1;
     }
-
+    scene_t* scene = (scene_t*)malloc(sizeof(scene_t));
+    if(!scene)
+    {
+        printf("Failed to allocate memory for scene\n");
+        return -1;
+    }
+    camera_t* camera = (camera_t*)malloc(sizeof(camera_t));
+    if(!camera)
+    {
+        printf("Failed to allocate memory for camera\n");
+        return -1;
+    }
+    
     obj_t* sonic_obj = load_obj(DATA_PATH("3d_models/sonic/sonic.obj"), 100000, 100000, 100000);
     if(!sonic_obj) 
     {
@@ -179,8 +191,9 @@ int main()
         return -1; 
     }
     
+    const vec3 light_rotation = {50.0f, 20.0f, 0.0f};
+    init_scene(light_rotation, 0.3f, scene);
     int error = 0;
-    scene_t* scene = init_scene(50.0f, 20.0f, 0.0f, 0.3f);
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
     if(error) { return -1; }
@@ -213,7 +226,7 @@ int main()
     mat4 sonic_model_matrix;
     vec3 sonic_position = {0.0f, -1.5f, 0.0f};
     vec3 sonic_rotation = VEC3_ZERO_INIT;
-    get_ordinary_model_matrix(sonic_position, sonic_rotation, sonic_model_matrix);
+    mat4_make_ordinary_model_matrix(sonic_position, sonic_rotation, sonic_model_matrix);
     error = add_scene_element(scene, sonic_model_matrix, sonic_mesh_index, sonic_texture_index);
     if(error) { return -1; }
 
@@ -225,7 +238,7 @@ int main()
     );
 
     float aspect_ratio = window_width_f / window_height_f;
-    camera_t* camera = (camera_t*)malloc(sizeof(camera_t));
+    
 
     float rot = 0.0f;
     glEnable(GL_DEPTH_TEST);
@@ -236,7 +249,7 @@ int main()
         if(rot > 360.0f) { rot -= 360.0f; }
         else if(rot < 0.0f) { rot += 360.0f; }
         const vec3 camera_rotation = {10.0f, rot, 0.0f};
-        get_camera_model_and_view_matrix(
+        mat4_make_camera_model_and_view_matrix(
             camera_rotation, -4.0f, camera->model_matrix, camera->view_matrix
         );
         render_scene(scene, camera, &depth_shader, &shader, window_width, window_height);

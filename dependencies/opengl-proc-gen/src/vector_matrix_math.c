@@ -232,5 +232,80 @@ void mat4_make_perspective_projection(
     result[3][2] = -2.0f * far_plane * near_plane / (far_plane - near_plane);
     result[3][3] = 0.0f;
 }
+
+void mat4_make_orthogonal_projection(
+    float left, float right, float bottom, float top, 
+    float near_plane, float far_plane, mat4 result
+){
+    const float width = right - left;
+    const float height = top - bottom;
+    const float depth = far_plane - near_plane;
+    // Column 0.
+    result[0][0] = 2.0f / width;
+    result[0][1] = 0.0f;
+    result[0][2] = 0.0f;
+    result[0][3] = 0.0f;
+    // Column 1.
+    result[1][0] = 0.0f;
+    result[1][1] = 2.0f / height;
+    result[1][2] = 0.0f;
+    result[1][3] = 0.0f;
+    // Column 2.
+    result[2][0] = 0.0f;
+    result[2][1] = 0.0f;
+    result[2][2] = -2.0f / depth; 
+    result[2][3] = -1.0f;
+    // Column 3.
+    result[3][0] = -(right + left) / width;
+    result[3][1] = -(top + bottom) / height;
+    result[3][2] = -(far_plane + near_plane) / depth;
+    result[3][3] = 1.0f;
+}
+
+void mat4_make_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix)
+{
+    mat4 x_rotation_matrix;
+    mat4 y_rotation_matrix;
+    mat4 z_rotation_matrix;
+    mat4_make_x_rotation(rotation[0], x_rotation_matrix);
+    mat4_make_y_rotation(rotation[1], y_rotation_matrix);
+    mat4_make_z_rotation(rotation[2], z_rotation_matrix);
+    // R = R_z * R_y * R_x.
+    mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
+    mat4_mul(z_rotation_matrix, model_matrix, model_matrix);
+    mat4_set_translation(model_matrix, position);
+}
+
+void mat4_make_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix)
+{
+    mat4 x_rotation_matrix;
+    mat4 y_rotation_matrix;
+    vec3 position = VEC3_FORWARD_INIT;
+    mat4_make_x_rotation(rotation[0], x_rotation_matrix);
+    mat4_make_y_rotation(rotation[1], y_rotation_matrix);
+    mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
+    vec3_scale(position, zoom, position);
+    mat4_set_translation(model_matrix, position);
+}
+
+void mat4_make_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix)
+{
+    mat4 x_rotation_matrix;
+    mat4 y_rotation_matrix;
+    mat4_make_x_rotation(-rotation[0], x_rotation_matrix);
+    mat4_make_y_rotation(-rotation[1], y_rotation_matrix);
+    mat4_mul(y_rotation_matrix, x_rotation_matrix, view_matrix);
+    vec3 inverse_position;
+    vec3_scale(position, -1.0f, inverse_position);
+    mat4_set_translation(view_matrix, inverse_position);
+}
+
+void mat4_make_camera_model_and_view_matrix(
+    const vec3 rotation, const float zoom, mat4 model_matrix, mat4 view_matrix
+){
+    mat4_make_camera_model_matrix(rotation, zoom, model_matrix);
+    const vec3 position = {model_matrix[3][0], model_matrix[3][1], model_matrix[3][2]};
+    mat4_make_camera_view_matrix(position, rotation, view_matrix);
+}
 /* End of mat4 functions. */
 

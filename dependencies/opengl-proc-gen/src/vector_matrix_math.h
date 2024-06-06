@@ -55,6 +55,16 @@ void mat4_make_perspective_projection(
     const float fov, const float near_plane, const float far_plane, 
     const float aspect_ratio, mat4 result
 );
+void mat4_make_orthogonal_projection(
+    float left, float right, float bottom, float top, 
+    float near_plane, float far_plane, mat4 result
+);
+void mat4_make_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix);
+void mat4_make_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix);
+void mat4_make_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix);
+void mat4_make_camera_model_and_view_matrix(
+    const vec3 rotation, const float zoom, mat4 model_matrix, mat4 view_matrix
+);
 /* End of mat4 functions. */
 
 /* Start of quat functions. */

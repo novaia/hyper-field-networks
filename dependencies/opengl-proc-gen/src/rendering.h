@@ -34,9 +34,10 @@ typedef struct
     uint32_t depth_map;
     unsigned int depth_map_width;
     unsigned int depth_map_height;
-    mat4 view_matrix;
     mat4 projection_matrix;
-    float direction[3];
+    mat4 model_matrix;
+    mat4 view_matrix;
+    vec3 direction;
     float ambient_strength;
 } directional_light_t;
 
@@ -89,23 +90,13 @@ depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program);
 gl_mesh_t obj_to_gl_mesh(obj_t* obj);
 uint32_t image_to_gl_texture(image_t* texture);
 
-scene_t* init_scene(
-    float light_rotation_x, float light_rotation_y, float light_rotation_z, 
-    float ambient_strength
-);
+void init_scene(const vec3 light_rotation, float ambient_strength, scene_t* scene);
 
 int add_mesh_to_scene(scene_t* scene, obj_t* mesh, unsigned int* mesh_index);
 int add_texture_to_scene(scene_t* scene, image_t* texture, unsigned int* texture_index);
 int add_scene_element(
     scene_t* scene, mat4 model_matrix, 
     const unsigned int mesh_index, const unsigned int texture_index
-);
-
-void get_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix);
-void get_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix);
-void get_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix);
-void get_camera_model_and_view_matrix(
-    const vec3 rotation, const float zoom, mat4 model_matrix, mat4 view_matrix
 );
 
 void render_scene(

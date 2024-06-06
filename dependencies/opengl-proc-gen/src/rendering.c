@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 #include "rendering.h"
+#include "vector_matrix_math.h"
 
 uint32_t create_shader_program(
     const char* vertex_shader_source, const char* fragment_shader_source
@@ -132,11 +133,10 @@ uint32_t image_to_gl_texture(image_t* texture)
     return gl_texture;
 }
 
-static void setup_directional_light(
+static void init_directional_light(
     directional_light_t* light,
     const unsigned int depth_map_width, const unsigned int depth_map_height,
-    const float light_rotation_x, const float light_rotation_y, const float light_rotation_z,
-    const float ambient_strength
+    const vec3 light_rotation, const float ambient_strength
 ){
     light->depth_map_width = depth_map_width;
     light->depth_map_height = depth_map_height;
@@ -171,33 +171,24 @@ static void setup_directional_light(
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    light->projection_matrix = get_orthogonal_matrix(
-        -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 20.0f
+    mat4_make_orthogonal_projection(
+        -5.0f, 5.0f, -5.0f, 5.0f, 0.1f, 20.0f, light->projection_matrix
     );
-    light->view_matrix = get_lookat_matrix_from_rotation(
-        light_rotation_x, light_rotation_y, light_rotation_z, 10.0f
+    mat4_make_camera_model_and_view_matrix(
+        light_rotation, 10.0f, light->model_matrix, light->view_matrix
     );
-    // Extract light direction from forward component of look-at matrix.
-    for(unsigned int i = 0; i < 3; i++)
-    {
-        light->direction[i] = light->view_matrix.data[4+i];
-    }
+    // Extract light direction from model matrix.
+    vec3 forward = VEC3_FORWARD_INIT;
+    vec3_mat4_mul(forward, light->model_matrix, forward);
+    memcpy(light->direction, forward, sizeof(vec3));
 }
 
-scene_t* init_scene(
-    float light_rotation_x, float light_rotation_y, float light_rotation_z, 
-    float ambient_strength
-){
-    scene_t* scene = (scene_t*)malloc(sizeof(scene_t));
+void init_scene(const vec3 light_rotation, float ambient_strength, scene_t* scene)
+{
     scene->num_gl_meshes = 0;
     scene->num_gl_textures = 0;
     scene->num_elements = 0;
-    setup_directional_light(
-        &scene->light, 4096, 4096, 
-        light_rotation_x, light_rotation_y, light_rotation_z, 
-        ambient_strength
-    );
-    return scene;
+    init_directional_light(&scene->light, 4096, 4096, light_rotation, ambient_strength);
 }
 
 int add_mesh_to_scene(scene_t* scene, obj_t* mesh, unsigned int* mesh_index)
@@ -249,51 +240,6 @@ int add_scene_element(
     return 0;
 }
 
-void get_ordinary_model_matrix(const vec3 position, const vec3 rotation, mat4 model_matrix)
-{
-    mat4 x_rotation_matrix;
-    mat4 y_rotation_matrix;
-    mat4 z_rotation_matrix;
-    mat4_make_x_rotation(rotation[0], x_rotation_matrix);
-    mat4_make_y_rotation(rotation[1], y_rotation_matrix);
-    mat4_make_z_rotation(rotation[2], z_rotation_matrix);
-    // R = R_z * R_y * R_x.
-    mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
-    mat4_mul(z_rotation_matrix, model_matrix, model_matrix);
-    mat4_set_translation(model_matrix, position);
-}
-
-void get_camera_model_matrix(const vec3 rotation, const float zoom, mat4 model_matrix)
-{
-    mat4 x_rotation_matrix;
-    mat4 y_rotation_matrix;
-    vec3 position = VEC3_FORWARD_INIT;
-    mat4_make_x_rotation(rotation[0], x_rotation_matrix);
-    mat4_make_y_rotation(rotation[1], y_rotation_matrix);
-    mat4_mul(y_rotation_matrix, x_rotation_matrix, model_matrix);
-    vec3_scale(position, zoom, position);
-    mat4_set_translation(model_matrix, position);
-}
-
-void get_camera_view_matrix(const vec3 position, const vec3 rotation, mat4 view_matrix)
-{
-    mat4 x_rotation_matrix;
-    mat4 y_rotation_matrix;
-    mat4_make_x_rotation(-rotation[0], x_rotation_matrix);
-    mat4_make_y_rotation(-rotation[1], y_rotation_matrix);
-    mat4_mul(y_rotation_matrix, x_rotation_matrix, view_matrix);
-    vec3_scale(position, -1.0f, position);
-    mat4_set_translation(view_matrix, position);
-}
-
-void get_camera_model_and_view_matrix(
-    const vec3 rotation, const float zoom, mat4 model_matrix, mat4 view_matrix
-){
-    get_model_matrix(rotation, zoom, model_matrix);
-    const vec3 position = {model_matrix[3][0], model_matrix[3][1], model_matrix[3][2]};
-    get_view_matrix(position, rotation, view_matrix);
-}
-
 void render_scene(
     scene_t* scene, camera_t* camera, 
     depth_map_shader_t* depth_shader, mesh_shader_t* shader,
@@ -312,14 +258,16 @@ void render_scene(
         gl_mesh_t mesh = scene->gl_meshes[element.mesh_index];
         glBindVertexArray(mesh.vao);
         glUniformMatrix4fv(
-            depth_shader->model_matrix_location, 1, GL_FALSE, element.model_matrix
+            depth_shader->model_matrix_location, 1, GL_FALSE, 
+            (const float*)element.model_matrix
         );
         glUniformMatrix4fv(
-            depth_shader->light_view_matrix_location, 1, GL_FALSE, light.view_matrix
+            depth_shader->light_view_matrix_location, 1, GL_FALSE, 
+            (const float*)light.view_matrix
         );
         glUniformMatrix4fv(
-            depth_shader->light_projection_matrix_location, 
-            1, GL_FALSE, light.projection_matrix
+            depth_shader->light_projection_matrix_location, 1, GL_FALSE, 
+            (const float*)light.projection_matrix
         );
 
         glDrawArrays(GL_TRIANGLES, 0, mesh.num_vertices);
@@ -340,19 +288,21 @@ void render_scene(
         uint32_t texture = scene->gl_textures[element.texture_index];
         
         glBindVertexArray(mesh.vao);
-            shader->model_matrix_location, 1, GL_FALSE, element.model_matrix
+        glUniformMatrix4fv(    
+            shader->model_matrix_location, 1, GL_FALSE, 
+            (const float*)element.model_matrix
         );
         glUniformMatrix4fv(
-            shader->light_projection_matrix_location, 
-            1, GL_FALSE, light.projection_matrix
+            shader->light_projection_matrix_location, 1, GL_FALSE, 
+            (const float*)light.projection_matrix
         );
         glUniformMatrix4fv(
-            shader->light_view_matrix_location, 
-            1, GL_FALSE, light.view_matrix
+            shader->light_view_matrix_location, 1, GL_FALSE, 
+            (const float*)light.view_matrix
         );
 
         glUniform1f(shader->ambient_strength_location, light.ambient_strength); 
-        glUniform3fv(shader->light_direction_location, 1, light.direction);
+        glUniform3fv(shader->light_direction_location, 1, (const float*)light.direction);
 
         glUniform1i(shader->texture_location, 0);
         glActiveTexture(GL_TEXTURE0);

@@ -7,7 +7,7 @@
     "latent_features": 4,
     "block_depth": 4,
     "kernel_dim": 5,
-    "learning_rate": 0.0001,
+    "learning_rate": 0.00005,
     "weight_decay": 0.0001,
     "test_split_size": 0.1,
     "split_seed": 0,

@@ -239,11 +239,11 @@ def calculate_required_padding(sequence_length, num_downsamples):
         return left_padding, right_padding, requires_padding
 
 def main():
-    config_path = 'configs/split_field_conv_ae_mlp.json'
+    config_path = 'configs/split_field_conv_ae_hash.json'
     with open(config_path, 'r') as f:
         main_config = json.load(f)
     checkpoint_path = None
-    experiment_number = 5
+    experiment_number = 6
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'

@@ -13,13 +13,14 @@ from orbax import checkpoint as ocp
 from flax.training.train_state import TrainState
 import datasets
 import json
-from typing import Any
+from typing import Any, List, Tuple
 from functools import partial
 from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
 import math
 import wandb
+from dataclasses import dataclass
 
 def load_dataset(dataset_path, test_size, split_seed):
     field_config = None
@@ -237,6 +238,92 @@ def calculate_required_padding(sequence_length, num_downsamples):
         else:
             right_padding = left_padding + 1
         return left_padding, right_padding, requires_padding
+
+@dataclass
+class SplitFieldConvAeConfig:
+    model_name: str
+    train_on_hash_grid: bool
+    num_epochs: int
+    batch_size: int
+    num_norm_groups: int
+    encoder_intermediate_features: List[int]
+    decoder_intermediate_features: List[int]
+    latent_features: int
+    block_depth: int
+    kernel_dim: int
+    learning_rate: float
+    weight_decay: float
+    requires_padding: bool
+    left_padding: int
+    right_padding: int
+    num_field_params: int
+    num_hash_grid_params: int
+
+    def __init__(self, config_dict) -> None:
+        self.model_name = config_dict['model_name']
+        self.train_on_hash_grid = config_dict['train_on_hash_grid']
+        self.num_epochs = config_dict['num_epochs']
+        self.batch_size = config_dict['batch_size']
+        self.num_norm_groups = config_dict['num_norm_groups']
+        self.encoder_intermediate_features = config_dict['intermediate_features'] 
+        self.decoder_intermediate_features = list(reversed(self.encoder_intermediate_features))
+        self.latent_features = config_dict['latent_features']
+        self.block_depth = config_dict['block_depth'] 
+        self.kernel_dim = config_dict['kernel_dim']
+        self.learning_rate = config_dict['learning_rate'] 
+        self.weight_decay = config_dict['weight_decay']
+        self.requires_padding = config_dict['requires_padding']
+        self.left_padding = config_dict['left_padding']
+        self.right_padding = config_dict['right_padding']
+        if not self.requires_padding:
+            assert self.left_padding == 0 and self.right_padding == 0, (
+                'Config specified requires_padding=False, but the left_padding and right_padding ',
+                'values are not 0'
+            )
+        self.num_field_params = config_dict['num_field_params']
+        self.num_hash_grid_params = config_dict['num_hash_grid_params']
+
+def init_model_from_config(
+    model_config: SplitFieldConvAeConfig
+) -> Tuple[nn.Module, nn.Module, nn.Module]:
+    encoder_model = Encoder(
+        num_norm_groups=model_config.num_norm_groups,
+        intermediate_features=model_config.encoder_intermediate_features,
+        latent_features=model_config.latent_features,
+        block_depth=model_config.block_depth,
+        kernel_dim=model_config.kernel_dim,
+        dtype=jnp.bfloat16
+    )
+    decoder_model = Decoder(
+        num_norm_groups=model_config.num_norm_groups,
+        intermediate_features=model_config.decoder_intermediate_features,
+        block_depth=model_config.block_depth,
+        kernel_dim=model_config.kernel_dim,
+        dtype=jnp.bfloat16
+    )
+    autoencoder_model = Autoencoder(encoder=encoder_model, decoder=decoder_model)
+    return autoencoder_model, encoder_model, decoder_model
+
+def init_model_state(
+    key: Any, model: nn.Module, 
+    model_config: SplitFieldConvAeConfig, use_batch_size: bool = True
+) -> TrainState:
+    init_batch_size = model_config.batch_size if use_batch_size else 1
+    x = preprocess(
+        x=jnp.ones((init_batch_size, model_config.num_field_params), dtype=jnp.float32),
+        train_on_hash_grid=model_config.train_on_hash_grid,
+        hash_grid_end=model_config.num_hash_grid_params,
+        left_padding=model_config.left_padding,
+        right_padding=model_config.right_padding,
+        requires_padding=model_config.requires_padding
+    )
+    params = model.init(key, x=x, train=False)['params']
+    opt = optax.adamw(
+        learning_rate=model_config.learning_rate, 
+        weight_decay=model_config.weight_decay
+    )
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
+    return state
 
 def main():
     config_path = 'configs/split_field_conv_ae_hash.json'

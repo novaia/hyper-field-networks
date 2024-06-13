@@ -1,0 +1,1 @@
+python -m hypernets.util_scripts.checkpoint_to_safetensors --config configs/split_field_conv_ae_hash.json --checkpoint data/split_field_conv_ae_output/splendid-armadillo-77/checkpoints/step2017530

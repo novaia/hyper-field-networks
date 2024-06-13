@@ -1,4 +1,6 @@
 {
+    "model_type": "split_field_conv_ae",
+    "model_name": "split_field_conv_ae_hash",
     "train_on_hash_grid": true,
     "num_epochs": 100,
     "batch_size": 32,
@@ -11,5 +13,10 @@
     "weight_decay": 0.0001,
     "test_split_size": 0.1,
     "split_seed": 0,
-    "model_seed": 91
+    "model_seed": 91,
+    "requires_padding": false,
+    "left_padding": 0,
+    "right_padding": 0,
+    "num_field_params": 17731,
+    "num_hash_grid_params": 12288
 }

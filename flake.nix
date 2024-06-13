@@ -36,7 +36,7 @@
                                     passthru.tests = [];
                                     doCheck = false;
                                 });
-                                # For some reason Flax has jaxlib as a buildInput and tensorflow as a 
+                                # For some reason flax has jaxlib as a buildInput and tensorflow as a 
                                 # nativeCheckInput, so set jaxlib to jaxlib-bin in order to avoid building 
                                 # jaxlib and turn off all checks to avoid building tensorflow.
                                 jaxlib = prevPkgs.jaxlib-bin;
@@ -48,8 +48,13 @@
                                 });
                                 wandb = prevPkgs.wandb.overridePythonAttrs(o: {
                                     nativeCheckInputs = [];
-                                    pythonIMportsCheck = [];
+                                    pythonImportsCheck = [];
                                     doCheck = false;
+                                });
+                                safetensors = prevPkgs.safetensors.overridePythonAttrs(o: {
+                                    # Remove torch from nativeCheckInputs.
+                                    nativeCheckInputs = with prevPkgs; [ h5py numpy pytestCheckHook ];
+                                    doCheck = false; 
                                 });
                             };
                         };
@@ -76,6 +81,7 @@
                             wandb
                             matplotlib
                             pytest
+                            safetensors
                             ngp-volume-rendering
                             serde-helper
                         ]))

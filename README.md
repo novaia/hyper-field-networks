@@ -11,7 +11,7 @@ experimental-features = nix-command flakes
 ```
 3. Run the following command to open a development shell with all the dependencies installed.
 ```
-nix develop
+nix develop --impure
 ```
 
 ## Citations

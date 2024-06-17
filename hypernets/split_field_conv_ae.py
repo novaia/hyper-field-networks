@@ -258,6 +258,9 @@ class SplitFieldConvAeConfig:
     right_padding: int
     num_field_params: int
     num_hash_grid_params: int
+    model_seed: int
+    split_seed: int
+    test_split_size: float
 
     def __init__(self, config_dict) -> None:
         self.model_name = config_dict['model_name']
@@ -282,6 +285,9 @@ class SplitFieldConvAeConfig:
             )
         self.num_field_params = config_dict['num_field_params']
         self.num_hash_grid_params = config_dict['num_hash_grid_params']
+        self.model_seed = config_dict['model_seed']
+        self.split_seed = config_dict['split_seed']
+        self.test_split_size = config_dict['test_split_size']
 
 def init_model_from_config(
     model_config: SplitFieldConvAeConfig
@@ -328,97 +334,88 @@ def init_model_state(
 def main():
     config_path = 'configs/split_field_conv_ae_hash.json'
     with open(config_path, 'r') as f:
-        main_config = json.load(f)
+        main_config_dict = json.load(f)
+        main_config = SplitFieldConvAeConfig(main_config_dict)
     checkpoint_path = None
-    experiment_number = 6
+    experiment_number = 7
     output_path = f'data/split_field_conv_ae_output/{experiment_number}/images'
     checkpoint_output_path = f'data/split_field_conv_ae_output/{experiment_number}/checkpoints'
     dataset_path = 'data/colored-monsters-ngp-image-18k'
     train_set, test_set, field_config, param_map, context_length = load_dataset(
         dataset_path=dataset_path, 
-        test_size=main_config['test_split_size'], 
-        split_seed=main_config['split_seed']
+        test_size=main_config.test_split_size, 
+        split_seed=main_config.split_seed
     )
-    print('context_length', context_length)
-    hash_grid_end = (
-        field_config['num_hash_table_levels'] 
-        * field_config['max_hash_table_entries'] 
-        * field_config['hash_table_feature_dim']
-    )
-    print('hash_grid_end', hash_grid_end)
+    print('context_length', main_config.num_field_params)
+    #hash_grid_end = (
+    #    field_config['num_hash_table_levels'] 
+    #    * field_config['max_hash_table_entries'] 
+    #    * field_config['hash_table_feature_dim']
+    #)
+    print('hash_grid_end', main_config.num_hash_grid_params)
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
     if not os.path.exists(checkpoint_output_path):
         os.makedirs(checkpoint_output_path)
     
-    train_on_hash_grid = main_config['train_on_hash_grid']
-    num_epochs = main_config['num_epochs']
-    batch_size = main_config['batch_size']
-    num_norm_groups = main_config['num_norm_groups']
-    encoder_intermediate_features = main_config['intermediate_features'] 
-    decoder_intermediate_features = list(reversed(encoder_intermediate_features))
-    latent_features = main_config['latent_features']
-    block_depth = main_config['block_depth'] 
-    kernel_dim = main_config['kernel_dim']
-    learning_rate = main_config['learning_rate'] 
-    weight_decay = main_config['weight_decay']
-
-    if train_on_hash_grid:
-        section_length = hash_grid_end 
+    if main_config.train_on_hash_grid:
+        section_length = main_config.num_hash_grid_params
         print('training on hash grid section...')
     else:
-        section_length = context_length - hash_grid_end
+        section_length = main_config.num_field_params - main_config.num_hash_grid_params
         print('training on MLP section...')
     print('section_length', section_length)
     
-    left_padding, right_padding, requires_padding = calculate_required_padding(
-        sequence_length=section_length, num_downsamples=len(encoder_intermediate_features)-1
-    )
-    print('requires_padding', requires_padding)
-    print('left_padding', left_padding)
-    print('right_padding', right_padding)
+    #left_padding, right_padding, requires_padding = calculate_required_padding(
+    #    sequence_length=section_length, num_downsamples=len(encoder_intermediate_features)-1
+    #)
+    print('requires_padding', main_config.requires_padding)
+    print('left_padding', main_config.left_padding)
+    print('right_padding', main_config.right_padding)
 
     encoder_model = Encoder(
-        num_norm_groups=num_norm_groups,
-        intermediate_features=encoder_intermediate_features,
-        latent_features=latent_features,
-        block_depth=block_depth,
-        kernel_dim=kernel_dim,
+        num_norm_groups=main_config.num_norm_groups,
+        intermediate_features=main_config.encoder_intermediate_features,
+        latent_features=main_config.latent_features,
+        block_depth=main_config.block_depth,
+        kernel_dim=main_config.kernel_dim,
         dtype=jnp.bfloat16
     )
     decoder_model = Decoder(
-        num_norm_groups=num_norm_groups,
-        intermediate_features=decoder_intermediate_features,
-        block_depth=block_depth,
-        kernel_dim=kernel_dim,
+        num_norm_groups=main_config.num_norm_groups,
+        intermediate_features=main_config.decoder_intermediate_features,
+        block_depth=main_config.block_depth,
+        kernel_dim=main_config.kernel_dim,
         dtype=jnp.bfloat16
     )
     autoencoder_model = Autoencoder(encoder=encoder_model, decoder=decoder_model)
 
     x = preprocess(
-        x=jnp.ones((batch_size, context_length), dtype=jnp.float32),
-        train_on_hash_grid=train_on_hash_grid,
-        hash_grid_end=hash_grid_end,
-        left_padding=left_padding,
-        right_padding=right_padding,
-        requires_padding=requires_padding
+        x=jnp.ones((main_config.batch_size, main_config.num_field_params), dtype=jnp.float32),
+        train_on_hash_grid=main_config.train_on_hash_grid,
+        hash_grid_end=main_config.num_hash_grid_params,
+        left_padding=main_config.left_padding,
+        right_padding=main_config.right_padding,
+        requires_padding=main_config.requires_padding
     )
-    params_key = jax.random.PRNGKey(main_config['model_seed'])
+    params_key = jax.random.PRNGKey(main_config.model_seed)
     params = autoencoder_model.init(params_key, x=x, train=False)['params']
-    opt = optax.adamw(learning_rate=learning_rate, weight_decay=weight_decay)
+    opt = optax.adamw(
+        learning_rate=main_config.learning_rate, weight_decay=main_config.weight_decay
+    )
     state = TrainState.create(apply_fn=autoencoder_model.apply, params=params, tx=opt)
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
-    main_config['param_count'] = param_count
+    main_config_dict['param_count'] = param_count
     print(f'param_count {param_count:,}')
     
     num_train_samples = len(train_set)
-    train_steps = num_train_samples // batch_size
+    train_steps = num_train_samples // main_config.batch_size
     print('num_train_samples', num_train_samples)
     print('train_steps', train_steps)
     num_test_samples = len(test_set)
-    test_steps = num_test_samples // batch_size
+    test_steps = num_test_samples // main_config.batch_size
     print('num_test_samples', num_test_samples)
     print('test_steps', test_steps)
     
@@ -430,21 +427,25 @@ def main():
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
-    wandb.init(project='conv-vae', config=main_config)
+    wandb.init(project='conv-vae', config=main_config_dict)
     num_preview_samples = 5
     print('num_preview_samples', num_preview_samples)
     preview_samples = test_set[:num_preview_samples]['params']
     print('preview_samples shape', preview_samples.shape)
-    for epoch in range(num_epochs):
+    for epoch in range(main_config.num_epochs):
         train_set = train_set.shuffle(seed=epoch)
-        train_iterator = train_set.iter(batch_size)
+        train_iterator = train_set.iter(main_config.batch_size)
         losses_this_epoch = []
         for step in range(train_steps):
             batch = next(train_iterator)['params']
             loss, state = train_step(
-                state=state, batch=batch, train_on_hash_grid=train_on_hash_grid, 
-                hash_grid_end=hash_grid_end, left_padding=left_padding,
-                right_padding=right_padding, requires_padding=requires_padding
+                state=state, 
+                batch=batch, 
+                train_on_hash_grid=main_config.train_on_hash_grid, 
+                hash_grid_end=main_config.num_hash_grid_params, 
+                left_padding=main_config.left_padding,
+                right_padding=main_config.right_padding, 
+                requires_padding=main_config.requires_padding
             )
             losses_this_epoch.append(loss)
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
@@ -452,14 +453,18 @@ def main():
         wandb.log({'loss': average_loss}, step=state.step)
         
         test_set = test_set.shuffle(seed=epoch)
-        test_iterator = test_set.iter(batch_size)
+        test_iterator = test_set.iter(main_config.batch_size)
         losses_this_test = []
         for step in range(test_steps):
             batch = next(test_iterator)['params']
             loss = test_step(
-                state=state, batch=batch, train_on_hash_grid=train_on_hash_grid, 
-                hash_grid_end=hash_grid_end, left_padding=left_padding, 
-                right_padding=right_padding, requires_padding=requires_padding
+                state=state, 
+                batch=batch, 
+                train_on_hash_grid=main_config.train_on_hash_grid, 
+                hash_grid_end=main_config.num_hash_grid_params, 
+                left_padding=main_config.left_padding, 
+                right_padding=main_config.right_padding, 
+                requires_padding=main_config.requires_padding
             )
             losses_this_test.append(loss)
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
@@ -471,9 +476,13 @@ def main():
         checkpointer.save(current_checkpoint_path, state, force=True)
         print(f'saved checkpoint {current_checkpoint_path}')
         reconstructed_preview_samples = reconstruct(
-            state=state, batch=preview_samples, train_on_hash_grid=train_on_hash_grid, 
-            hash_grid_end=hash_grid_end, left_padding=left_padding, 
-            right_padding=right_padding, requires_padding=requires_padding
+            state=state, 
+            batch=preview_samples, 
+            train_on_hash_grid=main_config.train_on_hash_grid, 
+            hash_grid_end=main_config.num_hash_grid_params, 
+            left_padding=main_config.left_padding, 
+            right_padding=main_config.right_padding, 
+            requires_padding=main_config.requires_padding
         )
         for i in range(num_preview_samples):
             flat_params = reconstructed_preview_samples[i]

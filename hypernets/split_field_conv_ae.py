@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import math
 import wandb
 from dataclasses import dataclass
+import argparse
 
 def load_dataset(dataset_path, test_size, split_seed):
     field_config = None
@@ -332,7 +333,11 @@ def init_model_state(
     return state
 
 def main():
-    config_path = 'configs/split_field_conv_ae_hash.json'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--calc-padding', action='store_true')
+    args = parser.parse_args()
+    
+    config_path = 'configs/split_field_conv_ae_mlp.json'
     with open(config_path, 'r') as f:
         main_config_dict = json.load(f)
         main_config = SplitFieldConvAeConfig(main_config_dict)
@@ -354,11 +359,6 @@ def main():
     #)
     print('hash_grid_end', main_config.num_hash_grid_params)
 
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-    if not os.path.exists(checkpoint_output_path):
-        os.makedirs(checkpoint_output_path)
-    
     if main_config.train_on_hash_grid:
         section_length = main_config.num_hash_grid_params
         print('training on hash grid section...')
@@ -367,13 +367,22 @@ def main():
         print('training on MLP section...')
     print('section_length', section_length)
     
-    #left_padding, right_padding, requires_padding = calculate_required_padding(
-    #    sequence_length=section_length, num_downsamples=len(encoder_intermediate_features)-1
-    #)
-    print('requires_padding', main_config.requires_padding)
-    print('left_padding', main_config.left_padding)
-    print('right_padding', main_config.right_padding)
+    if args.calc_padding:
+        print('Calculating padding configuration...')
+        _left_padding, _right_padding, _requires_padding = calculate_required_padding(
+            sequence_length=section_length, 
+            num_downsamples=len(main_config.encoder_intermediate_features)-1
+        )
+        print('requires_padding:', _requires_padding)
+        print('left_padding:', _left_padding)
+        print('right_padding:', _right_padding)
+        exit()
 
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+    if not os.path.exists(checkpoint_output_path):
+        os.makedirs(checkpoint_output_path)
+    
     encoder_model = Encoder(
         num_norm_groups=main_config.num_norm_groups,
         intermediate_features=main_config.encoder_intermediate_features,

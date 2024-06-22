@@ -1,8 +1,8 @@
 #include <stdexcept>
 #include <driver_types.h>
-#include <serde-helper/serde.h>
 #include <vector_types.h>
 #include "volrend.h"
+#include "serde.h"
 
 namespace ngp_volume_rendering 
 {

@@ -1,9 +1,9 @@
 #include <cstdint>
 #include <fmt/format.h>
 #include <pybind11/pybind11.h>
-#include <serde-helper/serde.h>
 #include <stdexcept>
 #include "volrend.h"
+#include "serde.h"
 
 namespace ngp_volume_rendering 
 {

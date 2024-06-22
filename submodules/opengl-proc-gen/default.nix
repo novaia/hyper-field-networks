@@ -1,7 +1,4 @@
-{ pkgs }:
-let 
-    glad = import ../external/glad { inherit pkgs; };
-in
+{ pkgs, glad }:
 pkgs.stdenv.mkDerivation {
     pname = "3d";
     version = "v0.0.0";

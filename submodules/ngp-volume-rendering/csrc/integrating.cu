@@ -1,6 +1,6 @@
 #include <cstdint>
-#include <serde-helper/serde.h>
 #include "volrend.h"
+#include "serde.h"
 
 namespace ngp_volume_rendering 
 {

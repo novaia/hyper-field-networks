@@ -8,7 +8,6 @@
     ninja,
     pybind11,
     fmt,
-    serde-helper,
     cudatoolkit,
     python3,
     chex,
@@ -36,7 +35,6 @@ buildPythonPackage rec {
     dontUseCmakeConfigure = true;
 
     buildInputs = [
-        serde-helper
         cudatoolkit
         fmt
     ];

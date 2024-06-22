@@ -18,56 +18,56 @@
     }: flake-utils.lib.eachSystem [ "x86_64-linux" ] (system: 
         let
             inherit (nixpkgs-unstable) lib;
-            dependencies = import ./dependencies;
-        in {
-            devShells = let
-                pyVer = "311";
-                py = "python${pyVer}";
-                overlays = [
-                    dependencies.overlay
-                    nixgl.overlay
-                    (final: prev: {
-                        ${py} = prev.${py}.override {
-                            packageOverrides = finalPkgs: prevPkgs: {
-                                jax = prevPkgs.jax.overridePythonAttrs (o: {
-                                    nativeCheckInputs = [];
-                                    pythonImportsCheck = [];
-                                    pytestFlagsArray = [];
-                                    passthru.tests = [];
-                                    doCheck = false;
-                                });
-                                # For some reason flax has jaxlib as a buildInput and tensorflow as a 
-                                # nativeCheckInput, so set jaxlib to jaxlib-bin in order to avoid building 
-                                # jaxlib and turn off all checks to avoid building tensorflow.
-                                jaxlib = prevPkgs.jaxlib-bin;
-                                flax = prevPkgs.flax.overridePythonAttrs (o: {
-                                    nativeCheckInputs = [];
-                                    pythonImportsCheck = [];
-                                    pytestFlagsArray = [];
-                                    doCheck = false;
-                                });
-                                wandb = prevPkgs.wandb.overridePythonAttrs(o: {
-                                    nativeCheckInputs = [];
-                                    pythonImportsCheck = [];
-                                    doCheck = false;
-                                });
-                                safetensors = prevPkgs.safetensors.overridePythonAttrs(o: {
-                                    # Remove torch from nativeCheckInputs.
-                                    nativeCheckInputs = with prevPkgs; [ h5py numpy pytestCheckHook ];
-                                    doCheck = false; 
-                                });
-                            };
+            pyVer = "311";
+            py = "python${pyVer}";
+            submodules = import ./submodules;
+            overlays = [
+                submodules.overlay
+                nixgl.overlay
+                (final: prev: {
+                    ${py} = prev.${py}.override {
+                        packageOverrides = finalPkgs: prevPkgs: {
+                            jax = prevPkgs.jax.overridePythonAttrs (o: {
+                                nativeCheckInputs = [];
+                                pythonImportsCheck = [];
+                                pytestFlagsArray = [];
+                                passthru.tests = [];
+                                doCheck = false;
+                            });
+                            # For some reason flax has jaxlib as a buildInput and tensorflow as a 
+                            # nativeCheckInput, so set jaxlib to jaxlib-bin in order to avoid building 
+                            # jaxlib and turn off all checks to avoid building tensorflow.
+                            jaxlib = prevPkgs.jaxlib-bin;
+                            flax = prevPkgs.flax.overridePythonAttrs (o: {
+                                nativeCheckInputs = [];
+                                pythonImportsCheck = [];
+                                pytestFlagsArray = [];
+                                doCheck = false;
+                            });
+                            wandb = prevPkgs.wandb.overridePythonAttrs(o: {
+                                nativeCheckInputs = [];
+                                pythonImportsCheck = [];
+                                doCheck = false;
+                            });
+                            safetensors = prevPkgs.safetensors.overridePythonAttrs(o: {
+                                # Remove torch from nativeCheckInputs.
+                                nativeCheckInputs = with prevPkgs; [ h5py numpy pytestCheckHook ];
+                                doCheck = false; 
+                            });
                         };
-                    })
-                ];
-                pkgs = import nixpkgs-unstable {
-                    inherit system overlays;
-                    config = {
-                        allowUnfree = true;
-                        cudaSupport = true;
                     };
+                    glad = ./external/glad { inherit prev; };
+                })
+            ];
+            pkgs = import nixpkgs-unstable {
+                inherit system overlays;
+                config = {
+                    allowUnfree = true;
+                    cudaSupport = true;
                 };
-            in rec {
+            };
+        in {
+            devShells = {
                 default = pkgs.mkShell {
                     name = "cuda";
                     buildInputs = with pkgs; [
@@ -83,7 +83,6 @@
                             pytest
                             safetensors
                             ngp-volume-rendering
-                            serde-helper
                         ]))
                     ];
                     shellHook = ''

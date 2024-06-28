@@ -70,11 +70,12 @@ def main():
     params = move_pytree_to_gpu(params_cpu)
 
     dataset = get_dataset(args.input_dataset)
-    dataset_iterator = dataset.iter(batch_size=1)
+    batch_size = 1
+    dataset_iterator = dataset.iter(batch_size=32)
     num_samples = len(dataset)
     print('Samples in dataset:', num_samples)
 
-    samples_per_table = 1500
+    samples_per_table = 30000
     current_table_index = 0
     pq_table_data = []
 

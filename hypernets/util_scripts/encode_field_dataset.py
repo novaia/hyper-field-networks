@@ -93,7 +93,7 @@ def main():
             right_padding=model_config.right_padding,
             requires_padding=model_config.requires_padding
         )
-        batch_latents_gpu = encoder_model.apply({'params': params}, x=batch_samples)[0]
+        batch_latents_gpu = encoder_model.apply({'params': params}, x=batch_samples)
         batch_latents = np.array(
             jax.device_put(batch_latents_gpu, device=jax.devices('cpu')[0]), 
             dtype=np.float32

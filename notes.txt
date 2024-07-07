@@ -2,3 +2,5 @@ python -m hypernets.util_scripts.checkpoint_to_safetensors --config configs/spli
 
 
 python -m hypernets.util_scripts.encode_field_dataset --config configs/split_field_conv_ae_hash.json --encoder data/safetensors/split_field_conv_ae_hash_encoder.safetensors --input_dataset data/colored-monsters-ngp-image-18k --output_path data/colored-monsters-ngp-image-18k-latent-hash
+
+python -m hypernets.util_scripts.merge_hash_and_mlp_latents --mlp data/colored-monsters-ngp-image-18k-latent-mlp --hash data/colored-monsters-ngp-image-18k-latent-hash --output data/colored-monsters-ngp-image-18k-latent-merged

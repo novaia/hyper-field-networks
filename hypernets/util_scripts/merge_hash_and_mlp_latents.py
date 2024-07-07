@@ -100,7 +100,7 @@ def main():
             zfill_amount=4
         )
 
-    print(f"Combined dataset saved to {output_path}")
+    print(f"Combined dataset saved to {args.output}")
 
 if __name__ == '__main__':
     main()

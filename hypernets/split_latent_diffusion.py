@@ -1,0 +1,155 @@
+import os
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '.99'
+
+import jax
+import jax.numpy as jnp
+import flax.linen as nn
+from flax.training.train_state import TrainState
+import optax
+import matplotlib.pyplot as plt
+from hypernets.common.nn import SinusoidalEmbedding, VanillaTransformer
+from hypernets.common.diffusion import diffusion_schedule, reverse_diffusion
+from dataclasses import dataclass
+
+def load_dataset(dataset_path, test_size, split_seed):
+    field_config = None
+    with open(os.path.join(dataset_path, 'field_config.json'), 'r') as f:
+        field_config = json.load(f)
+    assert field_config is not None
+    param_map = None
+    with open(os.path.join(dataset_path, 'param_map.json'), 'r') as f:
+        param_map = json.load(f)
+    assert param_map is not None
+    
+    parquet_dir = os.path.join(dataset_path, 'data')
+    parquet_paths = [
+        os.path.join(parquet_dir, p) 
+        for p in os.listdir(parquet_dir) if p.endswith('.parquet')
+    ]
+    num_parquet_files = len(parquet_paths)
+    assert num_parquet_files > 0
+    print(f'Found {num_parquet_files} parquet file(s) in dataset directory')
+
+    dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
+    train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
+    device = str(jax.devices('gpu')[0])
+    train = train.with_format('jax', device=device)
+    test = test.with_format('jax', device=device)
+    context_length = train[0]['mlp_latent'].shape[0] + train[0]['hash_latent'].shape[0]
+    return train, test, field_config, param_map, context_length
+
+class HyperDiffusion(nn.Module):
+    num_blocks: int
+    feed_forward_dim: int
+    attention_dim: int
+    attention_heads: int
+    token_dim: int
+    embedded_token_dim: int
+    embedding_max_frequency: float
+    context_length: int
+
+    @nn.compact
+    def __call__(self, x):
+        x, noise_variances = x
+        e = SinusoidalEmbedding(self.embedding_max_frequency)(noise_variances)
+        x = jnp.concatenate([x, e], axis=-2)
+        x = nn.Dense(features=self.embedded_token_dim)(x)
+        positions = jnp.arange(self.context_length+1)
+        e = nn.Embed(
+            num_embeddings=self.context_length+1, 
+            features=self.embedded_token_dim
+        )(positions)
+        x = x + e
+
+        x = VanillaTransformer(
+            num_heads=self.attention_heads,
+            num_blocks=self.num_blocks,
+            attention_dim=self.attention_dim,
+            residual_dim=self.embedded_token_dim,
+            feed_forward_dim=self.feed_forward_dim
+        )(x)
+        x = nn.Dense(features=self.token_dim)(x)
+        x = x[:, :-1, :] # Remove embedded noise variances token.
+        return x
+
+def create_train_state(model, rng, learning_rate, context_length, token_dim, steps_per_epoch):
+    x = (jnp.ones([1, context_length, token_dim]), jnp.ones([1, 1, 1]))
+    variables = model.init(rng, x)
+    params = variables['params']
+    learning_rate_schedule = optax.exponential_decay(
+        learning_rate, transition_begin=80*steps_per_epoch, 
+        transition_steps=100*steps_per_epoch, decay_rate=0.8
+    )
+    tx = optax.adam(learning_rate_schedule)
+    ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+    return ts
+
+def train_loop(dataset, epochs, batch_size, min_signal_rate, max_signal_rate, state):
+    steps_per_epoch = dataset.shape[0] // batch_size
+    losses = []
+    for epoch in range(epochs):
+        for step in range(steps_per_epoch):
+            losses_this_epoch = []
+            step_key = jax.random.PRNGKey(epoch * steps_per_epoch + step)
+            batch_indices_key, step_key = jax.random.split(step_key, num=2)
+            batch_indices = jax.random.randint(
+                batch_indices_key, shape=(batch_size,), minval=0, maxval=dataset.shape[0]
+            )
+            batch = dataset[batch_indices]
+            loss, state = train_step(
+                batch=batch, 
+                min_signal_rate=min_signal_rate,
+                max_signal_rate=max_signal_rate,
+                state=state,
+                parent_key=step_key
+            )
+            #print('Step', step, 'Loss:', loss)
+            losses_this_epoch.append(loss)
+        losses.append(sum(losses_this_epoch) / len(losses_this_epoch))
+        print('Epoch', epoch, 'Loss:', losses[-1])
+    return state
+
+@jax.jit
+def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
+    noise_key, diffusion_time_key = jax.random.split(parent_key, 2)
+    
+    def loss_fn(params):
+        noises = jax.random.normal(noise_key, batch.shape)
+        diffusion_times = jax.random.uniform(diffusion_time_key, (batch.shape[0], 1, 1))
+        noise_rates, signal_rates = diffusion_schedule(
+            diffusion_times, min_signal_rate, max_signal_rate
+        )
+        noisy_batch = signal_rates * batch + noise_rates * noises
+
+        pred_noises = state.apply_fn({'params': params}, [noisy_batch, noise_rates**2])
+
+        loss = jnp.mean((pred_noises - noises)**2)
+        return loss
+
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
+    grads = jax.tree_util.tree_map(jnp.nan_to_num, grads)
+    state = state.apply_gradients(grads=grads)
+    return loss, state
+
+@dataclass
+class SplitLatentDiffusionConfig:
+    test_split_size: float
+    split_seet: int
+
+    def __init__(sefl, config_dict) -> None:
+        raise NotImplementedError()
+
+def main():
+    config_path = '...'
+    dataset_path = '...'
+
+    with open(config_path, 'r') as f:
+        main_config_dict = json.load(f)
+        main_config = SplitLatentDiffusionConfig(main_config_dict)
+
+    train_set, test_set, field_config, param_map, context_length = load_dataset(
+        dataset_path=dataset_path, 
+        test_size=main_config.test_split_size, 
+        split_seed=main_config.split_seed
+    )

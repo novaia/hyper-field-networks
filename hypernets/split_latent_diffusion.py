@@ -134,10 +134,21 @@ def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
 
 @dataclass
 class SplitLatentDiffusionConfig:
+    num_blocks: int
+    feed_forward_dim: int
+    attention_dim: int
+    attention_heads: int
+    token_dim: int
+    embedded_token_dim: int
+    embedding_max_frequency: float
+    context_length: int
+    num_epochs: int
+    batch_size: int
     test_split_size: float
-    split_seet: int
+    split_seed: int
+    model_seed: int
 
-    def __init__(sefl, config_dict) -> None:
+    def __init__(self, config_dict) -> None:
         raise NotImplementedError()
 
 def main():
@@ -153,3 +164,22 @@ def main():
         test_size=main_config.test_split_size, 
         split_seed=main_config.split_seed
     )
+    main_config.context_length = context_length
+
+    model = HyperDiffusion(
+        num_blocks=main_config.num_blocks,
+        feed_forward_dim=main_config.feed_forward_dim,
+        attention_dim=main_config.attention_dim,
+        attention_heads=main_config.attention_heads,
+        token_dim=main_config.token_dim,
+        embedded_token_dim=main_config.embedded_token_dim,
+        embedding_max_frequency=main_config.embedding_max_frequency,
+        context_length=main_config.context_length
+    )
+    x = jnp.ones((main_config.batch_size, main_config.context_length), dtype=jnp.float32)
+    params_key = jax.random.PRNGKey(main_config.model_seed)
+    params = model.init(params_key, x=x)['params']
+    opt = optax.adamw(
+        learning_rate=main_config.learning_rate, weight_decay=main_config.weight_decay
+    )
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)

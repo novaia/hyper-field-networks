@@ -72,43 +72,6 @@ class HyperDiffusion(nn.Module):
         x = x[:, :-1, :] # Remove embedded noise variances token.
         return x
 
-def create_train_state(model, rng, learning_rate, context_length, token_dim, steps_per_epoch):
-    x = (jnp.ones([1, context_length, token_dim]), jnp.ones([1, 1, 1]))
-    variables = model.init(rng, x)
-    params = variables['params']
-    learning_rate_schedule = optax.exponential_decay(
-        learning_rate, transition_begin=80*steps_per_epoch, 
-        transition_steps=100*steps_per_epoch, decay_rate=0.8
-    )
-    tx = optax.adam(learning_rate_schedule)
-    ts = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-    return ts
-
-def train_loop(dataset, epochs, batch_size, min_signal_rate, max_signal_rate, state):
-    steps_per_epoch = dataset.shape[0] // batch_size
-    losses = []
-    for epoch in range(epochs):
-        for step in range(steps_per_epoch):
-            losses_this_epoch = []
-            step_key = jax.random.PRNGKey(epoch * steps_per_epoch + step)
-            batch_indices_key, step_key = jax.random.split(step_key, num=2)
-            batch_indices = jax.random.randint(
-                batch_indices_key, shape=(batch_size,), minval=0, maxval=dataset.shape[0]
-            )
-            batch = dataset[batch_indices]
-            loss, state = train_step(
-                batch=batch, 
-                min_signal_rate=min_signal_rate,
-                max_signal_rate=max_signal_rate,
-                state=state,
-                parent_key=step_key
-            )
-            #print('Step', step, 'Loss:', loss)
-            losses_this_epoch.append(loss)
-        losses.append(sum(losses_this_epoch) / len(losses_this_epoch))
-        print('Epoch', epoch, 'Loss:', losses[-1])
-    return state
-
 @jax.jit
 def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
     noise_key, diffusion_time_key = jax.random.split(parent_key, 2)
@@ -134,6 +97,8 @@ def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
 
 @dataclass
 class SplitLatentDiffusionConfig:
+    min_signal_rate: float
+    max_signal_rate: float
     num_blocks: int
     feed_forward_dim: int
     attention_dim: int
@@ -183,3 +148,18 @@ def main():
         learning_rate=main_config.learning_rate, weight_decay=main_config.weight_decay
     )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
+
+    num_batches = len(train_set) // main_config.batch_size
+    for epoch in range(main_config.num_epochs):
+        train_set = train_set.shuffle(seed=epoch)
+        train_iterator = train_set.iter(main_config.batch_size)
+        for _ in range(num_batches):
+            batch = next(train_iterator)
+            batch = jnp.concatenate((batch['mlp_latents'], batch['hash_latents']), axis=-1)
+            loss, state = train_step(
+                batch=batch, 
+                min_signal_rate=main_config.min_signal_rate, 
+                max_signal_rate=main_config.max_signal_rate,
+                state=state,
+                parent_key=jax.random.PRNGKey(state.step)
+            )

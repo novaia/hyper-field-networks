@@ -95,6 +95,25 @@ def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
     state = state.apply_gradients(grads=grads)
     return loss, state
 
+@jax.jit
+def train_step(batch, min_signal_rate, max_signal_rate, state, parent_key):
+    noise_key, diffusion_time_key = jax.random.split(parent_key, 2)
+    
+    def loss_fn(params):
+        noises = jax.random.normal(noise_key, batch.shape)
+        diffusion_times = jax.random.uniform(diffusion_time_key, (batch.shape[0], 1, 1))
+        noise_rates, signal_rates = diffusion_schedule(
+            diffusion_times, min_signal_rate, max_signal_rate
+        )
+        noisy_batch = signal_rates * batch + noise_rates * noises
+
+        pred_noises = state.apply_fn({'params': params}, [noisy_batch, noise_rates**2])
+
+        loss = jnp.mean((pred_noises - noises)**2)
+        return loss
+
+    return loss_fn(state.params)
+
 @dataclass
 class SplitLatentDiffusionConfig:
     min_signal_rate: float
@@ -149,12 +168,13 @@ def main():
     )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
-    num_batches = len(train_set) // main_config.batch_size
+    train_steps = len(train_set) // main_config.batch_size
+    test_steps = len(test_set) // main_config.batch_size
     for epoch in range(main_config.num_epochs):
         train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(main_config.batch_size)
         loss_this_train = []
-        for _ in range(num_batches):
+        for step in range(train_steps):
             batch = next(train_iterator)
             batch = jnp.concatenate((batch['mlp_latents'], batch['hash_latents']), axis=-1)
             loss, state = train_step(
@@ -168,3 +188,24 @@ def main():
         average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
         print(f'epoch {epoch}, loss {average_loss}')
         wandb.log({'loss': average_loss}, step=state.step)
+
+        test_set = test_set.shuffle(seed=epoch)
+        test_iterator = test_set.iter(main_config.batch_size)
+        losses_this_test = []
+        for step in range(test_steps):
+            batch = next(test_iterator)
+            batch = jnp.concatenate((batch['mlp_latents'], batch['hash_latents']), axis=-1)
+            loss = test_step(
+                batch=batch, 
+                min_signal_rate=main_config.min_signal_rate, 
+                max_signal_rate=main_config.max_signal_rate,
+                state=state,
+                parent_key=jax.random.PRNGKey(state.step)
+            )
+            losses_this_test.append(loss)
+        average_test_loss = sum(losses_this_test) / len(losses_this_test)
+        print(f'epoch {epoch}, test_loss {average_test_loss}')
+        wandb.log({'test_loss': average_test_loss}, step=state.step)
+        current_checkpoint_path = os.path.join(
+            os.path.abspath(checkpoint_output_path), f'step{state.step}'
+        )

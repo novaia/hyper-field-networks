@@ -153,6 +153,7 @@ def main():
     for epoch in range(main_config.num_epochs):
         train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(main_config.batch_size)
+        loss_this_train = []
         for _ in range(num_batches):
             batch = next(train_iterator)
             batch = jnp.concatenate((batch['mlp_latents'], batch['hash_latents']), axis=-1)
@@ -163,3 +164,7 @@ def main():
                 state=state,
                 parent_key=jax.random.PRNGKey(state.step)
             )
+            losses_this_train.append(loss)
+        average_loss = sum(losses_this_epoch) / len(losses_this_epoch)
+        print(f'epoch {epoch}, loss {average_loss}')
+        wandb.log({'loss': average_loss}, step=state.step)

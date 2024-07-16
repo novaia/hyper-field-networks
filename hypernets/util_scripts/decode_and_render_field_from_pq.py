@@ -1,7 +1,7 @@
 # Decodes and renders split field latents from merged latents dataset.
 import os, json, argparse
 from safetensors.flax import load_file
-
+import datasets
 import numpy as np
 from flax import traverse_util
 import jax
@@ -12,9 +12,6 @@ from fields.common.flattening import unflatten_params
 from fields import ngp_image
 from hypernets.common.pytree_utils import move_pytree_to_gpu
 from hypernets import split_field_conv_ae
-from hypernets.split_field_conv_ae import (
-    SplitFieldConvAeConfig, init_model_from_config, preprocess
-)
 
 def load_dataset(dataset_path, test_size, split_seed, max_pq_files):
     field_config = None
@@ -35,7 +32,7 @@ def load_dataset(dataset_path, test_size, split_seed, max_pq_files):
 
     mlp_ae_config_dict = None
     with open(os.path.join(dataset_path, 'mlp_ae_config.json'), 'r') as f:
-        mlp_ae_config_dict = json.load
+        mlp_ae_config_dict = json.load(f)
     assert mlp_ae_config_dict is not None
     mlp_ae_config = split_field_conv_ae.SplitFieldConvAeConfig(mlp_ae_config_dict)
     
@@ -58,6 +55,9 @@ def load_dataset(dataset_path, test_size, split_seed, max_pq_files):
     test = test.with_format('jax', device=device)
     return train, test, field_config, param_map, hash_ae_config, mlp_ae_config
 
+def preprocess(latent, latent_channels):
+    return jnp.reshape(latent, [latent.shape[0], latent.shape[1]//latent_channels, latent_channels])
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--hash_decoder', type=str, required=True)
@@ -65,17 +65,19 @@ def main():
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--n_samples', type=int, default=1)
     parser.add_argument('--max_pq_files', type=int, default=1)
-    parser.add_argument('--output', type=int, default=1)
+    parser.add_argument('--output', type=str, required=True)
+    # TODO: include this information in dataset.
+    parser.add_argument('--latent_channels', type=int, default=4)
     args = parser.parse_args()
 
     train_set, test_set, field_config, field_param_map, hash_ae_config, mlp_ae_config = \
-        load_dataset(dataset_path=args.dataset, split_size=0.1, split_seed=0, max_pq_files=args.max_pq_files)
+        load_dataset(dataset_path=args.dataset, test_size=0.1, split_seed=0, max_pq_files=args.max_pq_files)
 
-    _, _, hash_decoder_model = init_model_from_config(hash_ae_config)
+    _, _, hash_decoder_model = split_field_conv_ae.init_model_from_config(hash_ae_config)
     hash_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.hash_decoder), sep='.')
     hash_decoder_params = move_pytree_to_gpu(hash_decoder_params_cpu)
 
-    _, _, mlp_decoder_model = init_model_from_config(mlp_ae_config)
+    _, _, mlp_decoder_model = split_field_conv_ae.init_model_from_config(mlp_ae_config)
     mlp_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.mlp_decoder), sep='.')
     mlp_decoder_params = move_pytree_to_gpu(mlp_decoder_params_cpu)
     
@@ -85,22 +87,10 @@ def main():
     data_iterator = train_set.iter(batch_size=1)
     for i in range(args.n_samples):
         batch = next(data_iterator)
-        mlp_latents = split_field_conv_ae.preprocess( 
-            x=batch['mlp_latents'],
-            train_on_hash_grid=mlp_ae_config.train_on_hash_grid,
-            left_padding=mlp_ae_config.left_padding,
-            right_padding=mlp_ae_config.right_padding,
-            requires_padding=mlp_ae_config.requires_padding
-        )
-        hash_latents = split_field_conv_ae.preprocess( 
-            x=batch['hash_latents'],
-            train_on_hash_grid=hash_ae_config.train_on_hash_grid,
-            left_padding=hash_ae_config.left_padding,
-            right_padding=hash_ae_config.right_padding,
-            requires_padding=hash_ae_config.requires_padding
-        )
-        hash_params = hash_decoder_model.apply({'params': hash_decoder_params}, x=hash_latents)[0]
-        mlp_params = mlp_decoder_model.apply({'params': mlp_decoder_params}, x=mlp_latents)[0]
+        mlp_latents = preprocess(latent=batch['mlp_latents'], latent_channels=args.latent_channels)
+        hash_latents = preprocess(latent=batch['hash_latents'], latent_channels=args.latent_channels)
+        hash_params = jnp.ravel(hash_decoder_model.apply({'params': hash_decoder_params}, x=hash_latents))
+        mlp_params = jnp.ravel(mlp_decoder_model.apply({'params': mlp_decoder_params}, x=mlp_latents))
         field_params = jnp.concatenate([hash_params, mlp_params], axis=0)
         field_params = unflatten_params(field_params, field_param_map)
         field_render = ngp_image.render_image(

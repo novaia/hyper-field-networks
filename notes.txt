@@ -5,3 +5,5 @@ python -m hypernets.util_scripts.encode_field_dataset --config configs/split_fie
 python -m hypernets.util_scripts.merge_hash_and_mlp_latents --mlp data/colored-monsters-ngp-image-18k-latent-mlp --hash data/colored-monsters-ngp-image-18k-latent-hash --output data/colored-monsters-ngp-image-18k-latent-merged
 
 python -m hypernets.util_scripts.decode_and_render_field_from_pq --hash_decoder data/safetensors/split_field_conv_ae_hash_decoder.safetensors --mlp_decoder data/safetensors/split_field_conv_ae_mlp_decoder.safetensors --dataset data/colored-monsters-ngp-image-18k-latent-merged --output data
+
+python -m hypernets.util_scripts.encode_field_dataset_together --mlp_config configs/split_field_conv_ae_mlp.json --hash_config configs/split_field_conv_ae_hash.json --mlp_encoder data/safetensors/split_field_conv_ae_mlp_encoder.safetensors --hash_encoder data/safetensors/split_field_conv_ae_hash_encoder.safetensors --dataset data/colored-monsters-ngp-image-18k --output data/colored-monsters-ngp-image-18k-latent-test-merge

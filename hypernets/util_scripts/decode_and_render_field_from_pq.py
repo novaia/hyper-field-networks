@@ -87,12 +87,29 @@ def main():
     data_iterator = train_set.iter(batch_size=1)
     for i in range(args.n_samples):
         batch = next(data_iterator)
-        mlp_latents = preprocess(latent=batch['mlp_latents'], latent_channels=args.latent_channels)
         hash_latents = preprocess(latent=batch['hash_latents'], latent_channels=args.latent_channels)
-        hash_params = jnp.ravel(hash_decoder_model.apply({'params': hash_decoder_params}, x=hash_latents))
-        mlp_params = jnp.ravel(mlp_decoder_model.apply({'params': mlp_decoder_params}, x=mlp_latents))
-        field_params = jnp.concatenate([hash_params, mlp_params], axis=0)
+        hash_params = hash_decoder_model.apply({'params': hash_decoder_params}, x=hash_latents)
+        hash_params = jnp.squeeze(hash_params, axis=-1)
+        hash_params = split_field_conv_ae.remove_padding(
+            hash_params, 
+            hash_ae_config.left_padding, 
+            hash_ae_config.right_padding, 
+            hash_ae_config.requires_padding
+        )
+        
+        mlp_latents = preprocess(latent=batch['mlp_latents'], latent_channels=args.latent_channels)
+        mlp_params = mlp_decoder_model.apply({'params': mlp_decoder_params}, x=mlp_latents)
+        mlp_params = jnp.squeeze(mlp_params, axis=-1)
+        mlp_params = split_field_conv_ae.remove_padding(
+            mlp_params, 
+            mlp_ae_config.left_padding, 
+            mlp_ae_config.right_padding, 
+            mlp_ae_config.requires_padding
+        )
+        field_params = jnp.concatenate([hash_params, mlp_params], axis=-1)[0]
+        field_params = jnp.array(field_params, dtype=jnp.float32)
         field_params = unflatten_params(field_params, field_param_map)
+        field_state = field_state.replace(params=field_params)
         field_render = ngp_image.render_image(
             field_state, field_config['image_height'], 
             field_config['image_width'], field_config['channels']

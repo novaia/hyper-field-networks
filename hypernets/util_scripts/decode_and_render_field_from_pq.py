@@ -16,7 +16,7 @@ from hypernets.split_field_conv_ae import (
     SplitFieldConvAeConfig, init_model_from_config, preprocess
 )
 
-def load_dataset(dataset_path, test_size, split_seed):
+def load_dataset(dataset_path, test_size, split_seed, max_pq_files):
     field_config = None
     with open(os.path.join(dataset_path, 'field_config.json'), 'r') as f:
         field_config = json.load(f)
@@ -47,6 +47,9 @@ def load_dataset(dataset_path, test_size, split_seed):
     num_parquet_files = len(parquet_paths)
     assert num_parquet_files > 0
     print(f'Found {num_parquet_files} parquet file(s) in dataset directory')
+    if num_parquet_files > max_pq_files:
+        parquet_paths = parquet_paths[:max_pq_files]
+        print(f'Only using {max_pq_files} out of {num_parquet_files} parquet file(s)')
 
     dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
     train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
@@ -61,11 +64,12 @@ def main():
     parser.add_argument('--mlp_decoder', type=str, required=True)
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--n_samples', type=int, default=1)
+    parser.add_argument('--max_pq_files', type=int, default=1)
     parser.add_argument('--output', type=int, default=1)
     args = parser.parse_args()
 
     train_set, test_set, field_config, field_param_map, hash_ae_config, mlp_ae_config = \
-        load_dataset(dataset_path=args.dataset, split_size=0.1, split_seed=0)
+        load_dataset(dataset_path=args.dataset, split_size=0.1, split_seed=0, max_pq_files=args.max_pq_files)
 
     _, _, hash_decoder_model = init_model_from_config(hash_ae_config)
     hash_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.hash_decoder), sep='.')

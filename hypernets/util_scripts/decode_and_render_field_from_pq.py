@@ -49,10 +49,11 @@ def load_dataset(dataset_path, test_size, split_seed, max_pq_files):
         print(f'Only using {max_pq_files} out of {num_parquet_files} parquet file(s)')
 
     dataset = datasets.load_dataset('parquet', data_files=parquet_paths)
-    train, test = dataset['train'].train_test_split(test_size=test_size, seed=split_seed).values()
+    train = dataset['train']    
+    test = None
     device = str(jax.devices('gpu')[0])
     train = train.with_format('jax', device=device)
-    test = test.with_format('jax', device=device)
+    #test = test.with_format('jax', device=device)
     return train, test, field_config, param_map, hash_ae_config, mlp_ae_config
 
 def preprocess(latent, latent_channels):
@@ -66,19 +67,26 @@ def main():
     parser.add_argument('--n_samples', type=int, default=1)
     parser.add_argument('--max_pq_files', type=int, default=1)
     parser.add_argument('--output', type=str, required=True)
+    parser.add_argument('--from_npy', action='store_true')
     # TODO: include this information in dataset.
     parser.add_argument('--latent_channels', type=int, default=4)
     args = parser.parse_args()
 
     train_set, test_set, field_config, field_param_map, hash_ae_config, mlp_ae_config = \
-        load_dataset(dataset_path=args.dataset, test_size=0.1, split_seed=0, max_pq_files=args.max_pq_files)
+        load_dataset(dataset_path=args.dataset, test_size=0.0, split_seed=0, max_pq_files=args.max_pq_files)
 
     _, _, hash_decoder_model = split_field_conv_ae.init_model_from_config(hash_ae_config)
-    hash_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.hash_decoder), sep='.')
+    if not args.from_npy:
+        hash_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.hash_decoder), sep='.')
+    else:
+        hash_decoder_params_cpu = np.load(args.hash_decoder, allow_pickle=True).tolist()
     hash_decoder_params = move_pytree_to_gpu(hash_decoder_params_cpu)
 
     _, _, mlp_decoder_model = split_field_conv_ae.init_model_from_config(mlp_ae_config)
-    mlp_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.mlp_decoder), sep='.')
+    if not args.from_npy:
+        mlp_decoder_params_cpu = traverse_util.unflatten_dict(load_file(args.mlp_decoder), sep='.')
+    else:
+        mlp_decoder_params_cpu = np.load(args.mlp_decoder, allow_pickle=True).tolist()
     mlp_decoder_params = move_pytree_to_gpu(mlp_decoder_params_cpu)
     
     field_model = ngp_image.create_model_from_config(field_config)
@@ -88,18 +96,22 @@ def main():
     for i in range(args.n_samples):
         batch = next(data_iterator)
         hash_latents = preprocess(latent=batch['hash_latents'], latent_channels=args.latent_channels)
+        hash_latents = jnp.array(hash_latents, dtype=jnp.bfloat16)
         hash_params = hash_decoder_model.apply({'params': hash_decoder_params}, x=hash_latents)
         hash_params = jnp.squeeze(hash_params, axis=-1)
+        #hash_params = batch['hash_latents'] 
         hash_params = split_field_conv_ae.remove_padding(
             hash_params, 
             hash_ae_config.left_padding, 
             hash_ae_config.right_padding, 
             hash_ae_config.requires_padding
         )
-        
+
         mlp_latents = preprocess(latent=batch['mlp_latents'], latent_channels=args.latent_channels)
+        mlp_latents = jnp.array(mlp_latents, dtype=jnp.bfloat16)
         mlp_params = mlp_decoder_model.apply({'params': mlp_decoder_params}, x=mlp_latents)
         mlp_params = jnp.squeeze(mlp_params, axis=-1)
+        #mlp_params = batch['mlp_latents'] 
         mlp_params = split_field_conv_ae.remove_padding(
             mlp_params, 
             mlp_ae_config.left_padding, 

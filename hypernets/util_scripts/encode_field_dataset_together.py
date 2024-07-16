@@ -61,6 +61,7 @@ def main():
     parser.add_argument('--hash_encoder', type=str, required=True)
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--output', type=str, required=True)
+    parser.add_argument('--from_npy', action='store_true')
     args = parser.parse_args()
 
     if not os.path.exists(args.output):
@@ -69,17 +70,23 @@ def main():
     with open(args.mlp_config, 'r') as f:
         mlp_model_config = SplitFieldConvAeConfig(json.load(f))
     _, mlp_encoder_model, _ = init_model_from_config(mlp_model_config)
-    mlp_encoder_params_cpu = traverse_util.unflatten_dict(load_file(args.mlp_encoder), sep='.')
+    if not args.from_npy:
+        mlp_encoder_params_cpu = traverse_util.unflatten_dict(load_file(args.mlp_encoder), sep='.')
+    else:
+        mlp_encoder_params_cpu = np.load(args.mlp_encoder, allow_pickle=True).tolist()
     mlp_encoder_params = move_pytree_to_gpu(mlp_encoder_params_cpu)
 
     with open(args.hash_config, 'r') as f:
         hash_model_config = SplitFieldConvAeConfig(json.load(f))
     _, hash_encoder_model, _ = init_model_from_config(hash_model_config)
-    hash_encoder_params_cpu = traverse_util.unflatten_dict(load_file(args.hash_encoder), sep='.')
+    if not args.from_npy:
+        hash_encoder_params_cpu = traverse_util.unflatten_dict(load_file(args.hash_encoder), sep='.')
+    else:
+        hash_encoder_params_cpu = np.load(args.hash_encoder, allow_pickle=True).tolist()
     hash_encoder_params = move_pytree_to_gpu(hash_encoder_params_cpu)
     
     dataset = get_dataset(args.dataset)
-    batch_size = 32
+    batch_size = 1
     dataset_iterator = dataset.iter(batch_size=batch_size)
     num_samples = len(dataset)
     num_batches = num_samples // batch_size 
@@ -111,11 +118,11 @@ def main():
         
         hash_batch_samples = preprocess(
             x=batch_samples,
-            train_on_hash_grid=hash_model_config .train_on_hash_grid,
-            hash_grid_end=hash_model_config .num_hash_grid_params,
-            left_padding=hash_model_config .left_padding,
-            right_padding=hash_model_config .right_padding,
-            requires_padding=hash_model_config .requires_padding
+            train_on_hash_grid=hash_model_config.train_on_hash_grid,
+            hash_grid_end=hash_model_config.num_hash_grid_params,
+            left_padding=hash_model_config.left_padding,
+            right_padding=hash_model_config.right_padding,
+            requires_padding=hash_model_config.requires_padding
         )
         hash_batch_latents_gpu = hash_encoder_model.apply({'params': hash_encoder_params}, x=hash_batch_samples)
         hash_batch_latents = np.array(

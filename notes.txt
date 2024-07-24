@@ -29,3 +29,7 @@ python -m hypernets.util_scripts.checkpoint_to_npy --config configs/split_field_
 ------
 
 python -m hypernets.util_scripts.decode_and_render_field_from_pq --hash_decoder data/npy_models/split_field_conv_ae_hash_decoder.npy --mlp_decoder data/npy_models/split_field_conv_ae_mlp_decoder.npy --dataset data/colored-monsters-ngp-image-18k-latent-test-merge --output data --n_samples 10 --from_npy
+
+------
+
+python -m fields.ngp_nerf --dataset data/multi_view_renders/ --downscale 1

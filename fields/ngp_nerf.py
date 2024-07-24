@@ -1,4 +1,4 @@
-import os, time, json
+import os, time, json, argparse
 from functools import partial
 from typing import Optional, Callable, Tuple, Union
 from dataclasses import dataclass
@@ -454,6 +454,12 @@ def turntable_render(
         render_fn(transform_matrix=camera_matrix, file_name=file_name + f'_frame_{i}')
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, required=True)
+    parser.add_argument('--downscale', type=int, default=1)
+    parser.add_argument('--no_transpose', action='store_true', default=False)
+    args = parser.parse_args()
+
     with open('configs/ngp_nerf.json', 'r') as f:
         config = json.load(f)
 
@@ -483,7 +489,7 @@ def main():
         update_interval=config['grid_update_interval'], 
         warmup_steps=config['grid_warmup_steps']
     )
-    dataset = load_nerf_dataset('data/multi_view_renders', 2, True)
+    dataset = load_nerf_dataset(args.dataset, args.downscale, not args.no_transpose)
     print(dataset.images.shape)
     train_loop_with_args = partial(
         train_loop,
@@ -523,7 +529,7 @@ def main():
     prev_image = jax.device_put(dataset.images[0], jax.devices('cpu')[0])
     prev_image = np.clip(prev_image, 0, 1)
     prev_image = np.transpose(prev_image, (1, 0, 2))
-    plt.imsave(os.path.join('data/preview_iamge.png'), prev_image)
+    plt.imsave(os.path.join('data/preview_image.png'), prev_image)
 
     state, occupancy_grid = train_loop_with_args()
 

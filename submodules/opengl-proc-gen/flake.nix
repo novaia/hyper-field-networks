@@ -15,10 +15,9 @@
                 cudaSupport = true;
             };
         };
+        glad = import ../../external/glad { inherit pkgs; };
     in {
-        devShells = let
-            glad = import ../../external/glad { inherit pkgs; };
-        in rec {
+        devShells = rec {
             default = pkgs.mkShell {
                 buildInputs = with pkgs; [
                     libpng
@@ -43,7 +42,7 @@
             };
         };
         packages = {
-            default = pkgs.callPackage ./. {};
+            default = pkgs.callPackage ./. { inherit pkgs glad; };
         };
     });
 }

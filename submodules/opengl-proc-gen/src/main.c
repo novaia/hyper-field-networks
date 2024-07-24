@@ -212,6 +212,19 @@ int main()
         printf("Failed to load texture\n");
         return -1; 
     }
+
+    obj_t* camera_obj = load_obj(DATA_PATH("3d_models/camera.obj"), 100000, 100000, 100000);
+    if(!sonic_obj) 
+    {
+        printf("Failed to load obj\n");
+        return -1; 
+    }
+    image_t* camera_texture = load_png(DATA_PATH("3d_models/white_texture.png"));
+    if(!sonic_texture) 
+    { 
+        printf("Failed to load texture\n");
+        return -1; 
+    }
     
     const vec3 light_rotation = {50.0f, 20.0f, 0.0f};
     init_scene(light_rotation, 0.3f, scene);
@@ -221,6 +234,13 @@ int main()
     if(error) { return -1; }
     unsigned int sonic_texture_index = 0;
     error = add_texture_to_scene(scene, sonic_texture, &sonic_texture_index);
+    if(error) { return -1; }
+
+    unsigned int camera_mesh_index = 0;
+    error = add_mesh_to_scene(scene, camera_obj, &camera_mesh_index);
+    if(error) { return -1; }
+    unsigned int camera_texture_index = 0;
+    error = add_texture_to_scene(scene, camera_texture, &camera_texture_index);
     if(error) { return -1; }
 
     printf("num_gl_meshes: %d\n", scene->num_gl_meshes);
@@ -248,7 +268,6 @@ int main()
     );
 
     float aspect_ratio = window_width_f / window_height_f;
-    
 
     float rot = 0.0f;
     mat4_make_perspective_projection(fov, 1.0f, 20.0f, aspect_ratio, camera->perspective_matrix);
@@ -260,17 +279,23 @@ int main()
     glEnable(GL_DEPTH_TEST);
     
     multi_view_render_params_t render_params;
-    init_multi_view_render_params(-80.0f, 80.0f, 20, 0.0f, 360.0f, 10, &render_params);
-    printf("num_views %u\n", render_params.num_views);
+    init_multi_view_render_params(-80.0f, 80.0f, 5, 0.0f, 360.0f, 5, &render_params);
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     make_multi_view_render_matrices(&render_params, mv_model_matrices, mv_view_matrices);
-    multi_view_render(
+    for(unsigned int i = 0; i < render_params.num_views; ++i)
+    {
+        error = add_scene_element(
+            scene, mv_model_matrices[i], camera_mesh_index, camera_texture_index
+        );
+        if(error) { return -1; }
+    }
+
+    /*multi_view_render(
         scene, camera, &shader, &depth_shader, &render_params, 
         mv_model_matrices, mv_view_matrices, window
-    );
+    );*/
 
-    //multi_view_render(scene, camera, &shader, &depth_shader, window);
     while(!glfwWindowShouldClose(window))
     {
         rot = camera_rotation[1] + 0.4f;

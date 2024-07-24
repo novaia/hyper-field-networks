@@ -13,7 +13,7 @@ extern "C" {
 
 #define MAX_GL_MESHES 8
 #define MAX_GL_TEXTURES 8
-#define MAX_SCENE_ELEMENTS 8
+#define MAX_SCENE_ELEMENTS 210
 
 typedef struct
 {

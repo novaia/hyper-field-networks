@@ -17,7 +17,7 @@
         };
     in {
         devShells = let
-            glad = import ../external/glad { inherit pkgs; };
+            glad = import ../../external/glad { inherit pkgs; };
         in rec {
             default = pkgs.mkShell {
                 buildInputs = with pkgs; [

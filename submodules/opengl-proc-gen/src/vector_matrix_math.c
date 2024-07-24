@@ -313,4 +313,3 @@ void mat4_make_camera_model_and_view_matrix(
     mat4_make_camera_view_matrix(position, rotation, view_matrix);
 }
 /* End of mat4 functions. */
-

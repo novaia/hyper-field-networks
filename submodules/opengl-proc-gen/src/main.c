@@ -83,6 +83,70 @@ GLFWwindow* init_gl(void)
     return window;
 }
 
+typedef struct
+{
+    float min_x_rotation;
+    float max_x_rotation;
+    float x_rotation_domain;
+    float x_rotation_per_step;
+    unsigned int x_rotation_steps;
+    
+    float min_y_rotation;
+    float max_y_rotation;
+    float y_rotation_domain;
+    float y_rotation_per_step;
+    unsigned int y_rotation_steps;
+    
+    unsigned int num_views;
+} multi_view_render_params_t;
+
+void init_multi_view_render_params(
+    float min_x_rotation, float max_x_rotation, unsigned int x_rotation_steps,
+    float min_y_rotation, float max_y_rotation, unsigned int y_rotation_steps,
+    multi_view_render_params_t* params
+){
+    params->min_x_rotation = min_x_rotation;
+    params->max_x_rotation = max_x_rotation;
+    params->x_rotation_domain = max_x_rotation - min_x_rotation;
+    params->x_rotation_per_step = (params->x_rotation_domain / (float)x_rotation_steps) + 1;
+    params->x_rotation_steps = x_rotation_steps;
+
+    params->min_y_rotation = min_y_rotation;
+    params->max_y_rotation = max_y_rotation;
+    params->y_rotation_domain = max_y_rotation - min_y_rotation;
+    params->y_rotation_per_step = params->y_rotation_domain / (float)y_rotation_steps;
+    params->y_rotation_steps = y_rotation_steps;
+    
+    params->num_views = x_rotation_steps * y_rotation_steps;
+}
+
+void make_multi_view_render_matrices(
+    multi_view_render_params_t* params, mat4* model_matrices, mat4* view_matrices
+){
+    unsigned int matrix_index = 0;
+    const float camera_zoom = -4.0f;
+
+    for(unsigned int x = 0; x < params->x_rotation_steps; x++) 
+    {
+        float x_rotation = params->min_x_rotation + params->x_rotation_per_step * (float)x;
+        
+        for(unsigned int y = 0; y < params->y_rotation_steps; y++)
+        {
+            float y_rotation = params->min_y_rotation + params->y_rotation_per_step * (float)y;
+            
+            vec3 camera_rotation = {x_rotation, y_rotation, 0.0f};
+            mat4 model_matrix, view_matrix;
+            mat4_make_camera_model_and_view_matrix(
+                camera_rotation, camera_zoom, &model_matrix, &view_matrix
+            );
+            
+            memcpy(&model_matrices[matrix_index], &model_matrix, sizeof(mat4));
+            memcpy(&view_matrices[matrix_index], &view_matrix, sizeof(mat4));
+            ++matrix_index;
+        }
+    }
+}
+
 void multi_view_render(
     const scene_t* scene, camera_t* camera, 
     mesh_shader_t* shader, depth_map_shader_t* depth_shader,
@@ -217,7 +281,15 @@ int main()
         camera_rotation, camera_zoom, camera->model_matrix, camera->view_matrix
     );
     glEnable(GL_DEPTH_TEST);
-    multi_view_render(scene, camera, &shader, &depth_shader, window);
+    
+    multi_view_render_params_t render_params;
+    init_multi_view_render_params(-80.0f, 80.0f, 20, 0.0f, 360.0f, 10, &render_params);
+    printf("num_views %u\n", render_params.num_views);
+    mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
+    mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
+    make_multi_view_render_matrices(&render_params, mv_model_matrices, mv_view_matrices);
+
+    //multi_view_render(scene, camera, &shader, &depth_shader, window);
     while(!glfwWindowShouldClose(window))
     {
         rot = camera_rotation[1] + 0.4f;

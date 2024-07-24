@@ -150,57 +150,34 @@ void make_multi_view_render_matrices(
 void multi_view_render(
     const scene_t* scene, camera_t* camera, 
     mesh_shader_t* shader, depth_map_shader_t* depth_shader,
+    multi_view_render_params_t* params,
+    mat4* model_matrices, mat4* view_matrices,
     GLFWwindow* window
 ){
     const float half_fov_radians = degrees_to_radians(fov/2.0f);
-    const float min_x_rotation = -80.0f;
-    const float max_x_rotation = 80.0f;
-    const float x_rotation_domain = max_x_rotation - min_x_rotation;
-    const unsigned int x_rotation_steps = 20;
-    const float x_rotation_per_step = x_rotation_domain / (float)x_rotation_steps;
-    
-    const float min_y_rotation = 0.0f;
-    const float max_y_rotation = 360.0f;
-    const float y_rotation_domain = max_y_rotation - min_y_rotation;
-    const unsigned int y_rotation_steps = 10;
-    const float y_rotation_per_step = y_rotation_domain / (float)y_rotation_steps;
-
     char* base_path = DATA_PATH("multi_view_renders/");
     char save_path[100];
-    unsigned int render_index = 0;
-    const unsigned int num_views = (x_rotation_steps+1) * y_rotation_steps;
-    mat4* transform_matrices = (mat4*)malloc(sizeof(mat4) * num_views);
-    unsigned int transform_matrices_offset = 0;
-    const float camera_zoom = -4.0f;
-    for(unsigned int x = 0; x <= x_rotation_steps; x++)
+
+    for(unsigned int view_index = 0; view_index < params->num_views; view_index++)
     {
-        const float x_rotation = min_x_rotation + x_rotation_per_step * (float)x;
-        for(unsigned int y = 0; y < y_rotation_steps; y++)
-        {
-            const float y_rotation = min_y_rotation + y_rotation_per_step * (float)y;
-            const vec3 camera_rotation = {x_rotation, y_rotation, 0.0f};
-            mat4_make_camera_model_and_view_matrix(
-                camera_rotation, camera_zoom, camera->model_matrix, camera->view_matrix
-            );
-            memcpy(
-                &transform_matrices[transform_matrices_offset++], 
-                camera->model_matrix, 
-                sizeof(mat4)
-            );
-            render_scene(scene, camera, depth_shader, shader, window_width, window_height);
-            snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, render_index, ".png");
-            save_frame_to_png(save_path, window_width, window_height);
-            snprintf(save_path, sizeof(char) * 100, "%s%d_depth%s", base_path, render_index, ".png");
-            save_depth_to_png(save_path, window_width, window_height);
-            glfwSwapBuffers(window);
-            render_index++;
-        }
+        memcpy(camera->model_matrix, &model_matrices[view_index], sizeof(mat4));
+        memcpy(camera->view_matrix, &view_matrices[view_index], sizeof(mat4));
+
+        render_scene(scene, camera, depth_shader, shader, window_width, window_height);
+
+        snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, view_index, ".png");
+        save_frame_to_png(save_path, window_width, window_height);
+
+        snprintf(save_path, sizeof(char) * 100, "%s%d_depth%s", base_path, view_index, ".png");
+        save_depth_to_png(save_path, window_width, window_height);
+
+        glfwSwapBuffers(window);
     }
+
     save_multi_view_transforms_json(
-        half_fov_radians, 0.0f, num_views, transform_matrices, 
+        half_fov_radians, 0.0f, params->num_views, model_matrices, 
         DATA_PATH("multi_view_renders/transforms.json"), 1
     );
-    free(transform_matrices);
 }
 
 int main()
@@ -288,6 +265,10 @@ int main()
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     make_multi_view_render_matrices(&render_params, mv_model_matrices, mv_view_matrices);
+    multi_view_render(
+        scene, camera, &shader, &depth_shader, &render_params, 
+        mv_model_matrices, mv_view_matrices, window
+    );
 
     //multi_view_render(scene, camera, &shader, &depth_shader, window);
     while(!glfwWindowShouldClose(window))

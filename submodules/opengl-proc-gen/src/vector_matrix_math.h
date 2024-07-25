@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef float mat4[4][4];
 typedef float vec2[2];
 typedef float vec3[3];
@@ -70,3 +74,7 @@ void mat4_make_camera_model_and_view_matrix(
 /* Start of quat functions. */
 void quat_to_mat4(const quat q, mat4 result);
 /* End of quat functions. */
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

@@ -83,6 +83,7 @@
                             pytest
                             safetensors
                             ngp-volume-rendering
+                            opengl-proc-gen
                         ]))
                     ];
                     shellHook = ''

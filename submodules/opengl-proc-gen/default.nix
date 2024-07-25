@@ -1,20 +1,52 @@
-{ pkgs, glad }:
-pkgs.stdenv.mkDerivation {
-    pname = "3d";
-    version = "v0.0.0";
+{ 
+    lib,
+    stdenv,
+    version, 
+    symlinkJoin, 
+    buildPythonPackage,
+    setuptools-scm,
+    cmake,
+    ninja,
+    pybind11,
+    python3,
+    gcc12,
+    glad,
+    glfw,
+    libpng
+}:
+
+buildPythonPackage rec {
+    pname = "opengl-proc-gen";
+    inherit version;
     src = ./.;
-    buildInputs = with pkgs; [ 
+    format = "pyproject";
+    dontUseCmakeConfigure = true;
+    
+    nativeBuildInputs = [
+        cmake
+        ninja
+        pybind11
+        setuptools-scm
+        gcc12
         glfw
         glad
         libpng
     ];
-    buildPhase = ''
-        bash shaders_to_header.sh
-        gcc -std=c99 -c ./csrc/main.c ./csrc/file_io.c ./csrc/vector_matrix_math.c ./csrc/rendering.c
-        gcc main.o file_io.o vector_matrix_math.o rendering.o -lglfw -lglad -lm -lpng -o 3d 
+
+    buildInputs = [
+        stdenv.cc.cc.lib # Required for libstdc++.so
+    ];
+
+    preConfigure = ''
+        export CC=${gcc12}/bin/gcc
+        export CXX=${gcc12}/bin/g++
     '';
-    installPhase = ''
-        mkdir -p $out/bin
-        cp 3d $out/bin
+
+    preFixup = ''
+        patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" \
+            $out/lib/python${python3.pythonVersion}/site-packages/opengl_proc_gen/*.so
     '';
+
+    doCheck = false;
+    pythonImportsCheck = [ "opengl_proc_gen" ];
 }

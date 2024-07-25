@@ -286,19 +286,24 @@ int main()
     init_multi_view_render_params(-60.0f, 60.0f, 10, 0.0f, 360.0f, 10, &render_params);
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
-    make_multi_view_render_matrices(-4.0f, -2.0f, &render_params, mv_model_matrices, mv_view_matrices);
-    for(unsigned int i = 0; i < render_params.num_views; ++i)
+    make_multi_view_render_matrices(-6.0f, -3.0f, &render_params, mv_model_matrices, mv_view_matrices);
+
+    int debug_camera_poses = 0;
+    if(debug_camera_poses)
     {
-        error = add_scene_element(
-            scene, mv_model_matrices[i], camera_mesh_index, camera_texture_index
-        );
-        if(error) { return -1; }
+        for(unsigned int i = 0; i < render_params.num_views; ++i)
+        {
+            error = add_scene_element(
+                scene, mv_model_matrices[i], camera_mesh_index, camera_texture_index
+            );
+            if(error) { return -1; }
+        }
     }
 
-    /*multi_view_render(
+    multi_view_render(
         scene, camera, &shader, &depth_shader, &render_params, 
         mv_model_matrices, mv_view_matrices, window
-    );*/
+    );
 
     while(!glfwWindowShouldClose(window))
     {

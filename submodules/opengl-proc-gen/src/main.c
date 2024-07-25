@@ -121,6 +121,7 @@ void init_multi_view_render_params(
 }
 
 void make_multi_view_render_matrices(
+    float min_zoom, float max_zoom,
     multi_view_render_params_t* params, mat4* model_matrices, mat4* view_matrices
 ){
     unsigned int matrix_index = 0;
@@ -133,7 +134,8 @@ void make_multi_view_render_matrices(
         for(unsigned int y = 0; y < params->y_rotation_steps; y++)
         {
             float y_rotation = params->min_y_rotation + params->y_rotation_per_step * (float)y;
-            
+            float camera_zoom = min_zoom + ((float)rand() / RAND_MAX) * (max_zoom - min_zoom);
+
             vec3 camera_rotation = {x_rotation, y_rotation, 0.0f};
             mat4 model_matrix, view_matrix;
             mat4_make_camera_model_and_view_matrix(
@@ -182,6 +184,8 @@ void multi_view_render(
 
 int main()
 {
+    srand(1729); // RNG seed.
+
     GLFWwindow* window = init_gl();
     if(!window)
     {
@@ -279,10 +283,10 @@ int main()
     glEnable(GL_DEPTH_TEST);
     
     multi_view_render_params_t render_params;
-    init_multi_view_render_params(-80.0f, 80.0f, 5, 0.0f, 360.0f, 5, &render_params);
+    init_multi_view_render_params(-60.0f, 60.0f, 10, 0.0f, 360.0f, 10, &render_params);
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
-    make_multi_view_render_matrices(&render_params, mv_model_matrices, mv_view_matrices);
+    make_multi_view_render_matrices(-4.0f, -2.0f, &render_params, mv_model_matrices, mv_view_matrices);
     for(unsigned int i = 0; i < render_params.num_views; ++i)
     {
         error = add_scene_element(

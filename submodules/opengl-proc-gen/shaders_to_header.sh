@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Set the path to the shaders folder
-SHADERS_FOLDER="src/shaders"
+SHADERS_FOLDER="csrc/shaders"
 
 # Set the output header file name
-OUTPUT_FILE="src/shaders.h"
+OUTPUT_FILE="csrc/shaders.h"
 
 # Create or overwrite the output file
 echo "/* Generated shader header file */" > $OUTPUT_FILE

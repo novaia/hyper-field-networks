@@ -77,11 +77,11 @@ PYBIND11_MODULE(cpp_ffi, m)
     );
     
     m.def(
-        "mat4_make_y_rotation",
+        "mat4_make_z_rotation",
         [](float degrees)
         {
             mat4 result;
-            mat4_make_y_rotation(degrees, result);
+            mat4_make_z_rotation(degrees, result);
             return mat4_to_numpy(result);
         }
     );

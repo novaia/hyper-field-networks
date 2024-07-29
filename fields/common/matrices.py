@@ -1,6 +1,9 @@
 import jax
 import jax.numpy as jnp
 
+def degrees_to_radians(angle:float) -> float:
+    return (angle / 180.0) * jnp.pi 
+
 def process_3x4_transformation_matrix(original:jax.Array, scale:float) -> jax.Array:
     # Note that the translation component is not shifted.
     

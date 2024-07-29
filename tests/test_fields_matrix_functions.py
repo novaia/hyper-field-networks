@@ -51,41 +51,47 @@ def test_get_z_rotation_matrix_3d(pi_over_2, rotation_tolerance):
     computed_matrix = matrices.get_z_rotation_matrix_3d(pi_over_2)
     assert jnp.allclose(expected_matrix, computed_matrix, atol=rotation_tolerance)
 
-def test_opg_mat4_make_x_rotation_matrix(pi_over_2, rotation_tolerance):
-    opg_matrix = jnp.array(opg.mat4_make_x_rotation(90.0))
+@pytest.mark.parametrize('degrees', [20.0, 30.0, 180.0, 0.0, 360.0])
+def test_opg_mat4_make_x_rotation_matrix(degrees, rotation_tolerance):
+    radians = matrices.degrees_to_radians(degrees)
+    opg_matrix = jnp.array(opg.mat4_make_x_rotation(degrees))
     final_col = jnp.ravel(opg_matrix[:, -1])
     final_row = jnp.ravel(opg_matrix[-1, :])
     expected_final_col_and_row = jnp.array([0.0, 0.0, 0.0, 1.0], dtype=jnp.float32)
     assert jnp.allclose(final_col, expected_final_col_and_row)
     assert jnp.allclose(final_row, expected_final_col_and_row)
-    opg_matrix = opg_matrix[:-1, :-1]
-    expected_matrix = matrices.get_x_rotation_matrix_3d(pi_over_2)
+    opg_matrix = jnp.transpose(opg_matrix[:-1, :-1])
+    expected_matrix = matrices.get_x_rotation_matrix_3d(radians)
     print(opg_matrix)
     print(expected_matrix)
     assert jnp.allclose(opg_matrix, expected_matrix, atol=rotation_tolerance)
 
-def test_opg_mat4_make_y_rotation_matrix(pi_over_2, rotation_tolerance):
-    opg_matrix = jnp.array(opg.mat4_make_y_rotation(90.0))
+@pytest.mark.parametrize('degrees', [20.0, 30.0, 180.0, 0.0, 360.0])
+def test_opg_mat4_make_y_rotation_matrix(degrees, rotation_tolerance):
+    radians = matrices.degrees_to_radians(degrees)
+    opg_matrix = jnp.array(opg.mat4_make_y_rotation(degrees))
     final_col = jnp.ravel(opg_matrix[:, -1])
     final_row = jnp.ravel(opg_matrix[-1, :])
     expected_final_col_and_row = jnp.array([0.0, 0.0, 0.0, 1.0], dtype=jnp.float32)
     assert jnp.allclose(final_col, expected_final_col_and_row)
     assert jnp.allclose(final_row, expected_final_col_and_row)
-    opg_matrix = opg_matrix[:-1, :-1]
-    expected_matrix = matrices.get_y_rotation_matrix_3d(pi_over_2)
+    opg_matrix = jnp.transpose(opg_matrix[:-1, :-1])
+    expected_matrix = matrices.get_y_rotation_matrix_3d(radians)
     print(opg_matrix)
     print(expected_matrix)
     assert jnp.allclose(opg_matrix, expected_matrix, atol=rotation_tolerance)
 
-def test_opg_mat4_make_z_rotation_matrix(pi_over_2, rotation_tolerance):
-    opg_matrix = jnp.array(opg.mat4_make_z_rotation(90.0))
+@pytest.mark.parametrize('degrees', [20.0, 30.0, 180.0, 0.0, 360.0])
+def test_opg_mat4_make_z_rotation_matrix(degrees, rotation_tolerance):
+    radians = matrices.degrees_to_radians(degrees)
+    opg_matrix = jnp.array(opg.mat4_make_z_rotation(degrees))
     final_col = jnp.ravel(opg_matrix[:, -1])
     final_row = jnp.ravel(opg_matrix[-1, :])
     expected_final_col_and_row = jnp.array([0.0, 0.0, 0.0, 1.0], dtype=jnp.float32)
     assert jnp.allclose(final_col, expected_final_col_and_row)
     assert jnp.allclose(final_row, expected_final_col_and_row)
-    opg_matrix = opg_matrix[:-1, :-1]
-    expected_matrix = matrices.get_z_rotation_matrix_3d(pi_over_2)
+    opg_matrix = jnp.transpose(opg_matrix[:-1, :-1])
+    expected_matrix = matrices.get_z_rotation_matrix_3d(radians)
     print(opg_matrix)
     print(expected_matrix)
     assert jnp.allclose(opg_matrix, expected_matrix, atol=rotation_tolerance)

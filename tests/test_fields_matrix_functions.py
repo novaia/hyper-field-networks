@@ -96,6 +96,31 @@ def test_opg_mat4_make_z_rotation_matrix(degrees, rotation_tolerance):
     print(expected_matrix)
     assert jnp.allclose(opg_matrix, expected_matrix, atol=rotation_tolerance)
 
+@pytest.mark.parametrize('x_rot', [20.0])
+@pytest.mark.parametrize('y_rot', [0.0])
+@pytest.mark.parametrize('z_rot', [0.0])
+@pytest.mark.parametrize('zoom', [1.0])
+def test_opg_mat4_make_camera_model_matrix(x_rot, y_rot, z_rot, zoom):
+    def get_expected():   
+        rot_x_matrix = matrices.get_x_rotation_matrix_3d(matrices.degrees_to_radians(x_rot))
+        rot_y_matrix = matrices.get_y_rotation_matrix_3d(matrices.degrees_to_radians(y_rot))
+        rot_matrix = rot_x_matrix @ rot_y_matrix
+        position = jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32)
+        position = rot_matrix @ position
+        position = jnp.reshape(position, [3, 1])
+        expected_matrix = jnp.concatenate([rot_matrix, position], axis=-1)
+        expected_matrix = jnp.concatenate([
+            expected_matrix, jnp.array([[0.0, 0.0, 0.0, 1.0],], dtype=jnp.float32)
+        ], axis=0)
+        return expected_matrix
+
+    opg_matrix = opg.mat4_make_camera_model_matrix(x_rot, y_rot, z_rot, zoom)
+    opg_matrix = jnp.transpose(opg_matrix)
+    expected_matrix = get_expected()
+    print(expected_matrix)
+    print(opg_matrix)
+    assert jnp.allclose(opg_matrix, expected_matrix)
+
 '''
 def test_z_axis_camera_orbit_matrix():
     expected_matrix = jnp.array([

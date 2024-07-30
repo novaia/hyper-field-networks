@@ -85,4 +85,15 @@ PYBIND11_MODULE(cpp_ffi, m)
             return mat4_to_numpy(result);
         }
     );
+
+    m.def(
+        "mat4_make_camera_model_matrix",
+        [](float x_rot, float y_rot, float z_rot, float zoom)
+        {
+            mat4 result;
+            vec3 rotation = {x_rot, y_rot, z_rot};
+            mat4_make_camera_model_matrix(rotation, zoom, result);
+            return mat4_to_numpy(result);
+        }
+    );
 }

@@ -310,14 +310,15 @@ def train_step(
             z_vals=z_vals,
             drgbs=drgbs,
         )
-        #pred_alphas = jnp.expand_dims(pred_alphas, axis=-1)
+        pred_alphas = jnp.expand_dims(pred_alphas, axis=-1)
         pred_rgbs, _ = jnp.array_split(pred_rgbds, [3], axis=-1)
-        #pred_rbgs = pred_rgbs + background_colors * (1.0 - pred_alphas) 
+        pred_rbgs = pred_rgbs + background_colors * (1.0 - pred_alphas) 
         target_pixels = images[image_indices, height_indices, width_indices]
         target_rgbs = target_pixels[:, :3]
         target_alphas = target_pixels[:, 3:]
-        target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
-        #target_rbgs = target_rgbs + background_colors * (1.0 - target_alphas)
+        #target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
+        target_rgbs = target_rgbs + background_colors * (1.0 - target_alphas)
+        #target_rgbs = target_rgbs + background_colors * target_alphas 
         loss = jnp.sum(jnp.where(
             ray_is_valid, 
             jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),
@@ -490,6 +491,33 @@ def main():
     )
     dataset = load_nerf_dataset(args.dataset, args.downscale, not args.no_transpose)
     print(dataset.images.shape)
+    print('hfov', dataset.horizontal_fov)
+    print('vfov', dataset.vertical_fov)
+    print('fl_x', dataset.fl_x)
+    print('fl_y', dataset.fl_y)
+    print('cx', dataset.cx)
+    print('cy', dataset.cy)
+    print('w', dataset.w)
+    print('h', dataset.h)
+
+    '''
+    ray_origin, ray_direction = get_ray(
+        uv_x=256, 
+        uv_y=256, 
+        transform_matrix=dataset.transform_matrices[0], 
+        c_x=dataset.cx, 
+        c_y=dataset.cy, 
+        fl_x=dataset.fl_x, 
+        fl_y=dataset.fl_y
+    )
+    print('transform:', dataset.transform_matrices[0])
+    print('origin:', ray_origin)
+    print('direction:', ray_direction)
+    print('1:', ray_origin + ray_direction)
+    print('2:', ray_origin + 2 * ray_direction)
+    exit()
+    '''
+
     train_loop_with_args = partial(
         train_loop,
         batch_size=config['batch_size'],

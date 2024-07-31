@@ -6,7 +6,7 @@
     "finest_resolution": 524288,
     "density_mlp_width": 64,
     "color_mlp_width": 64,
-    "high_dynamic_range": true,
+    "high_dynamic_range": false,
     "exponential_density_activation": false,
     "learning_rate": 0.01,
     "epsilon": 0.000000000000001,

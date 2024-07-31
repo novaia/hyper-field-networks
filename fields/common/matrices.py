@@ -16,10 +16,15 @@ def process_3x4_transformation_matrix(original:jax.Array, scale:float) -> jax.Ar
     #])
     # This is the new way of processing transformation matrices.
     # Changing the signs here seems to have the largest impact on NeRF quality.
+    #new = jnp.array([
+    #    [original[0, 0], original[0, 1], -original[0, 2], original[0, 3] * scale],
+    #    [original[1, 0], original[1, 1], -original[1, 2], original[1, 3] * scale],
+    #    [original[2, 0], original[2, 1], -original[2, 2], original[2, 3] * scale],
+    #])
     new = jnp.array([
-        [original[0, 0], original[0, 1], -original[0, 2], original[0, 3] * scale],
-        [original[1, 0], original[1, 1], -original[1, 2], original[1, 3] * scale],
-        [original[2, 0], original[2, 1], -original[2, 2], original[2, 3] * scale],
+        [original[0, 0], original[0, 1], original[0, 2], original[0, 3] * scale],
+        [original[1, 0], original[1, 1], original[1, 2], original[1, 3] * scale],
+        [original[2, 0], original[2, 1], original[2, 2], original[2, 3] * scale],
     ])
     return new
 

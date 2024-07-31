@@ -247,8 +247,7 @@ def sample_pixels(key, num_samples:int, image_width:int, image_height:int, num_i
 
 @jax.jit
 def get_ray(uv_x, uv_y, transform_matrix, c_x, c_y, fl_x, fl_y):
-    # Maybe the direction's z element should be -1.0 in order to match OpenGL?
-    direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, 1.0])
+    direction = jnp.array([(uv_x - c_x) / fl_x, (uv_y - c_y) / fl_y, -1.0])
     direction = transform_matrix[:3, :3] @ direction
     direction = direction / jnp.linalg.norm(direction)
     origin = transform_matrix[:3, -1]
@@ -528,7 +527,6 @@ def main():
     '''
     prev_image = jax.device_put(dataset.images[0], jax.devices('cpu')[0])
     prev_image = np.clip(prev_image, 0, 1)
-    prev_image = np.transpose(prev_image, (1, 0, 2))
     plt.imsave(os.path.join('data/preview_image.png'), prev_image)
 
     state, occupancy_grid = train_loop_with_args()
@@ -551,15 +549,15 @@ def main():
         state=state
     )
     render_fn(
-        transform_matrix=dataset.transform_matrices[100],
+        transform_matrix=dataset.transform_matrices[0],
         file_name='ngp_nerf_cuda_rendered_image_1'
     )
     render_fn(
-        transform_matrix=dataset.transform_matrices[60],
+        transform_matrix=dataset.transform_matrices[1],
         file_name='ngp_nerf_cuda_rendered_image_2'
     )
     render_fn(
-        transform_matrix=dataset.transform_matrices[168],
+        transform_matrix=dataset.transform_matrices[2],
         file_name='ngp_nerf_cuda_rendered_image_3'
     )
 

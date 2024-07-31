@@ -105,7 +105,9 @@ def test_opg_mat4_make_camera_model_matrix(x_rot, y_rot, z_rot, zoom):
         rot_x_matrix = matrices.get_x_rotation_matrix_3d(matrices.degrees_to_radians(x_rot))
         rot_y_matrix = matrices.get_y_rotation_matrix_3d(matrices.degrees_to_radians(y_rot))
         rot_matrix = rot_x_matrix @ rot_y_matrix
-        position = jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32)
+        # OpenGL uses -z as forward. We'll use it for the NeRF math as well in order to minimize
+        # the number of required transformations.
+        position = jnp.array([0.0, 0.0, -1.0], dtype=jnp.float32)
         position = rot_matrix @ position
         position = jnp.reshape(position, [3, 1])
         expected_matrix = jnp.concatenate([rot_matrix, position], axis=-1)

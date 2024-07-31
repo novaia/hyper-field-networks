@@ -11,7 +11,7 @@
     "learning_rate": 0.01,
     "epsilon": 0.000000000000001,
     "weight_decay_coefficient": 0.000001,
-    "batch_size": 4096,
+    "batch_size": 16192,
     "scene_bound": 1.0,
     "grid_resolution": 128,
     "grid_update_interval": 16,

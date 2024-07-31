@@ -585,7 +585,7 @@ def main():
         file_name='ngp_nerf_cuda_rendered_image_2'
     )
     render_fn(
-        transform_matrix=dataset.transform_matrices[2],
+        transform_matrix=dataset.transform_matrices[-1],
         file_name='ngp_nerf_cuda_rendered_image_3'
     )
 

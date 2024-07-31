@@ -283,7 +283,7 @@ int main()
     glEnable(GL_DEPTH_TEST);
     
     multi_view_render_params_t render_params;
-    init_multi_view_render_params(-60.0f, 60.0f, 10, 0.0f, 360.0f, 10, &render_params);
+    init_multi_view_render_params(-60.0f, 60.0f, 2, 0.0f, 360.0f, 30, &render_params);
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * render_params.num_views);
     make_multi_view_render_matrices(-6.0f, -3.0f, &render_params, mv_model_matrices, mv_view_matrices);

@@ -60,17 +60,11 @@ def get_rotation_matrix_2d(angle:float) -> jax.Array:
     return rotation_matrix
 
 def get_z_axis_camera_orbit_matrix(angle:float, orbit_distance:float) -> jax.Array:
-    # Rotate a unit vector on the xz plane to get the xz offset.
-    xz_offset = jnp.array([0.0, -1.0])
-    xz_rotation_matrix_2d = get_rotation_matrix_2d(angle)
-    xz_offset = xz_rotation_matrix_2d @ xz_offset
-    # Rotate camera on x axis by pi/2 (90 degrees) so that it points forward.
-    x_rotation_matrix = get_x_rotation_matrix_3d(jnp.pi/2)
-    # Rotate camera on z axis so that it points at orbit center when offset.
-    y_rotation_matrix = get_y_rotation_matrix_3d(angle)
-    # Combine matrices.
-    orbit_matrix = y_rotation_matrix #@ x_rotation_matrix
-    translation_component = jnp.array([[xz_offset[0]], [0], [xz_offset[1]]])
-    orbit_matrix = jnp.concatenate([orbit_matrix, translation_component], axis=-1)
-    orbit_matrix = process_3x4_transformation_matrix(orbit_matrix, orbit_distance)
+    rot_x_matrix = get_x_rotation_matrix_3d(0.0)
+    rot_y_matrix = get_y_rotation_matrix_3d(angle)
+    rot_matrix = rot_x_matrix @ rot_y_matrix
+    position = jnp.array([0.0, 0.0, -1.0], dtype=jnp.float32) * orbit_distance
+    position = rot_matrix @ position
+    position = jnp.reshape(position, [3, 1])
+    orbit_matrix = jnp.concatenate([rot_matrix, position], axis=-1)
     return orbit_matrix

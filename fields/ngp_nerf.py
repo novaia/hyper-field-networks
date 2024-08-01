@@ -441,7 +441,7 @@ def render_scene(
     depth_map = np.clip(depth_map, 0, 1)
     depth_map = np.transpose(depth_map, (1, 0, 2))
     depth_map = np.squeeze(depth_map, axis=-1)
-    plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
+    #plt.imsave(os.path.join('data/', file_name + '_depth.png'), depth_map, cmap='gray')
 
 def turntable_render(
     num_frames:int, camera_distance:float, render_fn:Callable, file_name:str='turntable_render'
@@ -489,32 +489,6 @@ def main():
     )
     dataset = load_nerf_dataset(args.dataset, args.downscale, not args.no_transpose)
     print(dataset.images.shape)
-    print('hfov', dataset.horizontal_fov)
-    print('vfov', dataset.vertical_fov)
-    print('fl_x', dataset.fl_x)
-    print('fl_y', dataset.fl_y)
-    print('cx', dataset.cx)
-    print('cy', dataset.cy)
-    print('w', dataset.w)
-    print('h', dataset.h)
-
-    '''
-    ray_origin, ray_direction = get_ray(
-        uv_x=256, 
-        uv_y=256, 
-        transform_matrix=dataset.transform_matrices[0], 
-        c_x=dataset.cx, 
-        c_y=dataset.cy, 
-        fl_x=dataset.fl_x, 
-        fl_y=dataset.fl_y
-    )
-    print('transform:', dataset.transform_matrices[0])
-    print('origin:', ray_origin)
-    print('direction:', ray_direction)
-    print('1:', ray_origin + ray_direction)
-    print('2:', ray_origin + 2 * ray_direction)
-    exit()
-    '''
 
     train_loop_with_args = partial(
         train_loop,
@@ -527,30 +501,7 @@ def main():
         occupancy_grid=occupancy_grid,
         state=state
     )
-
-    '''
-    pixel_sample_key = jax.random.PRNGKey(3)
-    image_indices, width_indices, height_indices = sample_pixels(
-        key=pixel_sample_key, num_samples=32, image_width=dataset.w,
-        image_height=dataset.h, num_images=dataset.images.shape[0]
-    )
-    get_rays = jax.vmap(get_ray, in_axes=(0, 0, 0, None, None, None, None))
-    ray_origins, ray_directions = get_rays(
-        width_indices, height_indices, dataset.transform_matrices[image_indices], 
-        dataset.cx, dataset.cy, dataset.fl_x, dataset.fl_y 
-    )
-    print('ray origins')
-    print(ray_origins)
-    print('ray directions')
-    print(ray_directions)
-    print('sample image')
-    sample_image = dataset.images[0]
-    print('sample image mean', jnp.mean(sample_image))
-    exit()
-    for w in range(dataset.w):
-        print(sample_image[w])
-    exit()
-    '''
+    
     prev_image = jax.device_put(dataset.images[0], jax.devices('cpu')[0])
     prev_image = np.clip(prev_image, 0, 1)
     plt.imsave(os.path.join('data/preview_image.png'), prev_image)
@@ -562,8 +513,8 @@ def main():
         # Patch size has to be small otherwise not all rays will produce samples and the
         # resulting image will have artifacts. This can be fixed by switching to the 
         # inference version of the ray marching and ray integration functions.
-        patch_size_x=4,
-        patch_size_y=4,
+        patch_size_x=8,
+        patch_size_y=8,
         dataset=dataset,
         scene_bound=config['scene_bound'],
         diagonal_n_steps=config['diagonal_n_steps'],
@@ -574,6 +525,7 @@ def main():
         batch_size=config['batch_size'],
         state=state
     )
+    '''
     render_fn(
         transform_matrix=dataset.transform_matrices[0],
         file_name='ngp_nerf_cuda_rendered_image_1'
@@ -586,12 +538,11 @@ def main():
         transform_matrix=dataset.transform_matrices[-1],
         file_name='ngp_nerf_cuda_rendered_image_3'
     )
+    '''
 
-
-    exit()
     turntable_render(
         num_frames=60*3,
-        camera_distance=1,
+        camera_distance=-1,
         render_fn=render_fn,
         file_name='ngp_nerf_cuda_turntable_render'
     )

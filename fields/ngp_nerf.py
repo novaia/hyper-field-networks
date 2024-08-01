@@ -316,9 +316,7 @@ def train_step(
         target_pixels = images[image_indices, height_indices, width_indices]
         target_rgbs = target_pixels[:, :3]
         target_alphas = target_pixels[:, 3:]
-        #target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
-        target_rgbs = target_rgbs + background_colors * (1.0 - target_alphas)
-        #target_rgbs = target_rgbs + background_colors * target_alphas 
+        target_rgbs = target_rgbs * target_alphas + background_colors * (1.0 - target_alphas)
         loss = jnp.sum(jnp.where(
             ray_is_valid, 
             jnp.mean(optax.huber_loss(pred_rgbs, target_rgbs, delta=0.1), axis=-1),

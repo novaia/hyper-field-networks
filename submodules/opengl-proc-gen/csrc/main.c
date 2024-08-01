@@ -189,7 +189,7 @@ int main()
         return -1; 
     }
     
-    const vec3 light_rotation = {50.0f, 20.0f, 0.0f};
+    const vec3 light_rotation = {50.0f, 180.0f, 0.0f};
     init_scene(light_rotation, 0.3f, scene);
     int error = 0;
     unsigned int sonic_mesh_index = 0;
@@ -233,7 +233,7 @@ int main()
     float aspect_ratio = window_width_f / window_height_f;
 
     float rot = 0.0f;
-    mat4_make_perspective_projection(fov, 1.0f, 20.0f, aspect_ratio, camera->perspective_matrix);
+    mat4_make_perspective_projection(fov, 1.0, 20.0f, aspect_ratio, camera->perspective_matrix);
     vec3 camera_rotation = {0.0f, 0.0f, 0.0f};
     const float camera_zoom = -4.0f;
     mat4_make_camera_model_and_view_matrix(
@@ -241,9 +241,9 @@ int main()
     );
     glEnable(GL_DEPTH_TEST);
     
-    const unsigned int num_views = 100;
+    const unsigned int num_views = 200;
     const float min_zoom = -6.0f, max_zoom = -4.0f;
-    const float min_x_rotation = -70.0f, max_x_rotation = 70.0f;
+    const float min_x_rotation = -88.0f, max_x_rotation = 88.0f;
     const float min_y_rotation = 0.0f, max_y_rotation = 360.0f;
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * num_views);
     mat4* mv_view_matrices = (mat4*)malloc(sizeof(mat4) * num_views);

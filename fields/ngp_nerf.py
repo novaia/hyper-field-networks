@@ -564,8 +564,8 @@ def main():
         # Patch size has to be small otherwise not all rays will produce samples and the
         # resulting image will have artifacts. This can be fixed by switching to the 
         # inference version of the ray marching and ray integration functions.
-        patch_size_x=16,
-        patch_size_y=16,
+        patch_size_x=4,
+        patch_size_y=4,
         dataset=dataset,
         scene_bound=config['scene_bound'],
         diagonal_n_steps=config['diagonal_n_steps'],

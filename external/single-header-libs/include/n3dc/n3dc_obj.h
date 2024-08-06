@@ -22,7 +22,14 @@
  * Motivation: This was created for a research project in order to improve reproducibility by
  * minimizing complexity.
  *
- * How-To-Use: Call n3dc_obj_load with the path to the OBJ file, the maximum number of vertices,
+ * How-To-Use: In a SINGLE C file, define the macro N3DC_OBJ_IMPLEMENTATION and then include
+ * n3dc_obj.h to add all of this library's function implementations to that C file.
+ * ```c
+ * #define N3DC_OBJ_IMPLEMENTATION
+ * #include "n3dc_obj.h"
+ * ```
+ * You can then include n3dc_obj.h (without the implementation macro) anywhere you need to use it.
+ * To load an OBJ file, call n3dc_obj_load with the path to the OBJ file, the maximum number of vertices,
  * the maximum number of normals, and the maximum number of indices. The maximums are used in
  * order to avoid re-allocating buffers while parsing the OBJ file. The load will fail if the
  * maximums are exceeded. If the load succeeds, n3dc_obj_load will return a pointer to an n3dc_obj_t.

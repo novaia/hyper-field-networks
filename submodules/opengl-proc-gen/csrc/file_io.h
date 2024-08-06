@@ -1,5 +1,6 @@
 #pragma once
 
+#include <n3dc/n3dc_obj.h>
 #include "vector_matrix_math.h"
 
 #ifdef __cplusplus
@@ -22,21 +23,6 @@ void save_multi_view_transforms_json(
     const float fov_x, const float fov_y,
     const unsigned int num_views, const mat4* transform_matrices,
     const char* file_name, const int with_depth
-);
-
-typedef struct 
-{ 
-    unsigned int num_vertices;
-    float* vertices; 
-    float* normals;
-    float* texture_coords;
-} obj_t;
-
-obj_t* load_obj(
-    const char* path, 
-    const unsigned int max_vertices, 
-    const unsigned int max_normals,
-    const unsigned int max_indices
 );
 
 #ifdef __cplusplus

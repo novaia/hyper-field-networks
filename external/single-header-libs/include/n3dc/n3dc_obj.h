@@ -5,6 +5,10 @@
 extern "C" {
 #endif
 
+#define N3DC_OBJ_VERSION_MAJOR 0
+#define N3DC_OBJ_VERSION_MINOR 1
+#define N3DC_OBJ_VERSION_PATCH 0
+
 typedef struct 
 { 
     unsigned int num_vertices;

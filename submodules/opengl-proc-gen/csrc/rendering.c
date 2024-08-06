@@ -58,7 +58,7 @@ depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program)
     return depth_shader;
 }
 
-gl_mesh_t obj_to_gl_mesh(obj_t* obj)
+gl_mesh_t obj_to_gl_mesh(n3dc_obj_t* obj)
 {
     uint32_t vao, vbo, nbo, tbo;
     glGenVertexArrays(1, &vao);
@@ -191,7 +191,7 @@ void init_scene(const vec3 light_rotation, float ambient_strength, scene_t* scen
     init_directional_light(&scene->light, 4096, 4096, light_rotation, ambient_strength);
 }
 
-int add_mesh_to_scene(scene_t* scene, obj_t* mesh, unsigned int* mesh_index)
+int add_mesh_to_scene(scene_t* scene, n3dc_obj_t* mesh, unsigned int* mesh_index)
 {
     unsigned int new_mesh_count = scene->num_gl_meshes + 1;
     if(new_mesh_count >= MAX_GL_MESHES)

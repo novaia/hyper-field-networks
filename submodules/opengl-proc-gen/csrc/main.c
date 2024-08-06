@@ -163,7 +163,7 @@ int main()
         return -1;
     }
     
-    obj_t* sonic_obj = load_obj(DATA_PATH("3d_models/sonic/sonic.obj"), 100000, 100000, 100000);
+    n3dc_obj_t* sonic_obj = n3dc_obj_load(DATA_PATH("3d_models/sonic/sonic.obj"), 100000, 100000, 100000);
     if(!sonic_obj) 
     {
         printf("Failed to load obj\n");
@@ -176,7 +176,7 @@ int main()
         return -1; 
     }
 
-    obj_t* camera_obj = load_obj(DATA_PATH("3d_models/camera.obj"), 100000, 100000, 100000);
+    n3dc_obj_t* camera_obj = n3dc_obj_load(DATA_PATH("3d_models/camera.obj"), 100000, 100000, 100000);
     if(!sonic_obj) 
     {
         printf("Failed to load obj\n");

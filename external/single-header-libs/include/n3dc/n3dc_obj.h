@@ -1,3 +1,4 @@
+/* Start of header section. */
 #ifndef N3DC_OBJ_H
 #define N3DC_OBJ_H
 
@@ -15,9 +16,9 @@ typedef struct
     float* vertices; 
     float* normals;
     float* texture_coords;
-} obj_t;
+} n3dc_obj_t;
 
-obj_t* load_obj(
+n3dc_obj_t* n3dc_obj_load(
     const char* path, 
     const unsigned int max_vertices, 
     const unsigned int max_normals,
@@ -29,31 +30,32 @@ obj_t* load_obj(
 #endif
 
 #endif // N3DC_OBJ_H
+/* End of header section. */
 
+/* Start of implementation section. */
 #ifdef N3DC_OBJ_IMPLEMENTATION
 
+static unsigned int n3dc_obj_min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 
-static unsigned int min_uint(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
-
-static float string_section_to_float(long start, long end, const char* full_string)
+static float n3dc_obj_string_section_to_float(long start, long end, const char* full_string)
 {
-    unsigned int char_count = min_uint((unsigned int)(end - start), 10);
+    unsigned int char_count = n3dc_obj_min_uint((unsigned int)(end - start), 10);
     char string_section[char_count+1];
     string_section[char_count] = '\0';
     memcpy(string_section, &full_string[start], sizeof(char) * char_count);
     return (float)atof(string_section);
 }
 
-static unsigned int string_section_to_uint(long start, long end, const char* full_string)
+static unsigned int n3dc_obj_string_section_to_uint(long start, long end, const char* full_string)
 {
-    unsigned int char_count = min_uint((unsigned int)(end - start), 10);
+    unsigned int char_count = n3dc_obj_min_uint((unsigned int)(end - start), 10);
     char string_section[char_count+1];
     string_section[char_count] = '\0';
     memcpy(string_section, &full_string[start], sizeof(char) * char_count);
     return (unsigned)atoi(string_section);
 }
 
-static int is_valid_vec_char(const char c)
+static int n3dc_obj_is_valid_vec_char(const char c)
 {
     switch(c)
     {
@@ -74,7 +76,7 @@ static int is_valid_vec_char(const char c)
 }
 
 // Vertices and normals are both vec3's so they can be parsed with the same function.
-static int parse_obj_vec3(
+static int n3dc_obj_parse_obj_vec3(
     const char* file_chars, const size_t file_chars_length, 
     const size_t vec3_start, size_t* line_end, 
     float* x, float* y, float* z
@@ -110,13 +112,13 @@ static int parse_obj_vec3(
                 return -1;
             }
             z_end = i;
-            *x = string_section_to_float(vec3_start, x_end, file_chars);
-            *y = string_section_to_float(x_end, y_end, file_chars);
-            *z = string_section_to_float(y_end, z_end, file_chars);
+            *x = n3dc_obj_string_section_to_float(vec3_start, x_end, file_chars);
+            *y = n3dc_obj_string_section_to_float(x_end, y_end, file_chars);
+            *z = n3dc_obj_string_section_to_float(y_end, z_end, file_chars);
             *line_end = z_end;
             return 0;
         }
-        else if(!is_valid_vec_char(current_char))
+        else if(!n3dc_obj_is_valid_vec_char(current_char))
         {
             printf("Invalid character encountered when parsing OBJ vertex/normal: \'%c\'\n", current_char);
             return -1;
@@ -126,7 +128,7 @@ static int parse_obj_vec3(
     return -1;
 }
 
-static int parse_obj_vec2(
+static int n3dc_obj_parse_obj_vec2(
     const char* file_chars, const size_t file_chars_length, 
     const size_t vec2_start, size_t* line_end, 
     float* x, float* y
@@ -149,12 +151,12 @@ static int parse_obj_vec2(
                 return -1;
             }
             y_end = i;
-            *x = string_section_to_float(vec2_start, x_end, file_chars);
-            *y = string_section_to_float(x_end, y_end, file_chars);
+            *x = n3dc_obj_string_section_to_float(vec2_start, x_end, file_chars);
+            *y = n3dc_obj_string_section_to_float(x_end, y_end, file_chars);
             *line_end = y_end;
             return 0;
         }
-        else if(!is_valid_vec_char(current_char))
+        else if(!n3dc_obj_is_valid_vec_char(current_char))
         {
             printf("Invalid character encountered while parsing OBJ texture coord: \'%c\'\n", current_char);
             return -1;
@@ -164,7 +166,7 @@ static int parse_obj_vec2(
     return -1;
 }
 
-static int parse_obj_index_group(
+static int n3dc_obj_parse_obj_index_group(
     const char* file_chars, const size_t file_chars_length, 
     const size_t index_group_start, size_t* index_group_end,
     unsigned int* vertex_index, unsigned int* texture_index, unsigned int* normal_index
@@ -201,7 +203,7 @@ static int parse_obj_index_group(
             }
             // OBJ indices are 1-based so if we get back a 0 index then we know something is wrong.
             // If the index is valid then we subtract 1 to make it 0-based.
-            *vertex_index = string_section_to_uint(index_group_start, vertex_index_end, file_chars);
+            *vertex_index = n3dc_obj_string_section_to_uint(index_group_start, vertex_index_end, file_chars);
             if(*vertex_index == 0)
             {
                 printf("Vertex index of OBJ index group was either missing or invalid\n");
@@ -210,14 +212,14 @@ static int parse_obj_index_group(
             (*vertex_index)--;
             // Add 1 to the last index end to get the next index's start position.
             // This is so that next index doesn't start with a '/' which would be converted into 0 by atoi().
-            *texture_index = string_section_to_uint(vertex_index_end+1, texture_index_end, file_chars);
+            *texture_index = n3dc_obj_string_section_to_uint(vertex_index_end+1, texture_index_end, file_chars);
             if(*texture_index == 0)
             {
                 printf("Texture index of OBJ index group was either missing or invalid\n");
                 return -1;
             }
             (*texture_index)--;
-            *normal_index = string_section_to_uint(texture_index_end+1, normal_index_end, file_chars);
+            *normal_index = n3dc_obj_string_section_to_uint(texture_index_end+1, normal_index_end, file_chars);
             if(*normal_index == 0)
             {
                 printf("Normal index of OBJ index group was either missing or invalid\n");
@@ -232,7 +234,7 @@ static int parse_obj_index_group(
     return -1;
 }
 
-static int parse_obj_face(
+static int n3dc_obj_parse_obj_face(
     const char* file_chars, const size_t file_chars_length, 
     const size_t face_start, size_t* line_end,
     unsigned int* vertex_index_1, unsigned int* texture_index_1, unsigned int* normal_index_1,
@@ -247,7 +249,7 @@ static int parse_obj_face(
         size_t index_group_end = current_char_offset;
         if(!index_group_1_parsed)
         {
-            error = parse_obj_index_group(
+            error = n3dc_obj_parse_obj_index_group(
                 file_chars, file_chars_length, 
                 current_char_offset, &index_group_end,
                 vertex_index_1, texture_index_1, normal_index_1
@@ -256,7 +258,7 @@ static int parse_obj_face(
         }
         else if(!index_group_2_parsed)
         {
-            error = parse_obj_index_group(
+            error = n3dc_obj_parse_obj_index_group(
                 file_chars, file_chars_length,
                 current_char_offset, &index_group_end,
                 vertex_index_2, texture_index_2, normal_index_2
@@ -265,7 +267,7 @@ static int parse_obj_face(
         }
         else
         {
-            error = parse_obj_index_group(
+            error = n3dc_obj_parse_obj_index_group(
                 file_chars, file_chars_length, 
                 current_char_offset, &index_group_end, 
                 vertex_index_3, texture_index_3, normal_index_3
@@ -295,7 +297,7 @@ static int parse_obj_face(
     return -1;
 }
 
-static int seek_end_of_line(
+static int n3dc_obj_seek_end_of_line(
     const char* file_chars, const size_t file_chars_length, 
     const size_t start_offset, size_t* line_end 
 ){
@@ -335,7 +337,7 @@ static int n3dc_obj_read_text_file(const char* file_path, char** file_chars, lon
     return 0;
 }
 
-obj_t* load_obj(
+n3dc_obj_t* n3dc_obj_load(
     const char* path, 
     const unsigned int max_vertices, 
     const unsigned int max_normals,
@@ -391,7 +393,7 @@ obj_t* load_obj(
             const unsigned int x_offset = vertex_offset++;
             const unsigned int y_offset = vertex_offset++;
             const unsigned int z_offset = vertex_offset++;
-            error = parse_obj_vec3(
+            error = n3dc_obj_parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
                 &vertices[x_offset], &vertices[y_offset], &vertices[z_offset]
             );
@@ -412,7 +414,7 @@ obj_t* load_obj(
             size_t line_end = current_char_offset;
             const unsigned int x_offset = texture_coord_offset++;
             const unsigned int y_offset = texture_coord_offset++;
-            error = parse_obj_vec2(
+            error = n3dc_obj_parse_obj_vec2(
                 file_chars, file_chars_length, current_char_offset, &line_end,
                 &texture_coords[x_offset], &texture_coords[y_offset]
             );
@@ -435,7 +437,7 @@ obj_t* load_obj(
             const unsigned int x_offset = normal_offset++;
             const unsigned int y_offset = normal_offset++;
             const unsigned int z_offset = normal_offset++;
-            error = parse_obj_vec3(
+            error = n3dc_obj_parse_obj_vec3(
                 file_chars, file_chars_length, current_char_offset, &line_end,
                 &normals[x_offset], &normals[y_offset],&normals[z_offset]
             );
@@ -455,7 +457,7 @@ obj_t* load_obj(
             const unsigned int group_1_offset = index_offset++;
             const unsigned int group_2_offset = index_offset++;
             const unsigned int group_3_offset = index_offset++;
-            error = parse_obj_face(
+            error = n3dc_obj_parse_obj_face(
                 file_chars, file_chars_length, current_char_offset, &line_end, 
                 // Index group 1.
                 &vertex_indices[group_1_offset],
@@ -477,7 +479,7 @@ obj_t* load_obj(
         {
             // Skip to start of next line.
             size_t line_end = current_char_offset;
-            error = seek_end_of_line(
+            error = n3dc_obj_seek_end_of_line(
                 file_chars, file_chars_length, current_char_offset, &line_end
             );
             if(error) { break; }
@@ -528,7 +530,7 @@ obj_t* load_obj(
     free(normal_indices);
     free(file_chars);
 
-    obj_t* obj = (obj_t*)malloc(sizeof(obj_t));
+    n3dc_obj_t* obj = (n3dc_obj_t*)malloc(sizeof(n3dc_obj_t));
     obj->num_vertices = parsed_indices;
     obj->vertices = ordered_vertices;
     obj->normals = ordered_normals;
@@ -537,3 +539,4 @@ obj_t* load_obj(
 }
 
 #endif // N3DC_OBJ_IMPLEMENTATION
+/* End of implementation section. */

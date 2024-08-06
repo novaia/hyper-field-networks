@@ -87,12 +87,12 @@ uint32_t create_shader_program(
 mesh_shader_t shader_program_to_mesh_shader(uint32_t shader_program);
 depth_map_shader_t shader_program_to_depth_map_shader(uint32_t shader_program);
 
-gl_mesh_t obj_to_gl_mesh(obj_t* obj);
+gl_mesh_t n3dc_obj_to_gl_mesh(n3dc_obj_t* obj);
 uint32_t image_to_gl_texture(image_t* texture);
 
 void init_scene(const vec3 light_rotation, float ambient_strength, scene_t* scene);
 
-int add_mesh_to_scene(scene_t* scene, obj_t* mesh, unsigned int* mesh_index);
+int add_mesh_to_scene(scene_t* scene, n3dc_obj_t* mesh, unsigned int* mesh_index);
 int add_texture_to_scene(scene_t* scene, image_t* texture, unsigned int* texture_index);
 int add_scene_element(
     scene_t* scene, mat4 model_matrix, 

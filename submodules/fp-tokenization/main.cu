@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 __global__ void fp32_tokenize_kernel(float* input, uint32_t* output, int size) 
 {
@@ -9,7 +10,8 @@ __global__ void fp32_tokenize_kernel(float* input, uint32_t* output, int size)
     
     if(idx < size) 
     {
-        output[idx] = reinterpret_cast<uint32_t&>(input[idx]);
+        __half inter = __float2half(input[idx]);
+        output[idx] = static_cast<uint32_t>(reinterpret_cast<uint16_t&>(inter));
     }
 }
 
@@ -19,12 +21,15 @@ int main()
     size_t input_size_bytes = sizeof(float) * size;
     size_t output_size_bytes = sizeof(uint32_t) * size;
     float* h_input;
+    uint32_t* h_output;
     float* d_input;
     uint32_t* d_output;
     h_input = (float*)malloc(input_size_bytes);
+    h_output = (uint32_t*)malloc(output_size_bytes);
     cudaMalloc(&d_input, input_size_bytes);
     cudaMalloc(&d_output, output_size_bytes);
-
+    
+    printf("Input:\n");
     for(int i = 0; i < size; ++i)
     {
         h_input[i] = sinf(2 * 3.14159 * ((float)i / (float)size));
@@ -42,6 +47,15 @@ int main()
     cudaError_t cudaStatus = cudaGetLastError();
     if(cudaStatus != cudaSuccess) 
     {
-        fprintf(stderr, "reinterpretFloatToUint launch failed: %s\n", cudaGetErrorString(cudaStatus));
+        fprintf(stderr, "launch failed: %s\n", cudaGetErrorString(cudaStatus));
     }
+
+    cudaMemcpy(h_output, d_output, output_size_bytes, cudaMemcpyDeviceToHost);
+    printf("\nOutput:\n");
+    for(int i = 0; i < size; ++i)
+    {
+        printf("%u ", h_output[i]);
+    }
+    printf("\n");
+
 }

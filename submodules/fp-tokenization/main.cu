@@ -4,7 +4,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-__global__ void fp32_tokenize_kernel(float* input, uint32_t* output, int size) 
+__global__ void fp32_to_token_kernel(float* input, uint32_t* output, int size) 
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     
@@ -15,9 +15,24 @@ __global__ void fp32_tokenize_kernel(float* input, uint32_t* output, int size)
     }
 }
 
+__global__ void token_to_fp32_kernel(uint32_t* input, float* output, int size) 
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if(idx < size) 
+    {
+        uint16_t inter = static_cast<uint16_t>(input[idx]);
+        output[idx] = __half2float(reinterpret_cast<__half&>(inter));
+    }
+}
+
 int main()
 {
     int size = 512;
+    int threads_per_block = 256;
+    int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    /* Tokenization. */
     size_t input_size_bytes = sizeof(float) * size;
     size_t output_size_bytes = sizeof(uint32_t) * size;
     float* h_input;
@@ -28,34 +43,51 @@ int main()
     h_output = (uint32_t*)malloc(output_size_bytes);
     cudaMalloc(&d_input, input_size_bytes);
     cudaMalloc(&d_output, output_size_bytes);
-    
+
     printf("Input:\n");
     for(int i = 0; i < size; ++i)
     {
-        h_input[i] = sinf(2 * 3.14159 * ((float)i / (float)size));
+        h_input[i] = 4.0f * sinf(2.0f * 3.14159f * ((float)i / (float)size));
         printf("%f ", h_input[i]);
     }
     printf("\n");
     
     cudaMemcpy(d_input, h_input, input_size_bytes, cudaMemcpyHostToDevice);
-
-    int threads_per_block = 256;
-    int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+        
+    fp32_to_token_kernel<<<blocks_per_grid, threads_per_block>>>(d_input, d_output, size);
     
-    fp32_tokenize_kernel<<<blocks_per_grid, threads_per_block>>>(d_input, d_output, size);
-    
-    cudaError_t cudaStatus = cudaGetLastError();
-    if(cudaStatus != cudaSuccess) 
+    cudaError_t cuda_status;
+    cuda_status = cudaGetLastError();
+    if(cuda_status != cudaSuccess) 
     {
-        fprintf(stderr, "launch failed: %s\n", cudaGetErrorString(cudaStatus));
+        fprintf(stderr, "launch failed: %s\n", cudaGetErrorString(cuda_status));
     }
-
     cudaMemcpy(h_output, d_output, output_size_bytes, cudaMemcpyDeviceToHost);
-    printf("\nOutput:\n");
+    printf("\nToken Output:\n");
     for(int i = 0; i < size; ++i)
     {
         printf("%u ", h_output[i]);
     }
     printf("\n");
+    
+    /* Detokenization. */
+    float* h_output_fp32;
+    float* d_output_fp32;
+    h_output_fp32 = (float*)malloc(input_size_bytes);
+    cudaMalloc(&d_output_fp32, input_size_bytes);
 
+    token_to_fp32_kernel<<<blocks_per_grid, threads_per_block>>>(d_output, d_output_fp32, size);
+    
+    cuda_status = cudaGetLastError();
+    if(cuda_status != cudaSuccess) 
+    {
+        fprintf(stderr, "launch failed: %s\n", cudaGetErrorString(cuda_status));
+    }
+    cudaMemcpy(h_output_fp32, d_output_fp32, input_size_bytes, cudaMemcpyDeviceToHost);
+    printf("\nFloat Output:\n");
+    for(int i = 0; i < size; ++i)
+    {
+        printf("%f ", h_output_fp32[i]);
+    }
+    printf("\n");
 }

@@ -62,16 +62,11 @@ def load_nerf_dataset(dataset_path:str, downscale_factor:int, transpose_transfor
     if transpose_transform:
         # Transpose transform matrices to switch from column major to row major.
         transform_matrices = jnp.swapaxes(transform_matrices, -1, -2)
-    print(transform_matrices[0])
     transform_matrices = transform_matrices[:, :3, :]
-    print(transform_matrices[0])
-    print(transform_matrices[0, :, -1])
     mean_translation = jnp.mean(jnp.linalg.norm(transform_matrices[:, :, -1], axis=-1))
-    print('mean translation', mean_translation)
     translation_scale = (1 / mean_translation) * 2
     process_transform_matrices_vmap = jax.vmap(process_3x4_transformation_matrix, in_axes=(0, None))
     transform_matrices = process_transform_matrices_vmap(transform_matrices, translation_scale)
-    print(transform_matrices[0])
     images = jnp.array(images, dtype=jnp.float32) / 255.0
 
     dataset = NerfDataset(

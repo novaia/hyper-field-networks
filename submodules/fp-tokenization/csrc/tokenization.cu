@@ -3,10 +3,15 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include "serde.h"
+#include "tokenization.h"
 
-__global__ void fp32_to_token_kernel(float* input, uint32_t* output, int size) 
+namespace fp_tokenization
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+__global__ void fp32_to_token_kernel(float* input, uint32_t* output, uint32_t size) 
+{
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     
     if(idx < size) 
     {
@@ -15,9 +20,9 @@ __global__ void fp32_to_token_kernel(float* input, uint32_t* output, int size)
     }
 }
 
-__global__ void token_to_fp32_kernel(uint32_t* input, float* output, int size) 
+__global__ void token_to_fp32_kernel(uint32_t* input, float* output, uint32_t size) 
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     
     if(idx < size) 
     {
@@ -26,6 +31,21 @@ __global__ void token_to_fp32_kernel(uint32_t* input, float* output, int size)
     }
 }
 
+void fp32_to_token(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor>(opaque, opaque_len);
+
+    float* input = static_cast<float*>(buffers[0]);
+    float* output = static_cast<float*>(buffers[1]);
+    uint32_t size = desc.n_elements;
+
+    fp32_to_token_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+}
+
+//#define STANDALONE_PROGRAM
+#ifdef STANDALONE_PROGRAM
 int main()
 {
     int size = 512;
@@ -91,3 +111,6 @@ int main()
     }
     printf("\n");
 }
+#endif // STANDALONE_PROGRAM
+
+} // namespace fp_tokenization

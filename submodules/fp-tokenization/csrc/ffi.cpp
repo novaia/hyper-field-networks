@@ -1,3 +1,4 @@
+#include <pybind11/pybind11.h>
 #include "serde.h"
 #include "tokenization.h"
 

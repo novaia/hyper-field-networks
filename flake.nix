@@ -83,6 +83,7 @@
                             pytest
                             safetensors
                             ngp-volume-rendering
+                            fp-tokenization
                             opengl-proc-gen
                         ]))
                     ];

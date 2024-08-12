@@ -35,11 +35,13 @@ void fp32_to_token(
     cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
 ){
     tokenization_descriptor_t const &desc =
-        *deserialize<tokenization_descriptor>(opaque, opaque_len);
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
 
     float* input = static_cast<float*>(buffers[0]);
-    float* output = static_cast<float*>(buffers[1]);
-    uint32_t size = desc.n_elements;
+    uint32_t* output = static_cast<uint32_t*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
 
     fp32_to_token_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
 }

@@ -10,6 +10,6 @@
     "epsilon": 0.000000000000001,
     "weight_decay_coefficient": 0.000001,
     "batch_size": 32786,
-    "train_steps": 10000,
+    "train_steps": 1000,
     "channels": 3
 }

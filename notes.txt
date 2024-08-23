@@ -33,3 +33,7 @@ python -m hypernets.util_scripts.decode_and_render_field_from_pq --hash_decoder 
 ------
 
 python -m fields.ngp_nerf --dataset data/multi_view_renders/ --downscale 1
+
+------
+
+python -m fields.util_scripts.check_detokenized_field --field data/image_field.npy --config configs/ngp_image_robot_benchmark.json --image_width 1920 --image_height 1920

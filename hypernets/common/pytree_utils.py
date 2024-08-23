@@ -24,5 +24,3 @@ def flatten_dict(weights, prefix=""):
         elif isinstance(v, np.ndarray):
             values[newprefix] = v
     return values
-
-

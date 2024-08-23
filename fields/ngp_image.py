@@ -73,6 +73,8 @@ def benchmark_train_loop(image, batch_size, steps, state):
     rendered_image = render_image(state, image_width, image_height, channels=channels)
     rendered_image = jnp.array(rendered_image, dtype=jnp.float32)
     plt.imsave('data/ngp_image_benchmark_output.jpg', rendered_image)
+    params_cpu = move_pytree_to_cpu(state.params)
+    jnp.save(file='data/image_field.npy', arr=params_cpu, allow_pickle=True)
 
 @partial(jax.jit, static_argnames=('batch_size'))
 def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
@@ -131,6 +133,12 @@ def create_model_from_config(config:dict) -> NGPImage:
     )
     return model
 
+def move_pytree_to_cpu(pytree, cpu_id=0):
+    device = jax.devices('cpu')[0]
+    def move_to_cpu(tensor):
+        return jnp.array(jax.device_put(tensor, device=device))
+    return jax.tree_map(move_to_cpu, pytree)
+
 def main():
     #parser = argparse.ArgumentParser()
     #parser.add_argument('--config', type=str, default='configs/ngp_image.json')
@@ -155,6 +163,6 @@ def main():
         image=image, batch_size=config['batch_size'], 
         steps=config['train_steps'], state=state
     )
-
+    
 if __name__ == '__main__':
     main()

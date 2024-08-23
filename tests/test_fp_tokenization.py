@@ -7,8 +7,9 @@ import jax.numpy as jnp
 import fp_tokenization as fpt
 
 def test_tokenization():
-    batch = jax.random.normal(key=jax.random.PRNGKey(0), shape=(1, 256))
-    tokens = fpt.tokenize(batch)
-    print(tokens)
-    print("Test didn't actually fail, but I'm failing it anyways to print the output")
-    assert(False)
+    initial_batch = jax.random.normal(key=jax.random.PRNGKey(0), shape=(1, 256))
+    tokens = fpt.tokenize(initial_batch)
+    detokenized_batch = fpt.detokenize(tokens)
+    print(initial_batch)
+    print(detokenized_batch)
+    assert jnp.allclose(initial_batch, detokenized_batch, atol=1e-3)

@@ -13,6 +13,9 @@ from fp_tokenization.lowering_helper import \
 def _fp32_to_token_abstract(batch: jax.Array):
     return (ShapedArray(shape=batch.shape, dtype=jnp.uint32))
 
+def _token_to_fp32_abstract(batch: jax.Array):
+    return (ShapedArray(shape=batch.shape, dtype=jnp.float32))
+
 def _default_layouts(*shapes):
     return [range(len(shape) - 1, -1, -1) for shape in shapes]
 
@@ -37,9 +40,25 @@ def _fp32_to_token_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value)
     ).results
     return out
 
+def _token_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
+    _, batch_shape = _get_ir_tensor_info(batch)
+    out_type, _ = _make_ir_tensor_info(batch_shape, 'fp32')
+    
+    opaque = cuda_ffi.make_tokenization_descriptor(batch_shape[-1])
+
+    out = custom_call(
+        call_target_name='token_to_fp32',
+        result_types=[out_type],
+        operands=[batch],
+        backend_config=opaque,
+        operand_layouts=_default_layouts(*[batch_shape]),
+        result_layouts=_default_layouts(*[batch_shape])
+    ).results
+    return out
+
+# Define and lower fp32_to_token primitive.
 for name, value in cuda_ffi.get_fp32_to_token_registration().items():
     xla_client.register_custom_call_target(name, value, platform='gpu')
-
 _fp32_to_token_p = jax.core.Primitive('fp32_to_token')
 _fp32_to_token_p.multiple_results = False
 _fp32_to_token_p.def_impl(partial(xla.apply_primitive, _fp32_to_token_p))
@@ -50,5 +69,21 @@ mlir.register_lowering(
     platform='gpu',
 )
 
+# Define and lower token_to_fp23 primitive. 
+for name, value in cuda_ffi.get_token_to_fp32_registration().items():
+    xla_client.register_custom_call_target(name, value, platform='gpu')
+_token_to_fp32_p= jax.core.Primitive('token_to_fp32')
+_token_to_fp32_p.multiple_results = False
+_token_to_fp32_p.def_impl(partial(xla.apply_primitive, _token_to_fp32_p))
+_token_to_fp32_p.def_abstract_eval(_token_to_fp32_abstract)
+mlir.register_lowering(
+    prim=_token_to_fp32_p,
+    rule=_token_to_fp32_lowering_rule,
+    platform='gpu',
+)
+
 def tokenize(batch: jax.Array):
     return _fp32_to_token_p.bind(batch)
+
+def detokenize(batch: jax.Array):
+    return _token_to_fp32_p.bind(batch)

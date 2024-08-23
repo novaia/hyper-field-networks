@@ -46,6 +46,21 @@ void fp32_to_token(
     fp32_to_token_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
 }
 
+void token_to_fp32(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
+
+    uint32_t* input = static_cast<uint32_t*>(buffers[0]);
+    float* output = static_cast<float*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    token_to_fp32_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+}
+
 //#define STANDALONE_PROGRAM
 #ifdef STANDALONE_PROGRAM
 int main()

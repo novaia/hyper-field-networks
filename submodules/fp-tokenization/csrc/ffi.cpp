@@ -22,6 +22,13 @@ pybind11::dict get_fp32_to_token_registration()
     return dict;
 }
 
+pybind11::dict get_token_to_fp32_registration() 
+{
+    pybind11::dict dict;
+    dict["token_to_fp32"] = encapsulate_function(token_to_fp32);
+    return dict;
+}
+
 pybind11::bytes make_tokenization_descriptor(std::uint32_t const n_elements)
 {
     return to_pybind11_bytes(tokenization_descriptor_t { .n_elements = n_elements } );
@@ -30,8 +37,8 @@ pybind11::bytes make_tokenization_descriptor(std::uint32_t const n_elements)
 PYBIND11_MODULE(cuda_ffi, m) 
 {
     m.def("get_fp32_to_token_registration", &get_fp32_to_token_registration);
+    m.def("get_token_to_fp32_registration", &get_token_to_fp32_registration);
     m.def("make_tokenization_descriptor", &make_tokenization_descriptor);
 }
-
 
 } // namespace fp_tokenization

@@ -87,3 +87,6 @@ def tokenize(batch: jax.Array):
 
 def detokenize(batch: jax.Array):
     return _token_to_fp32_p.bind(batch)
+
+def get_vocab_size():
+    return cuda_ffi.get_fp32_to_token_vocab_size()

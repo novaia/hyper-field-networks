@@ -13,3 +13,8 @@ def test_tokenization():
     print(initial_batch)
     print(detokenized_batch)
     assert jnp.allclose(initial_batch, detokenized_batch, atol=1e-3)
+
+def test_vocab_size():
+    expected_vocab_size = 2**16
+    computed_vocab_size = fpt.get_vocab_size()
+    assert computed_vocab_size == expected_vocab_size

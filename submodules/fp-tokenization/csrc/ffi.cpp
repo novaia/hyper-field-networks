@@ -38,6 +38,7 @@ PYBIND11_MODULE(cuda_ffi, m)
 {
     m.def("get_fp32_to_token_registration", &get_fp32_to_token_registration);
     m.def("get_token_to_fp32_registration", &get_token_to_fp32_registration);
+    m.def("get_fp32_to_token_vocab_size", &get_fp32_to_token_vocab_size);
     m.def("make_tokenization_descriptor", &make_tokenization_descriptor);
 }
 

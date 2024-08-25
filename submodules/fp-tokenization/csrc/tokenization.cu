@@ -61,6 +61,13 @@ void token_to_fp32(
     token_to_fp32_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
 }
 
+uint32_t get_fp32_to_token_vocab_size()
+{
+    // Any permutation of 16 bits is a valid token.
+    constexpr uint32_t vocab_size = 1ULL << 16;  // 2^16
+    return vocab_size;
+}
+
 //#define STANDALONE_PROGRAM
 #ifdef STANDALONE_PROGRAM
 int main()

@@ -76,7 +76,7 @@ def main():
         json.dump(obj=param_map, fp=f)
     
     num_samples = len(dataset)
-    samples_per_table = 16392
+    samples_per_table = 16384
     pq_table_data = []
     samples_in_current_table = 0
     current_table_index = 0

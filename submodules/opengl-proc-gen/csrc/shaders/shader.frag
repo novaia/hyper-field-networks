@@ -59,10 +59,7 @@ void main()
     shadow = current_depth > 1.0f ? 1.0f : shadow;
     
     vec4 texture_color = texture(texture_sampler, frag_texture_coord);
-    vec3 color = (
-        ambient 
-        + shadow * ((diffuse * diffuse_blend) + (specular * specular_blend))
-    ) * texture_color.rgb;
+    vec3 color = ambient * texture_color.rgb;
     //vec3 color = (ambient + shadow) * texture_color.rgb;
     //color = vec3(shadow);
     gl_FragColor = vec4(color, 1.0f);

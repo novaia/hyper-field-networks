@@ -116,7 +116,7 @@ void multi_view_render(
     GLFWwindow* window
 ){
     const float half_fov_radians = degrees_to_radians(fov/2.0f);
-    char* base_path = DATA_PATH("multi_view_renders/");
+    char* base_path = DATA_PATH("multi_view_renders/train/");
     char save_path[100];
 
     for(unsigned int view_index = 0; view_index < num_views; view_index++)
@@ -128,9 +128,6 @@ void multi_view_render(
 
         snprintf(save_path, sizeof(char) * 100, "%s%d%s", base_path, view_index, ".png");
         save_frame_to_png(save_path, window_width, window_height);
-
-        snprintf(save_path, sizeof(char) * 100, "%s%d_depth%s", base_path, view_index, ".png");
-        save_depth_to_png(save_path, window_width, window_height);
 
         glfwSwapBuffers(window);
     }
@@ -190,7 +187,7 @@ int main()
     }
     
     const vec3 light_rotation = {50.0f, 180.0f, 0.0f};
-    init_scene(light_rotation, 0.3f, scene);
+    init_scene(light_rotation, 1.0f, scene);
     int error = 0;
     unsigned int sonic_mesh_index = 0;
     error = add_mesh_to_scene(scene, sonic_obj, &sonic_mesh_index);
@@ -242,7 +239,7 @@ int main()
     glEnable(GL_DEPTH_TEST);
     
     const unsigned int num_views = 200;
-    const float min_zoom = -6.0f, max_zoom = -4.0f;
+    const float min_zoom = -5.0f, max_zoom = -3.3f;
     const float min_x_rotation = -88.0f, max_x_rotation = 88.0f;
     const float min_y_rotation = 0.0f, max_y_rotation = 360.0f;
     mat4* mv_model_matrices = (mat4*)malloc(sizeof(mat4) * num_views);

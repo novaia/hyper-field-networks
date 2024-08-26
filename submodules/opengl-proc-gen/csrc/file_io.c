@@ -242,8 +242,7 @@ void save_multi_view_transforms_json(
     }
 
     fprintf(file, "{\n");
-    fprintf(file, FOUR_SPACE_INDENT("\"fov_x\": %.7f,\n"), fov_x);
-    fprintf(file, FOUR_SPACE_INDENT("\"fov_y\": %.7f,\n"), fov_x);
+    fprintf(file, FOUR_SPACE_INDENT("\"camera_angle_x\": %.7f,\n"), fov_x);
     fprintf(file, FOUR_SPACE_INDENT("\"frames\": [\n"));
     
     const char* column_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
@@ -254,24 +253,20 @@ void save_multi_view_transforms_json(
         FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("[%.7f, %.7f, %.7f, %.7f]\n"))
     ));
     const char* color_path_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
-        FOUR_SPACE_INDENT("\"color_path\": \"%d.png\",\n")
-    ));
-    const char* depth_path_format = FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(
-        FOUR_SPACE_INDENT("\"depth_path\": \"%d_depth.png\",\n")
+        FOUR_SPACE_INDENT("\"file_path\": \"./train/%d.png\",\n")
     ));
     for(unsigned int i = 0; i < num_views; i++) 
     {
         fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("{\n")));
         fprintf(file, color_path_format, i);
-        if(with_depth) { fprintf(file, depth_path_format, i); }
-        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"transform\": [\n"))));
+        fprintf(file, FOUR_SPACE_INDENT(FOUR_SPACE_INDENT(FOUR_SPACE_INDENT("\"transform_matrix\": [\n"))));
         const mat4* current_transform = &transform_matrices[i];
         for(unsigned int col = 0; col < 4; col++)
         {
-            const float x = (*current_transform)[col][0];
-            const float y = (*current_transform)[col][1];
-            const float z = (*current_transform)[col][2];
-            const float w = (*current_transform)[col][3];
+            const float x = (*current_transform)[0][col];
+            const float y = (*current_transform)[1][col];
+            const float z = (*current_transform)[2][col];
+            const float w = (*current_transform)[3][col];
             if(col == 3)
             {
                 // Print column without trailing comma if this is the last column.

@@ -76,7 +76,7 @@ def main():
         json.dump(obj=param_map, fp=f)
     
     num_samples = len(dataset)
-    samples_per_table = 8000
+    samples_per_table = 16392
     pq_table_data = []
     samples_in_current_table = 0
     current_table_index = 0
@@ -87,7 +87,7 @@ def main():
         }
         pq_table_data.append(pq_row_data)
         samples_in_current_table += 1
-        if samples_in_current_table > samples_per_table:
+        if samples_in_current_table >= samples_per_table:
             save_table(pq_table_data, context_length, current_table_index, out_data_path, 4)
             pq_table_data = []
             samples_in_current_table = 0

@@ -1,0 +1,20 @@
+{
+    "type": "ngp_image",
+    "num_hash_table_levels": 4,
+    "max_hash_table_entries": 32,
+    "hash_table_feature_dim": 2,
+    "coarsest_resolution": 4,
+    "finest_resolution": 32,
+    "mlp_width": 32,
+    "mlp_depth": 2,
+    "learning_rate": 0.0005,
+    "epsilon": 0.000000000000001,
+    "weight_decay_coefficient": 0.000001,
+    "batch_size": 32,
+    "train_steps": 1000,
+    "image_width": 32,
+    "image_height": 32,
+    "num_retries": 4,
+    "skip_on_threshold_fail": true,
+    "channels": 3
+}

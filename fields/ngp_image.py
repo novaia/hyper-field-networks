@@ -43,11 +43,11 @@ class NGPImage(nn.Module):
         return x
 
 def train_loop(
-    steps:int, state:TrainState, image:jax.Array, batch_size:int
+    steps:int, state:TrainState, image:jax.Array, batch_size:int, channels:int = 3
 ) -> TrainState:
     for step in range(steps):
         step_key = jax.random.PRNGKey(step)
-        state = train_step(state, image, batch_size)
+        state = train_step(state, image, batch_size, channels)
     return state
 
 def benchmark_train_loop(image, batch_size, steps, state):
@@ -76,11 +76,10 @@ def benchmark_train_loop(image, batch_size, steps, state):
     params_cpu = move_pytree_to_cpu(state.params)
     jnp.save(file='data/image_field.npy', arr=params_cpu, allow_pickle=True)
 
-@partial(jax.jit, static_argnames=('batch_size'))
-def train_step(state:TrainState, image:jax.Array, batch_size:int) -> TrainState:
+@partial(jax.jit, static_argnames=('batch_size', 'channels'))
+def train_step(state:TrainState, image:jax.Array, batch_size:int, channels:int = 3) -> TrainState:
     image_height = image.shape[0]
     image_width = image.shape[1]
-    channels = image.shape[2]
     all_height_indices = jnp.arange(image_height)
     all_width_indices = jnp.arange(image_width)
     index_mesh = jnp.reshape(

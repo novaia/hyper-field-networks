@@ -41,3 +41,7 @@ python -m fields.util_scripts.check_detokenized_field --field data/image_field.n
 -----
 
 python -m hypernets.util_scripts.tokenize_field_dataset --dataset data/colored-monsters-ngp-image-18k --out data/colored-monsters-ngp-image-18k-16bit
+
+-----
+
+XLA_PYTHON_CLIENT_MEM_FRACTION=.99 python -m hypernets.lstm_hypernet

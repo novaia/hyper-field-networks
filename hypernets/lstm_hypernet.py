@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import optax
 from functools import partial
 from typing import Any
+from fp_tokenization import get_vocab_size
 
 def load_dataset(dataset_path, test_size, split_seed):
     field_config = None
@@ -50,7 +51,7 @@ class LSTM(nn.Module):
             split_rngs={"params": False}, in_axes=1, out_axes=1
         )        
         lstm = ScanLSTM(self.features, dtype=self.dtype)
-        x = nn.Embed(num_embeddings=self.vocab_size+1, features=self.features, dtype=self.dtype)(tokens)
+        x = nn.remat(nn.Embed)(num_embeddings=self.vocab_size+1, features=self.features, dtype=self.dtype)(tokens)
         input_shape = x[:, 0].shape
         print(input_shape)
         carry = lstm.initialize_carry(random.key(0), input_shape)
@@ -63,13 +64,21 @@ def train_step(state, tokens, start_tokens):
     input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1]], axis=-1)
     target_tokens = tokens
     def loss_fn(params):
-        logits = state.apply_fn(params, input_tokens)
+        logits = state.apply_fn({'params': params}, input_tokens)
         loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens))
         return loss
     grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
     loss, grad = grad_fn(state.params)
     state = state.apply_gradients(grads=grad)
     return loss, state
+
+@jax.jit
+def test_step(state, tokens, start_tokens):
+    input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1]], axis=-1)
+    target_tokens = tokens
+    logits = state.apply_fn({'params': state.params}, tokens=input_tokens)
+    loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens))
+    return loss
 
 def main():
     output_path = 'data/ar_hypernet_output/6'
@@ -81,10 +90,14 @@ def main():
     print('image width', field_config['image_width'])
     print('image height', field_config['image_height'])
     print('sequence length', sequence_length)
+    
+    vocab_size = get_vocab_size()
+    print('vocab size', vocab_size)
 
-    features = 128
+    num_epochs = 10
+    features = 16
     vocab_size = 2**16
-    batch_size = 4
+    batch_size = 1
     learning_rate = 3e-4
     start_token = vocab_size
     model_dtype = jnp.bfloat16
@@ -99,6 +112,33 @@ def main():
         optax.adam(learning_rate=learning_rate)
     )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
+
+    num_train_samples = len(train_set)
+    train_steps = num_train_samples // batch_size
+    print('Test set size:', num_train_samples)
+    num_test_samples = len(test_set)
+    test_steps = num_test_samples // batch_size
+    print('Train set size:', num_test_samples)
+    
+    for epoch in range(num_epochs):
+        train_set = train_set.shuffle(seed=epoch)
+        train_iterator = train_set.iter(batch_size)
+        accumulated_losses = []
+        for step in range(train_steps):
+            tokens = next(train_iterator)['tokens']
+            loss, state = train_step(state, tokens=tokens, start_tokens=batched_start_tokens)
+            accumulated_losses.append(loss)
+            print(f'step {step}, loss {loss}')
+        
+        test_set = test_set.shuffle(seed=epoch)
+        test_iterator = test_set.iter(batch_size)
+        losses_this_test = []
+        for step in range(test_steps):
+            tokens = next(test_iterator)['tokens']
+            loss = test_step(state, tokens=tokens, start_tokens=batched_start_tokens)
+            losses_this_test.append(loss)
+        average_test_loss = sum(losses_this_test) / len(losses_this_test)
+        print('average test loss', average_test_loss)
 
 if __name__ == '__main__':
     main()

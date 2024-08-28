@@ -51,9 +51,12 @@ class LSTM(nn.Module):
             split_rngs={"params": False}, in_axes=1, out_axes=1
         )        
         lstm = ScanLSTM(self.features, dtype=self.dtype)
-        x = nn.remat(nn.Embed)(num_embeddings=self.vocab_size+1, features=self.features, dtype=self.dtype)(tokens)
+        x = nn.remat(nn.Embed)(
+            num_embeddings=self.vocab_size+1, 
+            features=self.features, 
+            dtype=self.dtype
+        )(tokens)
         input_shape = x[:, 0].shape
-        print(input_shape)
         carry = lstm.initialize_carry(random.key(0), input_shape)
         carry, x = lstm(carry, x)
         x = nn.remat(nn.Dense)(self.vocab_size, dtype=self.dtype)(x)
@@ -82,7 +85,7 @@ def test_step(state, tokens, start_tokens):
 
 def main():
     output_path = 'data/ar_hypernet_output/6'
-    dataset_path = 'data/colored-monsters-ngp-image-18k-16bit'
+    dataset_path = 'data/mnist-ngp-image-612-16bit'
     split_size = 0.2
     split_seed = 0
     train_set, test_set, field_config, param_map, sequence_length = \
@@ -95,9 +98,9 @@ def main():
     print('vocab size', vocab_size)
 
     num_epochs = 10
-    features = 16
+    features = 512
     vocab_size = 2**16
-    batch_size = 1
+    batch_size = 16
     learning_rate = 3e-4
     start_token = vocab_size
     model_dtype = jnp.bfloat16
@@ -115,11 +118,12 @@ def main():
 
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
-    print('Test set size:', num_train_samples)
+    print('Train set size:', num_train_samples)
+    print('Train steps:', train_steps)
     num_test_samples = len(test_set)
     test_steps = num_test_samples // batch_size
-    print('Train set size:', num_test_samples)
-    
+    print('Test set size:', num_test_samples)
+    print('Test steps:', test_steps)
     for epoch in range(num_epochs):
         train_set = train_set.shuffle(seed=epoch)
         train_iterator = train_set.iter(batch_size)

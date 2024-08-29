@@ -137,8 +137,8 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/7'
-    dataset_path = 'data/mnist-ngp-image-612-16bit'
+    output_path = 'data/ar_hypernet_output/8'
+    dataset_path = 'data/cifar10-ngp-image-1699-16bit'
     split_size = 0.2
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \

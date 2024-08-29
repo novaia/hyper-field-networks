@@ -59,6 +59,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--out', type=str, required=True)
+    parser.add_argument('--samples_per_table', type=int, default=16384)
     args = parser.parse_args()
 
     if not os.path.exists(args.out):
@@ -76,7 +77,7 @@ def main():
         json.dump(obj=param_map, fp=f)
     
     num_samples = len(dataset)
-    samples_per_table = 16384
+    samples_per_table = args.samples_per_table
     pq_table_data = []
     samples_in_current_table = 0
     current_table_index = 0

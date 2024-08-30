@@ -49,3 +49,11 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=.99 python -m hypernets.lstm_hypernet
 -----
 
 python -m fields.util_scripts.encode_sensor_dataset --config_path configs/ngp_image_cifar10.json --input_path data/cifar10/data --output_path data/cifar10-ngp-image-1699/data --field_type ngp_image --samples_per_table 100000 --render --loss_threshold 0.00001 --image_column img
+
+-----
+
+python -m fields.util_scripts.encode_sensor_dataset_downscale --config_path configs/colored_primitives_ngp_image_32x32.json --input_path data/colored-primitives/data --output_path data/colored-primitives-ngp-image-small/data --field_type ngp_image --samples_per_table 65536 --render --loss_threshold 0.00001 --image_column image
+
+-----
+
+python -m fields.util_scripts.encode_sensor_dataset_downscale --config_path configs/colored_primitives_ngp_image_32x32.json --input_path data/colored-primitives/data --output_path data/colored-primitives-ngp-image-small/data --field_type ngp_image --samples_per_table 65536 --render --loss_threshold 0.000003 --image_column image

@@ -137,7 +137,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/8'
+    output_path = 'data/ar_hypernet_output/9'
     dataset_path = 'data/cifar10-ngp-image-1699-16bit'
     split_size = 0.2
     split_seed = 0
@@ -158,7 +158,7 @@ def main():
     hidden_dim = 64
     ff_dim = 128
     num_attention_heads = 4
-    num_blocks = 3
+    num_blocks = 8
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0

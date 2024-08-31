@@ -63,7 +63,7 @@ class ArHypernet(nn.Module):
         for _ in range(self.num_blocks):
             residual = x
             x = nn.LayerNorm()(x)
-            x = nn.MultiHeadDotProductAttention(
+            x = nn.remat(nn.MultiHeadDotProductAttention)(
                 num_heads=self.num_attention_heads,
                 qkv_features=self.hidden_dim,
                 out_features=self.hidden_dim,
@@ -80,7 +80,7 @@ class ArHypernet(nn.Module):
             x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
             x = x + residual
         
-        logits = nn.Dense(features=self.vocab_size)(x)
+        logits = nn.remat(nn.Dense)(features=self.vocab_size)(x)
         return logits
 
 @jax.jit
@@ -138,7 +138,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
 
 def main():
     output_path = 'data/ar_hypernet_output/10'
-    dataset_path = 'data/cifar10-ngp-image-1699-16bit'
+    dataset_path = 'data/colored-primitives-ngp-image-2291-16bit'
     split_size = 0.2
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \

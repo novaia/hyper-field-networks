@@ -137,7 +137,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/10'
+    output_path = 'data/ar_hypernet_output/11'
     dataset_path = 'data/colored-primitives-ngp-image-2291-16bit'
     split_size = 0.2
     split_seed = 0
@@ -158,7 +158,7 @@ def main():
     hidden_dim = 64
     ff_dim = 128
     num_attention_heads = 4
-    num_blocks = 8
+    num_blocks = 12
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0
@@ -203,10 +203,10 @@ def main():
 
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
-    print('Test set size:', num_train_samples)
+    print('Train set size:', num_train_samples)
     num_test_samples = len(test_set)
     test_steps = num_test_samples // batch_size
-    print('Train set size:', num_test_samples)
+    print('Test set size:', num_test_samples)
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     print('Param count', param_count)

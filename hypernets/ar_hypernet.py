@@ -137,7 +137,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/14'
+    output_path = 'data/ar_hypernet_output/15'
     dataset_path = 'data/colored-primitives-ngp-image-2291-16bit'
     split_size = 0.2
     split_seed = 0
@@ -158,7 +158,7 @@ def main():
     hidden_dim = 256
     ff_dim = 256
     num_attention_heads = 32
-    num_blocks = 10
+    num_blocks = 24
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0

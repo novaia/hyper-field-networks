@@ -68,6 +68,38 @@ uint32_t get_fp32_to_token_vocab_size()
     return vocab_size;
 }
 
+__global__ void fp32_to_bitfield16_kernel(float* input, uint32_t* output, uint32_t size)
+{
+    constexpr uint32_t bitfield_size = 16;
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if(idx < size) 
+    {
+        __half inter = __float2half(input[idx]);
+        uint16_t token = reinterpret_cast<uint16_t&>(inter);
+        for(int k = 0; k < bitfield_size; ++k)
+        {
+            uint16_t mask_result = (token & (1 << k)) > 0 ? 1 : 0;
+            output[idx*bitfield_size] = (uint32_t)mask_result;
+        }
+    }
+}
+
+void fp32_to_bitfield16(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
+
+    float* input = static_cast<float*>(buffers[0]);
+    uint32_t* output = static_cast<uint32_t*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    fp32_to_bitfield16_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+}
+
 //#define STANDALONE_PROGRAM
 #ifdef STANDALONE_PROGRAM
 int main()

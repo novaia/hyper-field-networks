@@ -21,4 +21,8 @@ void token_to_fp32(
 
 uint32_t get_fp32_to_token_vocab_size();
 
+void fp32_to_bitfield16(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+);
+
 } // namespace fp_tokenization

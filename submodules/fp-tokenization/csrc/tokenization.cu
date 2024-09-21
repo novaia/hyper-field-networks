@@ -80,7 +80,7 @@ __global__ void fp32_to_bitfield16_kernel(float* input, uint32_t* output, uint32
         for(int k = 0; k < bitfield_size; ++k)
         {
             uint16_t mask_result = (token & (1 << k)) > 0 ? 1 : 0;
-            output[idx*bitfield_size] = (uint32_t)mask_result;
+            output[idx*bitfield_size + k] = (uint32_t)mask_result;
         }
     }
 }

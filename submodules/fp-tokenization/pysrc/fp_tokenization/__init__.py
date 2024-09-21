@@ -19,6 +19,9 @@ def _token_to_fp32_abstract(batch: jax.Array):
 def _fp32_to_bitfield16_abstract(batch: jax.Array):
     return (ShapedArray(shape=(batch.shape[-1]*16,), dtype=jnp.uint32))
 
+def _bitfield16_to_fp32_abstract(batch: jax.Array):
+    return (ShapedArray(shape=(int(batch.shape[-1]//16),), dtype=jnp.float32))
+
 def _default_layouts(*shapes):
     return [range(len(shape) - 1, -1, -1) for shape in shapes]
 
@@ -75,6 +78,22 @@ def _fp32_to_bitfield16_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.V
     ).results
     return out
 
+def _bitfield16_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
+    _, batch_shape = _get_ir_tensor_info(batch)
+    out_type, out_shape = _make_ir_tensor_info((int(batch_shape[-1]//16),), 'fp32')
+    
+    opaque = cuda_ffi.make_tokenization_descriptor(batch_shape[-1])
+
+    out = custom_call(
+        call_target_name='bitfield16_to_fp32',
+        result_types=[out_type],
+        operands=[batch],
+        backend_config=opaque,
+        operand_layouts=_default_layouts(*[batch_shape]),
+        result_layouts=_default_layouts(*[out_shape])
+    ).results
+    return out
+
 # Define and lower fp32_to_token primitive.
 for name, value in cuda_ffi.get_fp32_to_token_registration().items():
     xla_client.register_custom_call_target(name, value, platform='gpu')
@@ -101,16 +120,29 @@ mlir.register_lowering(
     platform='gpu',
 )
 
-# Define and lower fp32_to_token primitive.
+# Define and lower fp32_to_bitfield16 primitive.
 for name, value in cuda_ffi.get_fp32_to_bitfield16_registration().items():
     xla_client.register_custom_call_target(name, value, platform='gpu')
 _fp32_to_bitfield16_p = jax.core.Primitive('fp32_to_bitfield16')
-_fp32_to_bitfield16_p .multiple_results = False
-_fp32_to_bitfield16_p .def_impl(partial(xla.apply_primitive, _fp32_to_bitfield16_p))
-_fp32_to_bitfield16_p .def_abstract_eval(_fp32_to_bitfield16_abstract)
+_fp32_to_bitfield16_p.multiple_results = False
+_fp32_to_bitfield16_p.def_impl(partial(xla.apply_primitive, _fp32_to_bitfield16_p))
+_fp32_to_bitfield16_p.def_abstract_eval(_fp32_to_bitfield16_abstract)
 mlir.register_lowering(
     prim=_fp32_to_bitfield16_p,
     rule=_fp32_to_bitfield16_lowering_rule,
+    platform='gpu',
+)
+
+# Define and lower bitfield16_to_fp32_primitive.
+for name, value in cuda_ffi.get_bitfield16_to_fp32_registration().items():
+    xla_client.register_custom_call_target(name, value, platform='gpu')
+_bitfield16_to_fp32_p = jax.core.Primitive('bitfield16_to_fp32')
+_bitfield16_to_fp32_p.multiple_results = False
+_bitfield16_to_fp32_p.def_impl(partial(xla.apply_primitive, _bitfield16_to_fp32_p))
+_bitfield16_to_fp32_p.def_abstract_eval(_bitfield16_to_fp32_abstract)
+mlir.register_lowering(
+    prim=_bitfield16_to_fp32_p,
+    rule=_bitfield16_to_fp32_lowering_rule,
     platform='gpu',
 )
 
@@ -120,8 +152,11 @@ def tokenize(batch: jax.Array):
 def detokenize(batch: jax.Array):
     return _token_to_fp32_p.bind(batch)
 
-def to_bitfield(batch: jax.Array):
+def fp32_to_bitfield16(batch: jax.Array):
     return _fp32_to_bitfield16_p.bind(batch)
+
+def bitfield16_to_fp32(batch: jax.Array):
+    return _bitfield16_to_fp32_p.bind(batch)
 
 def get_vocab_size():
     return cuda_ffi.get_fp32_to_token_vocab_size()

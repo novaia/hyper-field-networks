@@ -8,8 +8,6 @@ import os, json
 from typing import Any
 from functools import partial
 from fp_tokenization import bitfield16_to_fp32 
-from fields.common.flattening import unflatten_params
-from fields import ngp_image
 import matplotlib.pyplot as plt
 import wandb
 
@@ -89,8 +87,9 @@ class ArHypernet(nn.Module):
         logits = nn.DenseGeneral(features=(16, self.vocab_size), axis=-1)(x)
         return logits
 
-@jax.jit
-def train_step(state, tokens, start_tokens):
+@partial(jax.jit, static_argnames=('context_length',))
+def train_step(state, tokens, start_tokens, context_length):
+    tokens = jnp.reshape(tokens, (tokens.shape[0], context_length, 16))
     input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1, :]], axis=1)
     target_tokens = tokens
     def loss_fn(params):
@@ -110,8 +109,9 @@ def train_step(state, tokens, start_tokens):
     state = state.apply_gradients(grads=grad)
     return loss, state
 
-@jax.jit
-def test_step(state, tokens, start_tokens):
+@partial(jax.jit, static_argnames=('context_length',))
+def test_step(state, tokens, start_tokens, context_length):
+    tokens = jnp.reshape(tokens, (tokens.shape[0], context_length, 16))
     input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1, :]], axis=1)
     target_tokens = tokens
     logits = state.apply_fn({'params': state.params}, tokens=input_tokens, training=False)
@@ -151,6 +151,12 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
             tokens = tokens.at[0, i+1, :].set(next_token)
     
     return tokens
+
+@jax.jit
+def bitfield_kernel_test(tokens):
+    bitfields = jnp.array(tokens[0], dtype=jnp.uint32)
+    fp_re = bitfield16_to_fp32(bitfields)
+    return fp_re
 
 def main():
     output_path = 'data/ar_bitfiled_gen_output/0'
@@ -240,9 +246,9 @@ def main():
         accumulated_losses = []
         for step in range(train_steps):
             tokens = next(train_iterator)['bitfields']
-            #tokens_re = bitfield16_to_fp32(tokens)
-            tokens = jnp.reshape(tokens, (tokens.shape[0], context_length, 16))
-            loss, state = train_step(state, tokens=tokens, start_tokens=batched_start_tokens)
+            loss, state = train_step(
+                state, tokens=tokens, start_tokens=batched_start_tokens, context_length=context_length
+            )
             accumulated_losses.append(loss)
             steps_since_loss_report += 1
             if steps_since_loss_report >= wandb_loss_accumulation_steps:
@@ -259,7 +265,9 @@ def main():
         for step in range(test_steps):
             tokens = next(test_iterator)['bitfields']
             tokens = jnp.reshape(tokens, (tokens.shape[0], context_length, 16))
-            loss = test_step(state, tokens=tokens, start_tokens=batched_start_tokens)
+            loss = test_step(
+                state, tokens=tokens, start_tokens=batched_start_tokens, context_length=context_length
+            )
             losses_this_test.append(loss)
             print(loss)
             break
@@ -267,7 +275,6 @@ def main():
         #wandb.log({'test_loss': average_test_loss}, step=state.step)
         #print(f'epoch {epoch}, test_loss {average_test_loss}')
         
-        '''
         sampled_tokens = sample_context(
             state, 
             prompt_tokens=[jnp.ones((16,), dtype=jnp.uint32) * start_token], 
@@ -277,7 +284,6 @@ def main():
         )[0]
         image_re = jnp.reshape(bitfield16_to_fp32(jnp.ravel(sampled_tokens)), (image_height, image_width))
         plt.imsave(os.path.join(output_path, f'{epoch}.png'), image_re)
-        '''
 
 if __name__ == '__main__':
     main()

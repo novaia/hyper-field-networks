@@ -119,7 +119,7 @@ void fp32_to_bitfield16(
     const int threads_per_block = 256;
     const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
 
-    fp32_to_bitfield16_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+    fp32_to_bitfield16_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
 }
 
 void bitfield16_to_fp32(
@@ -131,13 +131,10 @@ void bitfield16_to_fp32(
     uint32_t* input = static_cast<uint32_t*>(buffers[0]);
     float* output = static_cast<float*>(buffers[1]);
     const uint32_t size = desc.n_elements;
-    //printf("bitfield16_to_fp32 size: %u\n", size);
     const int threads_per_block = 256;
     const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
-    //printf("total threads: %d\n", threads_per_block * blocks_per_grid);
-    //printf("blocks_per_grid: %d\n", blocks_per_grid);
 
-    bitfield16_to_fp32_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+    bitfield16_to_fp32_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
 }
 
 //#define STANDALONE_PROGRAM

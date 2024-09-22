@@ -22,14 +22,6 @@ def _fp32_to_bitfield16_abstract(batch: jax.Array):
 def _bitfield16_to_fp32_abstract(batch: jax.Array):
     return (ShapedArray(shape=(int(batch.shape[-1]//16),), dtype=jnp.float32))
 
-def _default_layouts(*shapes):
-    return [range(len(shape) - 1, -1, -1) for shape in shapes]
-
-def _get_ir_tensor_info(tensor):
-    tensor_type = ir.RankedTensorType(tensor.type)
-    tensor_shape = tensor_type.shape
-    return tensor_type, tensor_shape
-
 def _fp32_to_token_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
     _, batch_shape = _get_ir_tensor_info(batch)
     out_type, _ = _make_ir_tensor_info(batch_shape, 'uint32')
@@ -82,7 +74,7 @@ def _bitfield16_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.V
     _, batch_shape = _get_ir_tensor_info(batch)
     out_type, out_shape = _make_ir_tensor_info((int(batch_shape[-1]//16),), 'fp32')
     
-    opaque = cuda_ffi.make_tokenization_descriptor(batch_shape[-1])
+    opaque = cuda_ffi.make_tokenization_descriptor(out_shape[-1])
 
     out = custom_call(
         call_target_name='bitfield16_to_fp32',
@@ -155,6 +147,7 @@ def detokenize(batch: jax.Array):
 def fp32_to_bitfield16(batch: jax.Array):
     return _fp32_to_bitfield16_p.bind(batch)
 
+@jax.jit
 def bitfield16_to_fp32(batch: jax.Array):
     return _bitfield16_to_fp32_p.bind(batch)
 

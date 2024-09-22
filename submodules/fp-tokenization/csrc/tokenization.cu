@@ -93,7 +93,7 @@ __global__ void bitfield16_to_fp32_kernel(uint32_t* input, float* output, uint32
     if(idx < size) 
     {
         uint16_t token = 0;
-        for(int k = 0; k < bitfield_size; ++k)
+        for(uint16_t k = 0; k < bitfield_size; ++k)
         {
             uint32_t current_bit = input[idx*bitfield_size + k];
             
@@ -101,10 +101,9 @@ __global__ void bitfield16_to_fp32_kernel(uint32_t* input, float* output, uint32
             {
                 token += (uint16_t)(1 << k);
             }
-            uint16_t mask_result = (token & (1 << k)) > 0 ? 1 : 0;
-            input[idx*bitfield_size + k] = (uint32_t)mask_result;
         }
-        output[idx] = __half2float(reinterpret_cast<__half&>(token));
+        float fp_result = __half2float(reinterpret_cast<__half&>(token));
+        output[idx] = fp_result;
     }
 }
 
@@ -132,8 +131,11 @@ void bitfield16_to_fp32(
     uint32_t* input = static_cast<uint32_t*>(buffers[0]);
     float* output = static_cast<float*>(buffers[1]);
     const uint32_t size = desc.n_elements;
+    //printf("bitfield16_to_fp32 size: %u\n", size);
     const int threads_per_block = 256;
     const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+    //printf("total threads: %d\n", threads_per_block * blocks_per_grid);
+    //printf("blocks_per_grid: %d\n", blocks_per_grid);
 
     bitfield16_to_fp32_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
 }

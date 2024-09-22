@@ -44,30 +44,32 @@ class ArHypernet(nn.Module):
 
     @nn.compact
     def __call__(self, tokens, training):
-        attention_mask = nn.make_causal_mask(tokens)
         # Add 1 to vocab size to allow for start token.
         # Start token should never be predicted so it is not added to the base vocab.
         emb_table = nn.Embed(num_embeddings=self.vocab_size+1, features=self.tok_emb_dim)
         def make_embedding(table, id):
             return table(id)
-        print(tokens.shape)
+        #print(tokens.shape)
         tok_emb = jax.vmap(
             jax.vmap(
                 make_embedding, in_axes=(None, 0)
             ), in_axes=(None, 0),
         )(emb_table, tokens)
-        print(tok_emb.shape)
+        #print(tok_emb.shape)
         tok_emb = nn.DenseGeneral(features=self.hidden_dim, axis=(-1, -2))(tok_emb)
-        print(tok_emb.shape)
+        #print(tok_emb.shape)
         positions = jnp.arange(self.context_length, dtype=jnp.uint32)
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.hidden_dim)(positions)
         x = tok_emb + pos_emb
-        print(x.shape)
+        #print(x.shape)
+        attention_mask = nn.make_causal_mask(
+            jnp.zeros(shape=(tokens.shape[0], self.context_length), dtype=self.dtype)
+        )
         
         for _ in range(self.num_blocks):
             residual = x
             x = nn.LayerNorm()(x)
-            x = nn.remat(nn.MultiHeadDotProductAttention)(
+            x = nn.MultiHeadDotProductAttention(
                 num_heads=self.num_attention_heads,
                 qkv_features=self.hidden_dim,
                 out_features=self.hidden_dim,
@@ -89,7 +91,7 @@ class ArHypernet(nn.Module):
 
 @jax.jit
 def train_step(state, tokens, start_tokens):
-    input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1]], axis=-1)
+    input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1, :]], axis=1)
     target_tokens = tokens
     def loss_fn(params):
         logits = state.apply_fn(
@@ -98,7 +100,10 @@ def train_step(state, tokens, start_tokens):
             training=True, 
             rngs={'dropout': jax.random.PRNGKey(state.step)}
         )
-        loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens))
+        #print(logits.shape)
+        sce_loss = optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens)
+        #print(sce_loss.shape)
+        loss = jnp.mean(sce_loss)
         return loss
     grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
     loss, grad = grad_fn(state.params)
@@ -107,36 +112,43 @@ def train_step(state, tokens, start_tokens):
 
 @jax.jit
 def test_step(state, tokens, start_tokens):
-    input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1]], axis=-1)
+    input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1, :]], axis=1)
     target_tokens = tokens
     logits = state.apply_fn({'params': state.params}, tokens=input_tokens, training=False)
     loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens))
     return loss
 
 def sample_context(state, prompt_tokens, vocab_size, context_length, temperature=1.0):
-    tokens = jnp.zeros((1, context_length), dtype=jnp.uint32)
+    tokens = jnp.zeros((1, context_length, 16), dtype=jnp.uint32)
     for i in range(len(prompt_tokens)):
-        tokens = tokens.at[0, i].set(prompt_tokens[i])
+        tokens = tokens.at[0, i, :].set(prompt_tokens[i])
     vocab = jnp.arange(vocab_size, dtype=jnp.uint32)
 
     @jax.jit
     def get_logits(state, tokens):
         return state.apply_fn({'params': state.params}, tokens=tokens, training=False)
 
+    @jax.jit
+    def sample_bitfield(logits):
+        def sample_bit(bit_logit):
+            return jnp.argmax(bit_logit)
+        # Map across the bitfield dim.
+        # Each set of logits gives the distribution for 1 bit so each sample gives us 1 bit in the bitfield.
+        bitfield = jax.vmap(sample_bit, in_axes=0)(logits)
+        return bitfield
+
     for i in range(len(prompt_tokens)-1, context_length):
-        logits = get_logits(state, tokens)
-        logits = logits[0, i, :] / temperature
-        probs = nn.softmax(logits)
-        next_token = jax.random.choice(jax.random.PRNGKey(state.step+i), a=vocab, p=probs)
+        logits = get_logits(state, tokens)[0, i, :, :]
+        next_token = jnp.array(sample_bitfield(logits), dtype=jnp.uint32)
         if i == context_length - 1:
             # Remove the start token and add last token to the end.
-            tokens = tokens[:, 1:]
+            tokens = tokens[:, 1:, :]
             tokens = jnp.concatenate(
-                [tokens, jnp.ones((1, 1), dtype=jnp.uint32) * next_token], 
-                axis=-1
+                [tokens, jnp.reshape(next_token, (1, 1, next_token.shape[-1]))], 
+                axis=1
             )
         else:
-            tokens = tokens.at[0, i+1].set(next_token)
+            tokens = tokens.at[0, i+1, :].set(next_token)
     
     return tokens
 
@@ -160,11 +172,11 @@ def main():
     print('Vocab size', vocab_size)
 
     num_epochs = 200
-    batch_size = 4
+    batch_size = 32
     tok_emb_dim = 2
-    hidden_dim = 16
-    ff_dim = 16
-    num_attention_heads = 4
+    hidden_dim = 32
+    ff_dim = 32
+    num_attention_heads = 8
     num_blocks = 12
     learning_rate = 1e-4
     weight_decay = 1e-6
@@ -210,9 +222,11 @@ def main():
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
     print('Train set size:', num_train_samples)
+    print('Train steps:', train_steps)
     num_test_samples = len(test_set)
     test_steps = num_test_samples // batch_size
     print('Test set size:', num_test_samples)
+    print('Test steps:', test_steps)
     
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     print('Param count', param_count)
@@ -225,10 +239,9 @@ def main():
         train_iterator = train_set.iter(batch_size)
         accumulated_losses = []
         for step in range(train_steps):
-            tokens = next(train_iterator)['tokens']
-            tokens = jnp.reshape((tokens.shape[0], context_length, 16), tokens)
-            print(tokens.shape)
-            exit()
+            tokens = next(train_iterator)['bitfields']
+            #tokens_re = bitfield16_to_fp32(tokens)
+            tokens = jnp.reshape(tokens, (tokens.shape[0], context_length, 16))
             loss, state = train_step(state, tokens=tokens, start_tokens=batched_start_tokens)
             accumulated_losses.append(loss)
             steps_since_loss_report += 1
@@ -238,28 +251,33 @@ def main():
                 accumulated_losses = []
                 steps_since_loss_report = 0
                 print(f'step {step}, loss {loss}')
+                break
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)
         losses_this_test = []
         for step in range(test_steps):
-            tokens = next(test_iterator)['tokens']
+            tokens = next(test_iterator)['bitfields']
+            tokens = jnp.reshape(tokens, (tokens.shape[0], context_length, 16))
             loss = test_step(state, tokens=tokens, start_tokens=batched_start_tokens)
             losses_this_test.append(loss)
+            print(loss)
+            break
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
         #wandb.log({'test_loss': average_test_loss}, step=state.step)
         #print(f'epoch {epoch}, test_loss {average_test_loss}')
         
-        tokens = sample_context(
+        '''
+        sampled_tokens = sample_context(
             state, 
-            prompt_tokens=[start_token], 
+            prompt_tokens=[jnp.ones((16,), dtype=jnp.uint32) * start_token], 
             vocab_size=vocab_size,
             context_length=context_length, 
             temperature=sample_temperature
         )[0]
-        print(tokens)
-        image_re = jnp.reshape(bitfield16_to_fp32(tokens), (image_height, image_width))
+        image_re = jnp.reshape(bitfield16_to_fp32(jnp.ravel(sampled_tokens)), (image_height, image_width))
         plt.imsave(os.path.join(output_path, f'{epoch}.png'), image_re)
+        '''
 
 if __name__ == '__main__':
     main()

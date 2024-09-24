@@ -102,7 +102,7 @@ def train_step(state, tokens, start_tokens, context_length):
         #print(logits.shape)
         sce_loss = optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens)
         #print(sce_loss.shape)
-        loss = jnp.mean(sce_loss)
+        loss = jnp.mean(jnp.sum(sce_loss, axis=-1))
         return loss
     grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
     loss, grad = grad_fn(state.params)
@@ -115,7 +115,8 @@ def test_step(state, tokens, start_tokens, context_length):
     input_tokens = jnp.concatenate([start_tokens, tokens[..., :-1, :]], axis=1)
     target_tokens = tokens
     logits = state.apply_fn({'params': state.params}, tokens=input_tokens, training=False)
-    loss = jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens))
+    sce_loss = optax.softmax_cross_entropy_with_integer_labels(logits, target_tokens)
+    loss = jnp.mean(jnp.sum(sce_loss, axis=-1))
     return loss
 
 def sample_context(state, prompt_tokens, vocab_size, context_length, temperature=1.0):
@@ -159,7 +160,7 @@ def bitfield_kernel_test(tokens):
     return fp_re
 
 def main():
-    output_path = 'data/ar_bitfiled_gen_output/0'
+    output_path = 'data/ar_bitfield_gen_output/2'
     dataset_path = 'data/mnist-bitfield16'
     split_size = 0.2
     split_seed = 0
@@ -177,13 +178,13 @@ def main():
     vocab_size = 2 # 0 and 1
     print('Vocab size', vocab_size)
 
-    num_epochs = 200
-    batch_size = 32
+    num_epochs = 400
+    batch_size = 16
     tok_emb_dim = 2
     hidden_dim = 32
-    ff_dim = 32
+    ff_dim = 64
     num_attention_heads = 8
-    num_blocks = 12
+    num_blocks = 22
     learning_rate = 1e-4
     weight_decay = 1e-6
     sample_temperature = 1.0
@@ -237,8 +238,8 @@ def main():
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
     print('Param count', param_count)
     wandb_config['param_count'] = param_count
-    #wandb.init(project='ar-bitfield-gen', config=wandb_config)
-    wandb_loss_accumulation_steps = 10#300
+    wandb.init(project='ar-bitfield-gen', config=wandb_config)
+    wandb_loss_accumulation_steps = 300
     steps_since_loss_report = 0
     for epoch in range(num_epochs):
         train_set = train_set.shuffle(seed=epoch)
@@ -253,11 +254,10 @@ def main():
             steps_since_loss_report += 1
             if steps_since_loss_report >= wandb_loss_accumulation_steps:
                 average_loss = sum(accumulated_losses) / len(accumulated_losses)
-                #wandb.log({'loss': average_loss}, step=state.step)
+                wandb.log({'loss': average_loss}, step=state.step)
                 accumulated_losses = []
                 steps_since_loss_report = 0
-                print(f'step {step}, loss {loss}')
-                break
+                #print(f'step {step}, loss {loss}')
         
         test_set = test_set.shuffle(seed=epoch)
         test_iterator = test_set.iter(batch_size)
@@ -269,11 +269,9 @@ def main():
                 state, tokens=tokens, start_tokens=batched_start_tokens, context_length=context_length
             )
             losses_this_test.append(loss)
-            print(loss)
-            break
         average_test_loss = sum(losses_this_test) / len(losses_this_test)
-        #wandb.log({'test_loss': average_test_loss}, step=state.step)
-        #print(f'epoch {epoch}, test_loss {average_test_loss}')
+        wandb.log({'test_loss': average_test_loss}, step=state.step)
+        print(f'epoch {epoch}, test_loss {average_test_loss}')
         
         sampled_tokens = sample_context(
             state, 

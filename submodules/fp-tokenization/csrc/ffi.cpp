@@ -43,6 +43,20 @@ pybind11::dict get_bitfield16_to_fp32_registration()
     return dict;
 }
 
+pybind11::dict get_fp32_to_u8_token_registration() 
+{
+    pybind11::dict dict;
+    dict["fp32_to_u8_token"] = encapsulate_function(fp32_to_u8_token);
+    return dict;
+}
+
+pybind11::dict get_u8_token_to_fp32_registration() 
+{
+    pybind11::dict dict;
+    dict["u8_token_to_fp32"] = encapsulate_function(u8_token_to_fp32);
+    return dict;
+}
+
 pybind11::bytes make_tokenization_descriptor(std::uint32_t const n_elements)
 {
     return to_pybind11_bytes(tokenization_descriptor_t { .n_elements = n_elements } );
@@ -50,12 +64,18 @@ pybind11::bytes make_tokenization_descriptor(std::uint32_t const n_elements)
 
 PYBIND11_MODULE(cuda_ffi, m) 
 {
+    m.def("make_tokenization_descriptor", &make_tokenization_descriptor);
+
     m.def("get_fp32_to_token_registration", &get_fp32_to_token_registration);
     m.def("get_token_to_fp32_registration", &get_token_to_fp32_registration);
+    m.def("get_fp32_to_token_vocab_size", &get_fp32_to_token_vocab_size);
+    
     m.def("get_fp32_to_bitfield16_registration", &get_fp32_to_bitfield16_registration);
     m.def("get_bitfield16_to_fp32_registration", &get_bitfield16_to_fp32_registration);
-    m.def("get_fp32_to_token_vocab_size", &get_fp32_to_token_vocab_size);
-    m.def("make_tokenization_descriptor", &make_tokenization_descriptor);
+
+    m.def("get_fp32_to_u8_token_registration", &get_fp32_to_u8_token_registration);
+    m.def("get_u8_token_to_fp32_registration", &get_u8_token_to_fp32_registration);
+    m.def("get_fp32_to_u8_token_vocab_size", &get_fp32_to_u8_token_vocab_size);
 }
 
 } // namespace fp_tokenization

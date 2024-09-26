@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cuda_fp8.h>
 #include "serde.h"
 #include "tokenization.h"
 
@@ -43,7 +44,7 @@ void fp32_to_token(
     const int threads_per_block = 256;
     const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
 
-    fp32_to_token_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+    fp32_to_token_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
 }
 
 void token_to_fp32(
@@ -58,7 +59,7 @@ void token_to_fp32(
     const int threads_per_block = 256;
     const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
 
-    token_to_fp32_kernel<<<blocks_per_grid, threads_per_block>>>(input, output, size); 
+    token_to_fp32_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
 }
 
 uint32_t get_fp32_to_token_vocab_size()
@@ -135,6 +136,62 @@ void bitfield16_to_fp32(
     const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
 
     bitfield16_to_fp32_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
+}
+
+__global__ void fp32_to_u8_token_kernel(const float* input, uint8_t* output, uint32_t size)
+{
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx < size)
+    {
+        output[idx] = (uint8_t)__nv_cvt_float_to_fp8(input[idx], __NV_SATFINITE, __NV_E4M3);
+    }
+}
+
+__global__ void u8_token_to_fp32_kernel(const uint8_t* input, float* output, uint32_t size)
+{
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx < size)
+    {
+        __half_raw inter = __nv_cvt_fp8_to_halfraw(input[idx], __NV_E4M3);
+        output[idx] = __half2float(inter);
+    }
+}
+
+void fp32_to_u8_token(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
+
+    const float* input = static_cast<float*>(buffers[0]);
+    uint8_t* output = static_cast<uint8_t*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    fp32_to_u8_token_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
+}
+
+void u8_token_to_fp32(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
+
+    const uint8_t* input = static_cast<uint8_t*>(buffers[0]);
+    float* output = static_cast<float*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    u8_token_to_fp32_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
+}
+
+uint32_t get_fp32_to_u8_token_vocab_size()
+{
+    // Any permutation of 8 bits is a valid token.
+    constexpr uint32_t vocab_size = 1ULL << 8;  // 2^8
+    return vocab_size;
 }
 
 //#define STANDALONE_PROGRAM

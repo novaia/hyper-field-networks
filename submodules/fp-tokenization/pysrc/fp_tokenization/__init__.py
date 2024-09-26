@@ -22,6 +22,12 @@ def _fp32_to_bitfield16_abstract(batch: jax.Array):
 def _bitfield16_to_fp32_abstract(batch: jax.Array):
     return (ShapedArray(shape=(int(batch.shape[-1]//16),), dtype=jnp.float32))
 
+def _fp32_to_u8_token_abstract(batch: jax.Array):
+    return (ShapedArray(shape=batch.shape, dtype=jnp.uint8))
+
+def _u8_token_to_fp32_abstract(batch: jax.Array):
+    return (ShapedArray(shape=batch.shape, dtype=jnp.float32))
+
 def _fp32_to_token_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
     _, batch_shape = _get_ir_tensor_info(batch)
     out_type, _ = _make_ir_tensor_info(batch_shape, 'uint32')
@@ -86,6 +92,38 @@ def _bitfield16_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.V
     ).results
     return out
 
+def _fp32_to_u8_token_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
+    _, batch_shape = _get_ir_tensor_info(batch)
+    out_type, _ = _make_ir_tensor_info(batch_shape, 'uint8')
+    
+    opaque = cuda_ffi.make_tokenization_descriptor(batch_shape[-1])
+
+    out = custom_call(
+        call_target_name='fp32_to_u8_token',
+        result_types=[out_type],
+        operands=[batch],
+        backend_config=opaque,
+        operand_layouts=_default_layouts(*[batch_shape]),
+        result_layouts=_default_layouts(*[batch_shape])
+    ).results
+    return out
+
+def _u8_token_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
+    _, batch_shape = _get_ir_tensor_info(batch)
+    out_type, _ = _make_ir_tensor_info(batch_shape, 'fp32')
+    
+    opaque = cuda_ffi.make_tokenization_descriptor(batch_shape[-1])
+
+    out = custom_call(
+        call_target_name='u8_token_to_fp32',
+        result_types=[out_type],
+        operands=[batch],
+        backend_config=opaque,
+        operand_layouts=_default_layouts(*[batch_shape]),
+        result_layouts=_default_layouts(*[batch_shape])
+    ).results
+    return out
+
 # Define and lower fp32_to_token primitive.
 for name, value in cuda_ffi.get_fp32_to_token_registration().items():
     xla_client.register_custom_call_target(name, value, platform='gpu')
@@ -138,12 +176,41 @@ mlir.register_lowering(
     platform='gpu',
 )
 
+# Define and lower fp32_to_u8_token primitive.
+for name, value in cuda_ffi.get_fp32_to_u8_token_registration().items():
+    xla_client.register_custom_call_target(name, value, platform='gpu')
+_fp32_to_u8_token_p = jax.core.Primitive('fp32_to_u8_token')
+_fp32_to_u8_token_p.multiple_results = False
+_fp32_to_u8_token_p.def_impl(partial(xla.apply_primitive, _fp32_to_u8_token_p))
+_fp32_to_u8_token_p.def_abstract_eval(_fp32_to_u8_token_abstract)
+mlir.register_lowering(
+    prim=_fp32_to_u8_token_p,
+    rule=_fp32_to_u8_token_lowering_rule,
+    platform='gpu',
+)
+
+# Define and lower fp32_to_u8_token primitive.
+for name, value in cuda_ffi.get_u8_token_to_fp32_registration().items():
+    xla_client.register_custom_call_target(name, value, platform='gpu')
+_u8_token_to_fp32_p= jax.core.Primitive('fp32_to_u8_token')
+_u8_token_to_fp32_p.multiple_results = False
+_u8_token_to_fp32_p.def_impl(partial(xla.apply_primitive, _u8_token_to_fp32_p))
+_u8_token_to_fp32_p.def_abstract_eval(_u8_token_to_fp32_abstract)
+mlir.register_lowering(
+    prim=_u8_token_to_fp32_p,
+    rule=_u8_token_to_fp32_lowering_rule,
+    platform='gpu',
+)
+
+@jax.jit
 def tokenize(batch: jax.Array):
     return _fp32_to_token_p.bind(batch)
 
+@jax.jit
 def detokenize(batch: jax.Array):
     return _token_to_fp32_p.bind(batch)
 
+@jax.jit
 def fp32_to_bitfield16(batch: jax.Array):
     return _fp32_to_bitfield16_p.bind(batch)
 
@@ -151,5 +218,16 @@ def fp32_to_bitfield16(batch: jax.Array):
 def bitfield16_to_fp32(batch: jax.Array):
     return _bitfield16_to_fp32_p.bind(batch)
 
+@jax.jit
+def u8_tokenize(batch: jax.Array):
+    return _fp32_to_u8_token_p.bind(batch)
+
+@jax.jit
+def u8_detokenize(batch: jax.Array):
+    return _u8_token_to_fp32_p.bind(batch)
+
 def get_vocab_size():
     return cuda_ffi.get_fp32_to_token_vocab_size()
+
+def get_u8_vocab_size():
+    return cuda_ffi.get_fp32_to_u8_token_vocab_size()

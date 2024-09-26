@@ -1,13 +1,16 @@
+import os
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '.99'
+
 import jax
 from jax import numpy as jnp
 from flax import linen as nn
 import optax
 from flax.training.train_state import TrainState
 import datasets
-import os, json
+import json
 from typing import Any
 from functools import partial
-from fp_tokenization import tokenize, detokenize, get_vocab_size
+import fp_tokenization as fpt
 from fields.common.flattening import unflatten_params
 from fields import ngp_image
 import matplotlib.pyplot as plt
@@ -80,7 +83,7 @@ class ArHypernet(nn.Module):
             x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
             x = x + residual
         
-        logits = nn.remat(nn.Dense)(features=self.vocab_size)(x)
+        logits = nn.Dense(features=self.vocab_size)(x)
         return logits
 
 @jax.jit
@@ -137,8 +140,9 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     return tokens
 
 def main():
-    output_path = 'data/ar_hypernet_output/15'
-    dataset_path = 'data/colored-primitives-ngp-image-2291-16bit'
+    u8_tokenization = True
+    output_path = 'data/ar_hypernet_output/16'
+    dataset_path = 'data/colored-primitives-ngp-image-2291-8bit'
     split_size = 0.2
     split_seed = 0
     train_set, test_set, field_config, param_map, context_length = \
@@ -150,7 +154,14 @@ def main():
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
-    vocab_size = get_vocab_size()
+    if u8_tokenization:
+        vocab_size = fpt.get_u8_vocab_size()
+        tokenize_fn = fpt.u8_tokenize
+        detokenize_fn = fpt.u8_detokenize
+    else:
+        vocab_size = fpt.get_vocab_size()
+        tokenize_fn = fpt.tokenize
+        detokenize_fn = fpt.detokenize
     print('Vocab size', vocab_size)
 
     num_epochs = 200
@@ -250,7 +261,6 @@ def main():
         )[0]
         print(tokens)
         flat_params = detokenize(tokens)
-        # Detokenized NaNs should not exist so there is probably a bug in the detokenization code.
         flat_params = jnp.nan_to_num(flat_params)
         params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
         field_state = field_state.replace(params=params)

@@ -4,9 +4,11 @@ import numpy as np
 import datasets
 import pyarrow as pa
 import pyarrow.parquet as pq
-from fp_tokenization import tokenize
+import fp_tokenization as fpt
 
 # python -m hypernets.util_scripts.tokenize_field_dataset --dataset data/colored-monsters-ngp-image-18k --out data/colored-monsters-ngp-image-18k-16bit
+
+# python -m hypernets.util_scripts.tokenize_field_dataset --dataset data/colored-monsters-ngp-image-18k --out data/colored-monsters-ngp-image-18k-8bit --u8
 
 def load_dataset(dataset_path):
     field_config = None
@@ -35,17 +37,17 @@ def load_dataset(dataset_path):
     context_length = full_dataset[0]['params'].shape[0]
     return full_dataset, field_config, param_map, context_length
 
-def save_table(table_data, context_length, table_number, output_path, zfill_amount):
+def save_table(table_data, context_length, table_number, output_path, zfill_amount, pa_dtype, hf_dtype):
     print(f'Entries in table {table_number}: {len(table_data)}')
     schema = pa.schema(
         fields=[
-            ('tokens', pa.list_(pa.uint32(), list_size=context_length)),
+            ('tokens', pa.list_(pa_dtype, list_size=context_length)),
         ],
         metadata={
             b'huggingface': json.dumps({
                 'info': {
                     'features': {
-                        'tokens': {'_type': 'Sequence', 'feature': {'_type': 'Value', 'dtype': 'uint32'}},
+                        'tokens': {'_type': 'Sequence', 'feature': {'_type': 'Value', 'dtype': hf_dtype}},
                     }
                 }
             }).encode('utf-8')
@@ -60,7 +62,17 @@ def main():
     parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--out', type=str, required=True)
     parser.add_argument('--samples_per_table', type=int, default=16384)
+    parser.add_argument('--u8', action='store_true', default=False)
     args = parser.parse_args()
+
+    if args.u8:
+        pa_dtype = pa.uint32()
+        hf_dtype= 'uint32'
+        tokenize_fn = fpt.tokenize
+    else:
+        pa_dtype = pa.uint8()
+        hf_dtype= 'uint8'
+        tokenize_fn = fpt.u8_tokenize
 
     if not os.path.exists(args.out):
         os.makedirs(args.out)
@@ -82,19 +94,25 @@ def main():
     samples_in_current_table = 0
     current_table_index = 0
     for i in range(num_samples):
-        tokens = tokenize(dataset[i]['params'])
+        tokens = tokenize_fn(dataset[i]['params'])
         pq_row_data = {
             'tokens': np.array(tokens, dtype=tokens.dtype).tolist(),
         }
         pq_table_data.append(pq_row_data)
         samples_in_current_table += 1
         if samples_in_current_table >= samples_per_table:
-            save_table(pq_table_data, context_length, current_table_index, out_data_path, 4)
+            save_table(
+                pq_table_data, context_length, current_table_index, 
+                out_data_path, 4, pa_dtype, hf_dtype
+            )
             pq_table_data = []
             samples_in_current_table = 0
             current_table_index += 1
     if samples_in_current_table > 0:
-        save_table(pq_table_data, context_length, current_table_index, out_data_path, 4)
+        save_table(
+            pq_table_data, context_length, current_table_index, 
+            out_data_path, 4, pa_dtype, hf_dtype
+        )
 
 if __name__ == '__main__':
     main()

@@ -57,3 +57,7 @@ python -m fields.util_scripts.encode_sensor_dataset_downscale --config_path conf
 -----
 
 python -m fields.util_scripts.encode_sensor_dataset_downscale --config_path configs/colored_primitives_ngp_image_32x32.json --input_path data/colored-primitives/data --output_path data/colored-primitives-ngp-image-small/data --field_type ngp_image --samples_per_table 65536 --render --loss_threshold 0.000003 --image_column image
+
+-----
+
+python -m hypernets.util_scripts.tokenize_field_dataset --dataset data/colored-primitives-ngp-image-2291 --out data/colored-primitives-ngp-image-2291-8bit --u8 --samples_per_table 32768 

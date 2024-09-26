@@ -66,13 +66,13 @@ def main():
     args = parser.parse_args()
 
     if args.u8:
-        pa_dtype = pa.uint32()
-        hf_dtype= 'uint32'
-        tokenize_fn = fpt.tokenize
-    else:
         pa_dtype = pa.uint8()
         hf_dtype= 'uint8'
         tokenize_fn = fpt.u8_tokenize
+    else:
+        pa_dtype = pa.uint32()
+        hf_dtype= 'uint32'
+        tokenize_fn = fpt.tokenize
 
     if not os.path.exists(args.out):
         os.makedirs(args.out)

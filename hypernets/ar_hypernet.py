@@ -260,7 +260,7 @@ def main():
             temperature=sample_temperature
         )[0]
         print(tokens)
-        flat_params = detokenize(tokens)
+        flat_params = detokenize_fn(tokens)
         flat_params = jnp.nan_to_num(flat_params)
         params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
         field_state = field_state.replace(params=params)

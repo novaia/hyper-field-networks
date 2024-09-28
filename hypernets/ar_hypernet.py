@@ -212,6 +212,18 @@ def main():
     field_model = ngp_image.create_model_from_config(field_config)
     field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
 
+    tokens = train_set[0]['tokens']
+    flat_params = detokenize_fn(tokens)
+    flat_params = jnp.nan_to_num(flat_params)
+    params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+    field_state = field_state.replace(params=params)
+    field_render = ngp_image.render_image(
+        field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
+    )
+    field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+    plt.imsave('data/fp8_quality_check.png', field_render)
+    exit()
+
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
     print('Train set size:', num_train_samples)

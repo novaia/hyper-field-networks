@@ -28,6 +28,12 @@ def _fp32_to_u8_token_abstract(batch: jax.Array):
 def _u8_token_to_fp32_abstract(batch: jax.Array):
     return (ShapedArray(shape=batch.shape, dtype=jnp.float32))
 
+def _fp32_to_byte_pair_token_abstract(batch: jax.Array):
+    return (ShapedArray(shape=(batch.shape[-1]*2,), dtype=jnp.uint8))
+
+def _byte_pair_token_to_fp32_abstract(batch: jax.Array):
+    return (ShapedArray(shape=(int(batch.shape[-1]//2),), dtype=jnp.float32))
+
 def _fp32_to_token_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
     _, batch_shape = _get_ir_tensor_info(batch)
     out_type, _ = _make_ir_tensor_info(batch_shape, 'uint32')
@@ -124,6 +130,38 @@ def _u8_token_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Val
     ).results
     return out
 
+def _fp32_to_byte_pair_token_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
+    _, batch_shape = _get_ir_tensor_info(batch)
+    out_type, out_shape = _make_ir_tensor_info((batch_shape[-1]*2,), 'uint8')
+    
+    opaque = cuda_ffi.make_tokenization_descriptor(batch_shape[-1])
+
+    out = custom_call(
+        call_target_name='fp32_to_byte_pair_token',
+        result_types=[out_type],
+        operands=[batch],
+        backend_config=opaque,
+        operand_layouts=_default_layouts(*[batch_shape]),
+        result_layouts=_default_layouts(*[out_shape])
+    ).results
+    return out
+
+def _byte_pair_token_to_fp32_lowering_rule(ctx: mlir.LoweringRuleContext, batch: ir.Value):
+    _, batch_shape = _get_ir_tensor_info(batch)
+    out_type, out_shape = _make_ir_tensor_info((int(batch_shape[-1]//2),), 'fp32')
+    
+    opaque = cuda_ffi.make_tokenization_descriptor(out_shape[-1])
+
+    out = custom_call(
+        call_target_name='byte_pair_token_to_fp32',
+        result_types=[out_type],
+        operands=[batch],
+        backend_config=opaque,
+        operand_layouts=_default_layouts(*[batch_shape]),
+        result_layouts=_default_layouts(*[out_shape])
+    ).results
+    return out
+
 # Define and lower fp32_to_token primitive.
 for name, value in cuda_ffi.get_fp32_to_token_registration().items():
     xla_client.register_custom_call_target(name, value, platform='gpu')
@@ -202,6 +240,32 @@ mlir.register_lowering(
     platform='gpu',
 )
 
+# Define and lower fp32_to_u8_token primitive.
+for name, value in cuda_ffi.get_fp32_to_byte_pair_token_registration().items():
+    xla_client.register_custom_call_target(name, value, platform='gpu')
+_fp32_to_byte_pair_token_p = jax.core.Primitive('fp32_to_byte_pair_token')
+_fp32_to_byte_pair_token_p.multiple_results = False
+_fp32_to_byte_pair_token_p.def_impl(partial(xla.apply_primitive, _fp32_to_byte_pair_token_p))
+_fp32_to_byte_pair_token_p.def_abstract_eval(_fp32_to_byte_pair_token_abstract)
+mlir.register_lowering(
+    prim=_fp32_to_byte_pair_token_p ,
+    rule=_fp32_to_byte_pair_token_lowering_rule,
+    platform='gpu',
+)
+
+# Define and lower fp32_to_u8_token primitive.
+for name, value in cuda_ffi.get_byte_pair_token_to_fp32_registration().items():
+    xla_client.register_custom_call_target(name, value, platform='gpu')
+_byte_pair_token_to_fp32_p = jax.core.Primitive('byte_pair_token_to_fp32')
+_byte_pair_token_to_fp32_p.multiple_results = False
+_byte_pair_token_to_fp32_p.def_impl(partial(xla.apply_primitive, ))
+_byte_pair_token_to_fp32_p.def_abstract_eval(_byte_pair_token_to_fp32_abstract)
+mlir.register_lowering(
+    prim=_byte_pair_token_to_fp32_p,
+    rule=_byte_pair_token_to_fp32_lowering_rule,
+    platform='gpu',
+)
+
 @jax.jit
 def tokenize(batch: jax.Array):
     return _fp32_to_token_p.bind(batch)
@@ -225,6 +289,14 @@ def u8_tokenize(batch: jax.Array):
 @jax.jit
 def u8_detokenize(batch: jax.Array):
     return _u8_token_to_fp32_p.bind(batch)
+
+@jax.jit
+def byte_pair_tokenize(batch: jax.Array):
+    return _fp32_to_byte_pair_token_p.bind(batch)
+
+@jax.jit
+def byte_pair_detokenize(batch: jax.Array):
+    return _byte_pair_token_to_fp32_p.bind(batch)
 
 def get_vocab_size():
     return cuda_ffi.get_fp32_to_token_vocab_size()

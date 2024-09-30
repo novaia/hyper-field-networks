@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <cuda_fp8.h>
 #include "serde.h"
 #include "tokenization.h"
@@ -192,6 +193,99 @@ uint32_t get_fp32_to_u8_token_vocab_size()
     // Any permutation of 8 bits is a valid token.
     constexpr uint32_t vocab_size = 1ULL << 8;  // 2^8
     return vocab_size;
+}
+
+__global__ void fp32_to_byte_pair_token_kernel(const float* input, uint8_t* output, uint32_t size)
+{
+    constexpr uint16_t bf16_mantissa_size = 7;
+    constexpr uint16_t bf16_exponent_size = 8;
+    constexpr uint16_t bf16_sign_position = bf16_mantissa_size + bf16_exponent_size;
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx < size) 
+    {
+        __nv_bfloat16 inter = __float2bfloat16(input[idx]);
+        const uint16_t unified_token = reinterpret_cast<uint16_t&>(inter);
+        uint8_t mantissa_token = 0;
+        uint8_t exponent_token = 0;
+        
+        // Add mantissa bits to mantissa token.
+        for(uint16_t i = 0; i < bf16_mantissa_size; ++i)
+        {
+            mantissa_token += unified_token & (1 << i);
+        }
+        // Add exponent bits to exponent token.
+        for(uint16_t i = bf16_mantissa_size; i < bf16_sign_position; ++i)
+        {
+            exponent_token += (unified_token & (1 << i)) >> bf16_mantissa_size;
+        }
+        // Add sign bit to mantissa token.
+        mantissa_token += (unified_token & (1 << bf16_sign_position)) >> bf16_exponent_size;
+        
+        const uint32_t out_idx = idx * 2;
+        output[out_idx] = mantissa_token;
+        output[out_idx + 1] = exponent_token;
+    }
+}
+
+__global__ void byte_pair_token_to_fp32_kernel(const uint8_t* input, float* output, uint32_t size)
+{
+    constexpr uint16_t bf16_mantissa_size = 7;
+    constexpr uint16_t bf16_exponent_size = 8;
+    constexpr uint16_t bf16_sign_position = bf16_mantissa_size + bf16_exponent_size;
+    uint32_t idx = (blockIdx.x * blockDim.x + threadIdx.x) * 2;
+    if(idx < size)
+    {
+        const uint8_t mantissa_token = input[idx];
+        const uint8_t exponent_token = input[idx + 1];
+        uint16_t unified_token = 0;
+
+        // Merge mantissa bits.
+        for(uint16_t i = 0; i < bf16_mantissa_size; ++i)
+        {
+            unified_token += static_cast<uint16_t>(mantissa_token & (1 << i));
+        }
+        // Merge exponent bits.
+        for(uint16_t i = 0; i < bf16_exponent_size; ++i)
+        {
+            unified_token += static_cast<uint16_t>(exponent_token & (1 << i)) << bf16_mantissa_size;
+        }
+        // Merge sign bit.
+        unified_token += static_cast<uint16_t>(mantissa_token & (1 << bf16_mantissa_size)) << bf16_exponent_size;
+
+        const uint32_t out_idx = idx / 2;
+        __nv_bfloat16 inter = reinterpret_cast<__nv_bfloat16&>(unified_token);
+        output[out_idx] = __bfloat162float(inter);;
+    }
+}
+
+void fp32_to_byte_pair_token(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
+
+    const float* input = static_cast<float*>(buffers[0]);
+    uint8_t* output = static_cast<uint8_t*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    fp32_to_byte_pair_token_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
+}
+
+void byte_pair_token_to_fp32(
+    cudaStream_t stream, void** buffers, char const* opaque, std::size_t opaque_len
+){
+    tokenization_descriptor_t const &desc =
+        *deserialize<tokenization_descriptor_t>(opaque, opaque_len);
+
+    const uint8_t* input = static_cast<uint8_t*>(buffers[0]);
+    float* output = static_cast<float*>(buffers[1]);
+    const uint32_t size = desc.n_elements;
+    const int threads_per_block = 256;
+    const int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
+
+    byte_pair_token_to_fp32_kernel<<<blocks_per_grid, threads_per_block, 0, stream>>>(input, output, size); 
 }
 
 //#define STANDALONE_PROGRAM

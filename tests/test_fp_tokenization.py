@@ -36,6 +36,20 @@ def test_u8_tokenization():
     # Tolerance has to be very high since fp8 loses a lot of precision.
     assert jnp.allclose(initial_batch, detokenized_batch, atol=4e-1)
 
+def test_byte_pair_tokenization():
+    initial_batch = jax.random.normal(key=jax.random.PRNGKey(0), shape=(256,))
+    tokens = fpt.byte_pair_tokenize(initial_batch)
+    detokenized_batch = fpt.byte_pair_detokenize(tokens)
+    print(tokens.dtype)
+    print(tokens.shape)
+    assert tokens.dtype == jnp.uint8
+    print(tokens)
+    print(initial_batch)
+    print(detokenized_batch)
+    print(initial_batch.shape)
+    print(detokenized_batch.shape)
+    assert False
+
 def test_vocab_size():
     expected_vocab_size = 2**16
     computed_vocab_size = fpt.get_vocab_size()

@@ -139,9 +139,15 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
     
     return tokens
 
+def preprocess_tokens(tokens: jax.Array):
+    tokens_reshape = jnp.reshape(tokens, (tokens.shape[0], tokens.shape[1]//2, 2))
+    mantissa_tokens = tokens_reshape[:, :, 0]
+    exponent_tokens = tokens_reshape[:, :, 1]
+    return mantissa_tokens, exponent_tokens
+
 def main():
-    u8_tokenization = True
-    output_path = 'data/ar_hypernet_output/16'
+    output_path = 'data/ar_hypernet_output/17'
+    #dataset_path = 'data/colored-primitives-ngp-image-2291-byte-pair'
     dataset_path = 'data/colored-primitives-ngp-image-2291-8bit'
     split_size = 0.2
     split_seed = 0
@@ -154,15 +160,51 @@ def main():
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
-    if u8_tokenization:
-        vocab_size = fpt.get_u8_vocab_size()
-        tokenize_fn = fpt.u8_tokenize
-        detokenize_fn = fpt.u8_detokenize
-    else:
-        vocab_size = fpt.get_vocab_size()
-        tokenize_fn = fpt.tokenize
-        detokenize_fn = fpt.detokenize
-    print('Vocab size', vocab_size)
+    vocab_size = 2**8
+    #tokenize_fn = fpt.byte_pair_tokenize
+    #detokenize_fn = fpt.byte_pair_detokenize
+    tokenize_fn = fpt.u8_tokenize
+    detokenize_fn = fpt.u8_detokenize
+
+    field_model = ngp_image.create_model_from_config(field_config)
+    field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
+    tokens = jnp.array(jnp.expand_dims(train_set[200]['tokens'], axis=0), dtype=jnp.uint8)
+    flat_params = detokenize_fn(jnp.ravel(tokens))
+    print(flat_params)
+    params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+    field_state = field_state.replace(params=params)
+    field_render = ngp_image.render_image(
+        field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
+    )
+    field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+    plt.imsave('data/fp8_quality_check.png', field_render)
+    exit()
+
+    '''
+    field_model = ngp_image.create_model_from_config(field_config)
+    field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
+    
+    # For some reason HF Datasets doesn't store the tokens as uint8, so they need to be converted.
+    tokens = jnp.array(jnp.expand_dims(train_set[300]['tokens'], axis=0), dtype=jnp.uint8)
+    #print(tokens[0, :32])
+    #mantissa_tokens, exponent_tokens = preprocess_tokens(tokens)
+    #print(mantissa_tokens[0, :16])
+    #print(exponent_tokens[0, :16])
+    flat_params = detokenize_fn(jnp.ravel(tokens))
+    #print(flat_params)
+    #print(flat_params.shape)
+    #exit()
+    params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
+    #print(params)
+    #print(field_config)
+    field_state = field_state.replace(params=params)
+    field_render = ngp_image.render_image(
+        field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
+    )
+    field_render = jax.device_put(field_render, jax.devices('cpu')[0])
+    plt.imsave('data/byte_pair_quality_check.png', field_render)
+    exit()
+    '''
 
     num_epochs = 200
     batch_size = 4
@@ -175,7 +217,7 @@ def main():
     sample_temperature = 1.0
     dropout_rate = 0.2
     start_token = vocab_size
-    batched_start_tokens = jnp.full((batch_size, 1), fill_value=start_token, dtype=jnp.uint32)
+    batched_start_tokens = jnp.full((batch_size, 1), fill_value=start_token, dtype=jnp.uint8)
 
     wandb_config = {
         'batch_size': batch_size,
@@ -209,21 +251,6 @@ def main():
     )
     state = TrainState.create(apply_fn=model.apply, params=params, tx=opt)
     
-    field_model = ngp_image.create_model_from_config(field_config)
-    field_state = ngp_image.create_train_state(field_model, 3e-4, jax.random.PRNGKey(0))
-
-    tokens = train_set[0]['tokens']
-    flat_params = detokenize_fn(tokens)
-    flat_params = jnp.nan_to_num(flat_params)
-    params = unflatten_params(jnp.array(flat_params, dtype=jnp.float32), param_map)
-    field_state = field_state.replace(params=params)
-    field_render = ngp_image.render_image(
-        field_state, field_config['image_height'], field_config['image_width'], field_config['channels']
-    )
-    field_render = jax.device_put(field_render, jax.devices('cpu')[0])
-    plt.imsave('data/fp8_quality_check.png', field_render)
-    exit()
-
     num_train_samples = len(train_set)
     train_steps = num_train_samples // batch_size
     print('Train set size:', num_train_samples)

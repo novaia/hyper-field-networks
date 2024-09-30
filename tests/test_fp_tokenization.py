@@ -41,14 +41,12 @@ def test_byte_pair_tokenization():
     tokens = fpt.byte_pair_tokenize(initial_batch)
     detokenized_batch = fpt.byte_pair_detokenize(tokens)
     print(tokens.dtype)
-    print(tokens.shape)
     assert tokens.dtype == jnp.uint8
     print(tokens)
     print(initial_batch)
     print(detokenized_batch)
-    print(initial_batch.shape)
-    print(detokenized_batch.shape)
-    assert False
+    print('Max error:', jnp.max(jnp.abs(initial_batch - detokenized_batch)))
+    assert jnp.allclose(initial_batch, detokenized_batch, atol=1e-2)
 
 def test_vocab_size():
     expected_vocab_size = 2**16

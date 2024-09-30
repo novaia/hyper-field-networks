@@ -211,15 +211,15 @@ __global__ void fp32_to_byte_pair_token_kernel(const float* input, uint8_t* outp
         // Add mantissa bits to mantissa token.
         for(uint16_t i = 0; i < bf16_mantissa_size; ++i)
         {
-            mantissa_token += unified_token & (1 << i);
+            mantissa_token += unified_token & (1u << i);
         }
         // Add exponent bits to exponent token.
         for(uint16_t i = bf16_mantissa_size; i < bf16_sign_position; ++i)
         {
-            exponent_token += (unified_token & (1 << i)) >> bf16_mantissa_size;
+            exponent_token += (unified_token & (1u << i)) >> bf16_mantissa_size;
         }
         // Add sign bit to mantissa token.
-        mantissa_token += (unified_token & (1 << bf16_sign_position)) >> bf16_exponent_size;
+        mantissa_token += (unified_token & (1u << bf16_sign_position)) >> bf16_exponent_size;
         
         const uint32_t out_idx = idx * 2;
         output[out_idx] = mantissa_token;
@@ -232,29 +232,29 @@ __global__ void byte_pair_token_to_fp32_kernel(const uint8_t* input, float* outp
     constexpr uint16_t bf16_mantissa_size = 7;
     constexpr uint16_t bf16_exponent_size = 8;
     constexpr uint16_t bf16_sign_position = bf16_mantissa_size + bf16_exponent_size;
-    uint32_t idx = (blockIdx.x * blockDim.x + threadIdx.x) * 2;
+    const uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(idx < size)
     {
-        const uint8_t mantissa_token = input[idx];
-        const uint8_t exponent_token = input[idx + 1];
+        const uint32_t in_idx = idx * 2;
+        const uint8_t mantissa_token = input[in_idx];
+        const uint8_t exponent_token = input[in_idx + 1];
         uint16_t unified_token = 0;
 
         // Merge mantissa bits.
         for(uint16_t i = 0; i < bf16_mantissa_size; ++i)
         {
-            unified_token += static_cast<uint16_t>(mantissa_token & (1 << i));
+            unified_token += static_cast<uint16_t>(mantissa_token & (1u << i));
         }
         // Merge exponent bits.
         for(uint16_t i = 0; i < bf16_exponent_size; ++i)
         {
-            unified_token += static_cast<uint16_t>(exponent_token & (1 << i)) << bf16_mantissa_size;
+            unified_token += static_cast<uint16_t>(exponent_token & (1u << i)) << bf16_mantissa_size;
         }
         // Merge sign bit.
-        unified_token += static_cast<uint16_t>(mantissa_token & (1 << bf16_mantissa_size)) << bf16_exponent_size;
+        unified_token += static_cast<uint16_t>(mantissa_token & (1u << bf16_mantissa_size)) << bf16_exponent_size;
 
-        const uint32_t out_idx = idx / 2;
         __nv_bfloat16 inter = reinterpret_cast<__nv_bfloat16&>(unified_token);
-        output[out_idx] = __bfloat162float(inter);;
+        output[idx] = __bfloat162float(inter);;
     }
 }
 

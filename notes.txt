@@ -61,3 +61,7 @@ python -m fields.util_scripts.encode_sensor_dataset_downscale --config_path conf
 -----
 
 python -m hypernets.util_scripts.tokenize_field_dataset --dataset data/colored-primitives-ngp-image-2291 --out data/colored-primitives-ngp-image-2291-8bit --u8 --samples_per_table 32768 
+
+-----
+
+python -m hypernets.util_scripts.byte_pair_tokenize_field_dataset --dataset data/colored-primitives-ngp-image-2291 --out data/colored-primitives-ngp-image-2291-byte-pair --samples_per_table 32768

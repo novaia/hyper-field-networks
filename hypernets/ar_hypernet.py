@@ -43,6 +43,47 @@ def load_dataset(dataset_path, test_size, split_seed):
     context_length = train[0]['tokens'].shape[0]
     return train, test, field_config, param_map, context_length
 
+class AttentionBlock(nn.Module):
+    hidden_dim: int
+    num_attention_heads: int
+    dtype: Any
+
+    @nn.compact
+    def __call__(self, x, attention_mask):
+        residual = x
+        x = nn.LayerNorm(dtype=jnp.float32)(x)
+        x = x.astype(self.dtype)
+        x = nn.MultiHeadDotProductAttention(
+            num_heads=self.num_attention_heads,
+            qkv_features=self.hidden_dim,
+            out_features=self.hidden_dim,
+            dtype=self.dtype,
+            use_bias=False,
+            normalize_qk=False
+        )(inputs_q=x, mask=attention_mask)
+        x = x.astype(self.dtype)
+        x = x + residual
+        return x
+
+class MlpBlock(nn.Module):
+    ff_dim: int
+    hidden_dim: int
+    dtype: Any
+    dropout_rate: float
+    
+    @nn.compact
+    def __call__(self, x, training):
+        residual = x
+        x = nn.LayerNorm(dtype=jnp.float32)(x)
+        x = x.astype(self.dtype)
+        x = nn.Dense(features=self.ff_dim, dtype=self.dtype)(x)
+        x = nn.gelu(x)
+        x = nn.Dense(features=self.hidden_dim, dtype=self.dtype)(x)
+        if self.dropout_rate > 0.0:
+            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
+        x = x + residual
+        return x
+
 class ArHypernet(nn.Module):
     vocab_size: int
     context_length: int
@@ -59,31 +100,25 @@ class ArHypernet(nn.Module):
         # Add 1 to vocab size to allow for start token.
         # Start token should never be predicted so it is not added to the base vocab.
         x = nn.Embed(num_embeddings=self.vocab_size+1, features=self.hidden_dim)(tokens)
+        x = x.astype(x)
         positions = jnp.arange(self.context_length, dtype=jnp.uint32)
         pos_emb = nn.Embed(num_embeddings=self.context_length, features=self.hidden_dim)(positions)
+        pos_emb = pos_emb.astype(self.dtype)
         x = x + pos_emb
         
         for _ in range(self.num_blocks):
-            residual = x
-            x = nn.LayerNorm()(x)
-            x = nn.remat(nn.MultiHeadDotProductAttention)(
-                num_heads=self.num_attention_heads,
-                qkv_features=self.hidden_dim,
-                out_features=self.hidden_dim,
-                dtype=self.dtype,
-                use_bias=False,
-                normalize_qk=False,
-            )(inputs_q=x, mask=attention_mask)
-            x = x + residual
-            residual = x
-            x = nn.LayerNorm()(x)
-            x = nn.Dense(features=self.ff_dim)(x)
-            x = nn.gelu(x)
-            x = nn.Dense(features=self.hidden_dim)(x)
-            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not training)
-            x = x + residual
-        
-        logits = nn.Dense(features=self.vocab_size)(x)
+            x = nn.remat(AttentionBlock)(
+                hidden_dim=self.hidden_dim, 
+                num_attention_heads=self.num_attention_heads, 
+                dtype=self.dtype
+            )(x, attention_mask)
+            x = nn.remat(MlpBlock)(
+                ff_dim=self.ff_dim, 
+                hidden_dim=self.hidden_dim, 
+                dtype=self.dtype, 
+                dropout_rate=self.dropout_rate
+            )(x, training)
+        logits = nn.Dense(features=self.vocab_size, dtype=self.dtype)(x)
         return logits
 
 @jax.jit
@@ -141,7 +176,7 @@ def sample_context(state, prompt_tokens, vocab_size, context_length, temperature
 
 def main():
     u8_tokenization = True
-    output_path = 'data/ar_hypernet_output/17'
+    output_path = 'data/ar_hypernet_output/18'
     dataset_path = 'data/colored-primitives-ngp-image-2291-8bit'
     split_size = 0.2
     split_seed = 0
@@ -165,15 +200,15 @@ def main():
     print('Vocab size', vocab_size)
 
     num_epochs = 200
-    batch_size = 8
-    hidden_dim = 64
-    ff_dim = 128
-    num_attention_heads = 16
-    num_blocks = 12
+    batch_size = 4
+    hidden_dim = 256
+    ff_dim = 512
+    num_attention_heads = 32
+    num_blocks = 24
     learning_rate = 1e-4
-    weight_decay = 1e-6
+    weight_decay = 1e-8
     sample_temperature = 1.0
-    dropout_rate = 0.05
+    dropout_rate = 0.0
     start_token = vocab_size
     batched_start_tokens = jnp.full((batch_size, 1), fill_value=start_token, dtype=jnp.uint8)
 

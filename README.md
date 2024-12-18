@@ -1,5 +1,22 @@
-# g3dm
-Experiments in generative 3D modelling.
+# Hyper Field Networks 
+Experiments with directly generating the weights of neural fields.
+
+## Codebase Notes
+- Vendored libraries which aren't developed inside this repo can be found in ``./external/``.
+- Python packages developed for this repo which require compilation can be found in ``./submodules/``.
+- ``./submodules/opengl-proc-gen/`` is also setup for native development because only some of its functionality is accesible through Python.
+- Any references to specific git commit hashes are probably nonsense because of a history rewrite.
+- All scripts in ``./fields/``, ``./hypernets/``, and ``./scripts/`` are made to be called from the root of the repository with the ``-m`` flag. For example: ``python -m fields.ngp_nerf``.
+- Most of the code is messy and half finished because I was constantly rewriting it to test new ideas.
+- Most of the code assumes there is a ``./data/`` directory in the root of the repository with the required data. Almost none of the data dependencies are documented.
+
+## Research Notes
+- Traditional procedural generation techniques can be used to quickly generate many scenes which can then be encoded into NeRFs.
+- Diffusion and autoencoding don't work well on regular unrolled Instant NGP weights because the hash grid and MLP sections usually have very different scales.
+- Splitting unrolled Instant NGP weights at the border of the hash grid and MLP sections then training one model for each of them improves performance.
+- Autoregressive generation of weight tokens is more effective for combined hash grid and MLP weights because tokenization removes scale differences.
+- Neural image fields can be quantized and converted to 8 bit tokens without their renders losing much fidelity when they're converted back. I'm not sure about NeRFs.
+- Fully MLP fields (i.e. neural fields without a hash grid) are easier for hypernetworks to work with since they're more compressed (fewer parameters) but they take much longer during the initial encoding stage.
 
 ## Development Environment
 This project's development environment is managed with Nix. You can follow the steps below to get started.

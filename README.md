@@ -7,8 +7,8 @@ Experiments with directly generating the weights of neural fields.
 - ``./submodules/opengl-proc-gen/`` is also setup for native development because only some of its functionality is accesible through Python.
 - Any references to specific git commit hashes are probably nonsense because of a history rewrite.
 - All scripts in ``./fields/``, ``./hypernets/``, and ``./scripts/`` are made to be called from the root of the repository with the ``-m`` flag. For example: ``python -m fields.ngp_nerf``.
-- Most of the code is messy and half finished because I was constantly rewriting it to test new ideas.
-- Most of the code assumes there is a ``./data/`` directory in the root of the repository with the required data. Almost none of the data dependencies are documented.
+- Most of the code is messy and half finished.
+- Most of the code assumes there is a ``./data/`` directory in the root of the repository with the required data. The data dependencies are not documented.
 
 ## Research Notes
 - Traditional procedural generation techniques can be used to quickly generate many scenes which can then be encoded into NeRFs.
